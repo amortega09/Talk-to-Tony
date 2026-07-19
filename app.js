@@ -181,6 +181,7 @@ function render() {
         <div class="block-cat">${b ? (c.label) : "—"}</div>
         ${b && b.note ? `<div class="block-note">${escapeHtml(b.note)}</div>` : ""}
       </div>`;
+    el.dataset.slot = slot;
     attachPress(el, slot);
     tl.appendChild(el);
   }
@@ -260,9 +261,22 @@ function handleTap(slot) {
   }
 }
 
+function highlightSlots(slotList) {
+  document.querySelectorAll(".block.selected").forEach((b) => b.classList.remove("selected"));
+  if (!slotList) return;
+  for (const s of slotList) {
+    const el = document.querySelector(`.block[data-slot="${s}"]`);
+    if (el) el.classList.add("selected");
+  }
+  // Bring the start of the selection into view above the sheet.
+  const first = document.querySelector(`.block[data-slot="${slotList[0]}"]`);
+  if (first) first.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 // ---- Edit sheet ----
 function openSheet(slotList) {
   editing = slotList;
+  highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
   const existing = data[first];
   selectedCat = existing ? existing.category : null;
@@ -300,6 +314,7 @@ function saveReflection() {
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
   editing = null; selectedCat = null;
+  highlightSlots(null);
 }
 function saveSheet() {
   if (!editing) return;
