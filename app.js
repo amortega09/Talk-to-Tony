@@ -209,8 +209,33 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---- Press & hold + range selection ----
+// ---- Press & hold + range selection (tap end, or drag to paint) ----
 let suppressNextTap = false; // swallow the release right after a long-press fires
+let dragging = false;        // true while sweeping a range after the hold fired
+let dragEndSlot = null;      // last slot swept over during the drag
+
+// Block page scrolling while painting a range on touch screens.
+document.addEventListener("touchmove", (e) => {
+  if (dragging) e.preventDefault();
+}, { passive: false });
+
+function slotFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const block = el && el.closest && el.closest(".block[data-slot]");
+  return block ? block.dataset.slot : null;
+}
+
+function previewRange(a, b) {
+  const i = SLOTS.indexOf(a), j = SLOTS.indexOf(b);
+  const [lo, hi] = i < j ? [i, j] : [j, i];
+  const range = SLOTS.slice(lo, hi + 1);
+  document.querySelectorAll(".block.selected").forEach((el) => el.classList.remove("selected"));
+  for (const s of range) {
+    const el = document.querySelector(`.block[data-slot="${s}"]`);
+    if (el) el.classList.add("selected");
+  }
+  return range;
+}
 
 function attachPress(el, slot) {
   let timer = null, startY = 0;
@@ -220,18 +245,41 @@ function attachPress(el, slot) {
       timer = null;
       suppressNextTap = true; // the upcoming release is part of the hold, not a tap
       if (navigator.vibrate) navigator.vibrate(15);
+      dragging = true;
+      dragEndSlot = slot;
+      try { el.setPointerCapture(e.pointerId); } catch {}
       startAnchor(slot, el);
     }, 400);
   });
   el.addEventListener("pointermove", (e) => {
+    if (dragging && rangeAnchor) {
+      const s = slotFromPoint(e.clientX, e.clientY);
+      if (s && s !== dragEndSlot) {
+        dragEndSlot = s;
+        previewRange(rangeAnchor, s);
+      }
+      return;
+    }
     if (Math.abs(e.clientY - startY) > 10) { clearTimeout(timer); timer = null; }
   });
   el.addEventListener("pointerup", () => {
+    if (dragging) {
+      dragging = false;
+      suppressNextTap = false;
+      // Swept onto other blocks → open the sheet for the painted range.
+      if (dragEndSlot && dragEndSlot !== rangeAnchor) {
+        const range = previewRange(rangeAnchor, dragEndSlot);
+        rangeAnchor = null;
+        openSheet(range);
+      }
+      // Released without moving → keep the anchor and wait for the end tap.
+      return;
+    }
     if (timer) { clearTimeout(timer); timer = null; handleTap(slot); return; }
     if (suppressNextTap) { suppressNextTap = false; return; }
     handleTap(slot);
   });
-  el.addEventListener("pointercancel", () => { clearTimeout(timer); timer = null; });
+  el.addEventListener("pointercancel", () => { clearTimeout(timer); timer = null; dragging = false; });
 }
 
 function startAnchor(slot, el) {
