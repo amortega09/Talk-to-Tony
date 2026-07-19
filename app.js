@@ -147,6 +147,8 @@ function render() {
       const c = CAT[cid] || CAT.other;
       const chip = document.createElement("div");
       chip.className = "chip";
+      chip.style.setProperty("--chip-bg", c.color + "22");
+      chip.style.setProperty("--chip-fg", c.color);
       chip.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label} · ${(n / 2)}h`;
       summary.appendChild(chip);
     });
@@ -183,6 +185,17 @@ function render() {
       </div>`;
     el.dataset.slot = slot;
     attachPress(el, slot);
+    // Red "now" marker just above the current half-hour (today only)
+    if (ymd(current) === ymd(new Date())) {
+      const now = new Date();
+      const nowSlot = String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30");
+      if (slot === nowSlot) {
+        const line = document.createElement("div");
+        line.className = "now-line";
+        tl.appendChild(line);
+        el.id = "nowBlock";
+      }
+    }
     tl.appendChild(el);
   }
 
@@ -338,6 +351,7 @@ function openSheet(slotList) {
   for (const c of CATEGORIES) {
     const btn = document.createElement("button");
     btn.className = "cat-btn" + (selectedCat === c.id ? " selected" : "");
+    btn.style.setProperty("--cat-color", c.color);
     btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
     btn.addEventListener("click", () => {
       selectedCat = c.id;
@@ -540,6 +554,9 @@ function goto(d) {
   data = loadLocal(ymd(current));
   render();
   pullDay(ymd(current));
+  // On today, start the view at the current time.
+  const nowBlock = document.getElementById("nowBlock");
+  if (nowBlock) nowBlock.scrollIntoView({ block: "center" });
 }
 
 // ---- Wire up ----
