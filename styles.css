@@ -95,6 +95,7 @@ html, body {
   transition: background .12s;
 }
 .block:active { background: var(--surface-alt); }
+.block.anchor { background: var(--surface-alt); outline: 2px solid var(--accent); outline-offset: -2px; }
 .block-time {
   flex: 0 0 52px;
   font-size: 12px;

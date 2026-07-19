@@ -54,8 +54,9 @@ const SLOTS = slots();
 // ---- State ----
 let current = new Date();
 let data = {};          // { "08:30": {category, note}, ... } for current day
-let editing = null;     // slot string being edited
+let editing = null;     // array of slot strings being edited
 let selectedCat = null;
+let rangeAnchor = null; // slot where a press-and-hold range started
 
 // ---- Local persistence ----
 function localKey(dateStr) { return "day_data_" + dateStr; }
@@ -96,21 +97,23 @@ async function pullDay(dateStr) {
   }
 }
 
-async function pushBlock(dateStr, slot, block) {
+// Save/delete one or more slots at once. `block` null = delete those slots.
+async function pushBlocks(dateStr, slotList, block) {
   saveLocal(dateStr, data);
   if (!sb) return;
   setStatus("syncing", "Saving…");
   try {
     if (block) {
-      const { error } = await sb.from("blocks").upsert({
-        user_id: USER_ID, date: dateStr, start_time: slot,
+      const rows = slotList.map((s) => ({
+        user_id: USER_ID, date: dateStr, start_time: s,
         category: block.category, note: block.note || "",
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,date,start_time" });
+      }));
+      const { error } = await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
       if (error) throw error;
     } else {
       const { error } = await sb.from("blocks").delete()
-        .eq("user_id", USER_ID).eq("date", dateStr).eq("start_time", slot);
+        .eq("user_id", USER_ID).eq("date", dateStr).in("start_time", slotList);
       if (error) throw error;
     }
     setStatus("ok", "Synced");
@@ -175,7 +178,7 @@ function render() {
     }
     const b = data[slot];
     const el = document.createElement("div");
-    el.className = "block " + (b ? "filled" : "empty");
+    el.className = "block " + (b ? "filled" : "empty") + (slot === rangeAnchor ? " anchor" : "");
     const c = b ? (CAT[b.category] || CAT.other) : null;
     if (c) el.style.setProperty("--blk-color", c.color);
     el.innerHTML = `
@@ -184,7 +187,7 @@ function render() {
         <div class="block-cat">${b ? (c.label) : "—"}</div>
         ${b && b.note ? `<div class="block-note">${escapeHtml(b.note)}</div>` : ""}
       </div>`;
-    el.addEventListener("click", () => openSheet(slot));
+    attachPress(el, slot);
     tl.appendChild(el);
   }
 }
@@ -205,13 +208,58 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---- Press & hold + range selection ----
+function attachPress(el, slot) {
+  let timer = null, longFired = false, startY = 0;
+  el.addEventListener("pointerdown", (e) => {
+    longFired = false; startY = e.clientY;
+    timer = setTimeout(() => {
+      longFired = true;
+      if (navigator.vibrate) navigator.vibrate(15);
+      startAnchor(slot);
+    }, 400);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (Math.abs(e.clientY - startY) > 10) { clearTimeout(timer); }
+  });
+  el.addEventListener("pointerup", () => {
+    clearTimeout(timer);
+    if (!longFired) handleTap(slot);
+  });
+  el.addEventListener("pointercancel", () => clearTimeout(timer));
+}
+
+function startAnchor(slot) {
+  rangeAnchor = slot;
+  render();
+  setStatus("", "Now tap the end block →");
+}
+
+function handleTap(slot) {
+  if (rangeAnchor && rangeAnchor !== slot) {
+    const a = SLOTS.indexOf(rangeAnchor), b = SLOTS.indexOf(slot);
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    const range = SLOTS.slice(lo, hi + 1);
+    rangeAnchor = null;
+    render();
+    openSheet(range);
+  } else {
+    rangeAnchor = null;
+    openSheet([slot]);
+  }
+}
+
 // ---- Edit sheet ----
-function openSheet(slot) {
-  editing = slot;
-  const existing = data[slot];
+function openSheet(slotList) {
+  editing = slotList;
+  const first = slotList[0], last = slotList[slotList.length - 1];
+  const existing = data[first];
   selectedCat = existing ? existing.category : null;
-  document.getElementById("sheetTime").textContent =
-    `${to12(slot)} – ${to12(SLOTS[(SLOTS.indexOf(slot) + 1) % 48])}`;
+  const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
+  const hrs = slotList.length / 2;
+  document.getElementById("sheetTime").textContent = slotList.length > 1
+    ? `${to12(first)} – ${to12(endSlot)} · ${hrs % 1 ? hrs.toFixed(1) : hrs}h`
+    : `${to12(first)} – ${to12(endSlot)}`;
   const grid = document.getElementById("catGrid");
   grid.innerHTML = "";
   for (const c of CATEGORIES) {
@@ -238,16 +286,16 @@ function saveSheet() {
   const dateStr = ymd(current);
   if (!selectedCat) { closeSheet(); return; }
   const block = { category: selectedCat, note };
-  data[editing] = block;
-  pushBlock(dateStr, editing, block);
+  for (const s of editing) data[s] = { category: selectedCat, note };
+  pushBlocks(dateStr, editing, block);
   render();
   closeSheet();
 }
 function clearSheet() {
   if (!editing) return;
   const dateStr = ymd(current);
-  delete data[editing];
-  pushBlock(dateStr, editing, null);
+  for (const s of editing) delete data[s];
+  pushBlocks(dateStr, editing, null);
   render();
   closeSheet();
 }
