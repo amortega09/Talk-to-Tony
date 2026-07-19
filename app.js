@@ -209,33 +209,41 @@ function escapeHtml(s) {
 }
 
 // ---- Press & hold + range selection ----
+let suppressNextTap = false; // swallow the release right after a long-press fires
+
 function attachPress(el, slot) {
-  let timer = null, longFired = false, startY = 0;
+  let timer = null, startY = 0;
   el.addEventListener("pointerdown", (e) => {
-    longFired = false; startY = e.clientY;
+    startY = e.clientY;
     timer = setTimeout(() => {
-      longFired = true;
+      timer = null;
+      suppressNextTap = true; // the upcoming release is part of the hold, not a tap
       if (navigator.vibrate) navigator.vibrate(15);
-      startAnchor(slot);
+      startAnchor(slot, el);
     }, 400);
   });
   el.addEventListener("pointermove", (e) => {
-    if (Math.abs(e.clientY - startY) > 10) { clearTimeout(timer); }
+    if (Math.abs(e.clientY - startY) > 10) { clearTimeout(timer); timer = null; }
   });
   el.addEventListener("pointerup", () => {
-    clearTimeout(timer);
-    if (!longFired) handleTap(slot);
+    if (timer) { clearTimeout(timer); timer = null; handleTap(slot); return; }
+    if (suppressNextTap) { suppressNextTap = false; return; }
+    handleTap(slot);
   });
-  el.addEventListener("pointercancel", () => clearTimeout(timer));
+  el.addEventListener("pointercancel", () => { clearTimeout(timer); timer = null; });
 }
 
-function startAnchor(slot) {
+function startAnchor(slot, el) {
   rangeAnchor = slot;
-  render();
+  // Outline the block directly — re-rendering here would destroy the element
+  // mid-press and break the follow-up tap.
+  document.querySelectorAll(".block.anchor").forEach((b) => b.classList.remove("anchor"));
+  if (el) el.classList.add("anchor");
   setStatus("", "Now tap the end block →");
 }
 
 function handleTap(slot) {
+  suppressNextTap = false;
   if (rangeAnchor && rangeAnchor !== slot) {
     const a = SLOTS.indexOf(rangeAnchor), b = SLOTS.indexOf(slot);
     const [lo, hi] = a < b ? [a, b] : [b, a];
@@ -243,8 +251,11 @@ function handleTap(slot) {
     rangeAnchor = null;
     render();
     openSheet(range);
-  } else {
+  } else if (rangeAnchor === slot) {
+    // Tapping the anchored block again cancels the selection.
     rangeAnchor = null;
+    render();
+  } else {
     openSheet([slot]);
   }
 }
