@@ -497,7 +497,7 @@ document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
 // ---- Auth ----
 function applySession(session) {
   const uid = (session && session.user && session.user.id) || null;
-  if (uid === USER_ID) return; // no change
+  if (uid && uid === USER_ID) return; // already logged in as this user
   USER_ID = uid;
   if (uid) {
     document.getElementById("authScreen").hidden = true;
