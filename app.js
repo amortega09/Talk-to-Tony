@@ -1,0 +1,441 @@
+/* ===========================================================
+   Day — a calm 30-minute-block time tracker (offline-first PWA)
+   Data model (one object per block, LLM-friendly):
+     { date:"2026-07-19", start_time:"08:30", category:"work", note:"..." }
+   =========================================================== */
+
+const CATEGORIES = [
+  { id: "sleep",    label: "Sleep",    color: "#7b8cde" },
+  { id: "work",     label: "Work",     color: "#4a5d4e" },
+  { id: "exercise", label: "Exercise", color: "#e08a4a" },
+  { id: "food",     label: "Food",     color: "#d1a13a" },
+  { id: "learn",    label: "Learn",    color: "#5aa0a8" },
+  { id: "social",   label: "Social",   color: "#c76b98" },
+  { id: "chores",   label: "Chores",   color: "#9a8c7a" },
+  { id: "relax",    label: "Relax",    color: "#6aa86a" },
+  { id: "other",    label: "Other",    color: "#9b9793" },
+];
+const CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+
+// ---- Device user id (no login needed) ----
+function deviceId() {
+  let id = localStorage.getItem("day_device_id");
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID()) ||
+         "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("day_device_id", id);
+  }
+  return id;
+}
+const USER_ID = deviceId();
+
+// ---- Supabase (optional) ----
+let sb = null;
+const cfg = window.APP_CONFIG || {};
+if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) {
+  sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+}
+
+// ---- Date helpers ----
+function ymd(d) {
+  return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getDate()).padStart(2, "0");
+}
+function slots() {
+  const out = [];
+  for (let h = 0; h < 24; h++)
+    for (let m = 0; m < 60; m += 30)
+      out.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
+  return out; // 48 slots "00:00" .. "23:30"
+}
+const SLOTS = slots();
+
+// ---- State ----
+let current = new Date();
+let data = {};          // { "08:30": {category, note}, ... } for current day
+let editing = null;     // slot string being edited
+let selectedCat = null;
+
+// ---- Local persistence ----
+function localKey(dateStr) { return "day_data_" + dateStr; }
+function loadLocal(dateStr) {
+  try { return JSON.parse(localStorage.getItem(localKey(dateStr))) || {}; }
+  catch { return {}; }
+}
+function saveLocal(dateStr, obj) {
+  localStorage.setItem(localKey(dateStr), JSON.stringify(obj));
+}
+
+// ---- Sync ----
+const statusEl = () => document.getElementById("syncStatus");
+function setStatus(kind, text) {
+  const el = statusEl();
+  el.className = "sync-status " + kind;
+  el.textContent = text;
+}
+
+async function pullDay(dateStr) {
+  if (!sb) { setStatus("", "Local only"); return; }
+  setStatus("syncing", "Syncing…");
+  try {
+    const { data: rows, error } = await sb
+      .from("blocks").select("start_time,category,note")
+      .eq("user_id", USER_ID).eq("date", dateStr);
+    if (error) throw error;
+    const remote = {};
+    for (const r of rows) remote[r.start_time] = { category: r.category, note: r.note || "" };
+    // Remote is source of truth once synced.
+    data = remote;
+    saveLocal(dateStr, data);
+    render();
+    setStatus("ok", "Synced");
+  } catch (e) {
+    console.warn(e);
+    setStatus("err", "Offline");
+  }
+}
+
+async function pushBlock(dateStr, slot, block) {
+  saveLocal(dateStr, data);
+  if (!sb) return;
+  setStatus("syncing", "Saving…");
+  try {
+    if (block) {
+      const { error } = await sb.from("blocks").upsert({
+        user_id: USER_ID, date: dateStr, start_time: slot,
+        category: block.category, note: block.note || "",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,date,start_time" });
+      if (error) throw error;
+    } else {
+      const { error } = await sb.from("blocks").delete()
+        .eq("user_id", USER_ID).eq("date", dateStr).eq("start_time", slot);
+      if (error) throw error;
+    }
+    setStatus("ok", "Synced");
+  } catch (e) {
+    console.warn(e);
+    setStatus("err", "Saved offline");
+  }
+}
+
+// ---- Rendering ----
+function prettyDate(d) {
+  const today = ymd(new Date());
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  if (ymd(d) === today) return "Today";
+  if (ymd(d) === ymd(y)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long" });
+}
+
+function render() {
+  document.getElementById("dateMain").textContent = prettyDate(current);
+  document.getElementById("dateSub").textContent =
+    current.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+
+  // Summary chips (counts -> hours)
+  const counts = {};
+  for (const slot of SLOTS) {
+    const b = data[slot];
+    if (b) counts[b.category] = (counts[b.category] || 0) + 1;
+  }
+  const summary = document.getElementById("summary");
+  summary.innerHTML = "";
+  const tracked = Object.values(counts).reduce((a, b) => a + b, 0);
+  const untracked = SLOTS.length - tracked;
+  Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([cid, n]) => {
+      const c = CAT[cid] || CAT.other;
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label} · ${(n / 2)}h`;
+      summary.appendChild(chip);
+    });
+  if (untracked > 0 && untracked < SLOTS.length) {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.textContent = `Untracked · ${untracked / 2}h`;
+    summary.appendChild(chip);
+  }
+
+  // Timeline
+  const tl = document.getElementById("timeline");
+  tl.innerHTML = "";
+  let lastHour = -1;
+  for (const slot of SLOTS) {
+    const hour = parseInt(slot.slice(0, 2), 10);
+    if (hour !== lastHour) {
+      const hl = document.createElement("div");
+      hl.className = "hour-label";
+      hl.textContent = formatHour(hour);
+      tl.appendChild(hl);
+      lastHour = hour;
+    }
+    const b = data[slot];
+    const el = document.createElement("div");
+    el.className = "block " + (b ? "filled" : "empty");
+    const c = b ? (CAT[b.category] || CAT.other) : null;
+    if (c) el.style.setProperty("--blk-color", c.color);
+    el.innerHTML = `
+      <div class="block-time">${to12(slot)}</div>
+      <div class="block-body">
+        <div class="block-cat">${b ? (c.label) : "—"}</div>
+        ${b && b.note ? `<div class="block-note">${escapeHtml(b.note)}</div>` : ""}
+      </div>`;
+    el.addEventListener("click", () => openSheet(slot));
+    tl.appendChild(el);
+  }
+}
+
+function formatHour(h) {
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  return h < 12 ? `${h} AM` : `${h - 12} PM`;
+}
+function to12(slot) {
+  let [h, m] = slot.split(":").map(Number);
+  const ap = h < 12 ? "AM" : "PM";
+  let hh = h % 12; if (hh === 0) hh = 12;
+  return `${hh}:${String(m).padStart(2, "0")} ${ap}`;
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---- Edit sheet ----
+function openSheet(slot) {
+  editing = slot;
+  const existing = data[slot];
+  selectedCat = existing ? existing.category : null;
+  document.getElementById("sheetTime").textContent =
+    `${to12(slot)} – ${to12(SLOTS[(SLOTS.indexOf(slot) + 1) % 48])}`;
+  const grid = document.getElementById("catGrid");
+  grid.innerHTML = "";
+  for (const c of CATEGORIES) {
+    const btn = document.createElement("button");
+    btn.className = "cat-btn" + (selectedCat === c.id ? " selected" : "");
+    btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
+    btn.addEventListener("click", () => {
+      selectedCat = c.id;
+      grid.querySelectorAll(".cat-btn").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+    grid.appendChild(btn);
+  }
+  document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
+  document.getElementById("sheetBackdrop").hidden = false;
+}
+function closeSheet() {
+  document.getElementById("sheetBackdrop").hidden = true;
+  editing = null; selectedCat = null;
+}
+function saveSheet() {
+  if (!editing) return;
+  const note = document.getElementById("noteInput").value.trim();
+  const dateStr = ymd(current);
+  if (!selectedCat) { closeSheet(); return; }
+  const block = { category: selectedCat, note };
+  data[editing] = block;
+  pushBlock(dateStr, editing, block);
+  render();
+  closeSheet();
+}
+function clearSheet() {
+  if (!editing) return;
+  const dateStr = ymd(current);
+  delete data[editing];
+  pushBlock(dateStr, editing, null);
+  render();
+  closeSheet();
+}
+
+// ---- Export (LLM-friendly JSON) ----
+function exportData() {
+  const all = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("day_data_")) {
+      const date = k.replace("day_data_", "");
+      const day = JSON.parse(localStorage.getItem(k));
+      all[date] = SLOTS.filter((s) => day[s]).map((s) => ({
+        start_time: s,
+        category: day[s].category,
+        category_label: (CAT[day[s].category] || CAT.other).label,
+        note: day[s].note || "",
+      }));
+    }
+  }
+  const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), user_id: USER_ID, days: all }, null, 2)],
+    { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "day-export.json"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---- Statistics ----
+let statsRange = 7; // days; 0 = all
+
+// Returns { "YYYY-MM-DD": { "08:30": {category,note}, ... }, ... }
+async function gatherRange(days) {
+  const map = {};
+  // Local first
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("day_data_")) {
+      const date = k.replace("day_data_", "");
+      try { map[date] = JSON.parse(localStorage.getItem(k)) || {}; } catch {}
+    }
+  }
+  // Remote authoritative (fills in days visited on other devices)
+  if (sb) {
+    let start = null;
+    if (days > 0) {
+      const d = new Date(); d.setDate(d.getDate() - (days - 1)); start = ymd(d);
+    }
+    try {
+      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
+      if (start) q = q.gte("date", start);
+      const { data: rows, error } = await q;
+      if (!error && rows) {
+        for (const r of rows) {
+          (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
+        }
+      }
+    } catch (e) { console.warn(e); }
+  }
+  // Filter to range
+  if (days > 0) {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - (days - 1));
+    const cut = ymd(cutoff);
+    for (const date of Object.keys(map)) if (date < cut) delete map[date];
+  }
+  return map;
+}
+
+function minutesToClock(mins) {
+  if (mins == null || isNaN(mins)) return "—";
+  let h = Math.round(mins / 30) * 30;
+  let hh = Math.floor(h / 60), mm = h % 60;
+  const ap = hh < 12 ? "AM" : "PM";
+  let d = hh % 12; if (d === 0) d = 12;
+  return `${d}:${String(mm).padStart(2, "0")} ${ap}`;
+}
+function slotToMinutes(slot) {
+  const [h, m] = slot.split(":").map(Number); return h * 60 + m;
+}
+
+async function renderStats() {
+  const body = document.getElementById("statsBody");
+  body.innerHTML = `<div class="stats-empty">Loading…</div>`;
+  const map = await gatherRange(statsRange);
+  const dates = Object.keys(map).filter((d) => SLOTS.some((s) => map[d][s]));
+
+  if (!dates.length) {
+    body.innerHTML = `<div class="stats-empty">No data tracked yet in this range.<br>Start filling in your day →</div>`;
+    return;
+  }
+
+  const catMins = {};   // category -> minutes
+  let totalBlocks = 0;
+  const wakeMins = [], lastMins = [];
+  for (const d of dates) {
+    let firstNonSleep = null, lastNonSleep = null;
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      if (!b) continue;
+      totalBlocks++;
+      catMins[b.category] = (catMins[b.category] || 0) + 30;
+      if (b.category !== "sleep") {
+        if (firstNonSleep == null) firstNonSleep = slotToMinutes(s);
+        lastNonSleep = slotToMinutes(s);
+      }
+    }
+    if (firstNonSleep != null) wakeMins.push(firstNonSleep);
+    if (lastNonSleep != null) lastMins.push(lastNonSleep + 30);
+  }
+
+  const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+  const totalHours = totalBlocks / 2;
+  const avgPerDay = totalHours / dates.length;
+  const sleepHours = (catMins.sleep || 0) / 60;
+  const avgSleep = sleepHours / dates.length;
+
+  const cards = `
+    <div class="stat-cards">
+      <div class="stat-card"><div class="num">${dates.length}</div><div class="lbl">days tracked</div></div>
+      <div class="stat-card"><div class="num">${avgPerDay.toFixed(1)}h</div><div class="lbl">tracked / day</div></div>
+      <div class="stat-card"><div class="num">${minutesToClock(avg(wakeMins))}</div><div class="lbl">avg wake-up</div></div>
+      <div class="stat-card"><div class="num">${minutesToClock(avg(lastMins))}</div><div class="lbl">avg wind-down</div></div>
+      <div class="stat-card"><div class="num">${avgSleep.toFixed(1)}h</div><div class="lbl">avg sleep / day</div></div>
+      <div class="stat-card"><div class="num">${totalHours}h</div><div class="lbl">total tracked</div></div>
+    </div>`;
+
+  const maxMins = Math.max(...Object.values(catMins), 1);
+  const bars = CATEGORIES
+    .filter((c) => catMins[c.id])
+    .sort((a, b) => catMins[b.id] - catMins[a.id])
+    .map((c) => {
+      const hrs = catMins[c.id] / 60;
+      const pct = (catMins[c.id] / maxMins) * 100;
+      return `<div class="bar-row">
+        <div class="bar-label"><span class="dot" style="background:${c.color}"></span>${c.label}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${c.color}"></div></div>
+        <div class="bar-val">${hrs % 1 ? hrs.toFixed(1) : hrs}h</div>
+      </div>`;
+    }).join("");
+
+  body.innerHTML = cards + `<div class="stats-h">Time by category</div>` + bars;
+}
+
+function openStats() {
+  document.getElementById("statsScreen").hidden = false;
+  renderStats();
+}
+function closeStats() {
+  document.getElementById("statsScreen").hidden = true;
+}
+
+// ---- Navigation ----
+function goto(d) {
+  current = d;
+  data = loadLocal(ymd(current));
+  render();
+  pullDay(ymd(current));
+}
+
+// ---- Wire up ----
+document.getElementById("prevDay").addEventListener("click", () => {
+  const d = new Date(current); d.setDate(d.getDate() - 1); goto(d);
+});
+document.getElementById("nextDay").addEventListener("click", () => {
+  const d = new Date(current); d.setDate(d.getDate() + 1); goto(d);
+});
+document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
+document.getElementById("statsBtn").addEventListener("click", openStats);
+document.getElementById("statsBack").addEventListener("click", closeStats);
+document.getElementById("rangeSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-range]");
+  if (!btn) return;
+  statsRange = parseInt(btn.dataset.range, 10);
+  document.querySelectorAll("#rangeSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderStats();
+});
+document.getElementById("exportBtn").addEventListener("click", exportData);
+document.getElementById("saveBlock").addEventListener("click", saveSheet);
+document.getElementById("clearBlock").addEventListener("click", clearSheet);
+document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "sheetBackdrop") closeSheet();
+});
+
+// ---- Boot ----
+goto(new Date());
+
+// ---- Service worker (offline) ----
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}

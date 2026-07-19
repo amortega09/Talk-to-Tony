@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Day" />
+  <meta name="theme-color" content="#faf9f7" />
+  <title>Day — Time Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <button class="nav-btn" id="prevDay" aria-label="Previous day">‹</button>
+      <div class="date-block" id="dateBlock">
+        <div class="date-main" id="dateMain">Today</div>
+        <div class="date-sub" id="dateSub"></div>
+      </div>
+      <button class="nav-btn" id="nextDay" aria-label="Next day">›</button>
+    </header>
+
+    <div class="summary" id="summary"></div>
+
+    <main class="timeline" id="timeline"></main>
+
+    <footer class="statusbar">
+      <span id="syncStatus" class="sync-status">·</span>
+      <button class="text-btn" id="statsBtn">Stats</button>
+      <button class="text-btn" id="todayBtn">Today</button>
+      <button class="text-btn" id="exportBtn">Export</button>
+    </footer>
+  </div>
+
+  <!-- Stats screen -->
+  <section class="stats-screen" id="statsScreen" hidden>
+    <header class="topbar">
+      <button class="nav-btn" id="statsBack" aria-label="Back">‹</button>
+      <div class="date-block"><div class="date-main">Statistics</div></div>
+      <div style="width:40px"></div>
+    </header>
+    <div class="range-seg" id="rangeSeg">
+      <button data-range="7" class="active">7 days</button>
+      <button data-range="30">30 days</button>
+      <button data-range="0">All</button>
+    </div>
+    <div class="stats-body" id="statsBody"></div>
+  </section>
+
+  <!-- Edit sheet -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div class="sheet-time" id="sheetTime"></div>
+      <div class="cat-grid" id="catGrid"></div>
+      <input class="note-input" id="noteInput" type="text" placeholder="What are you doing? (optional)" autocomplete="off" />
+      <div class="sheet-actions">
+        <button class="ghost-btn" id="clearBlock">Clear</button>
+        <button class="primary-btn" id="saveBlock">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
