@@ -14,9 +14,13 @@ create table if not exists blocks (
 
 create index if not exists blocks_user_date_idx on blocks (user_id, date);
 
--- Personal single-user app: allow the anon key to read/write.
--- (Rows are namespaced by the device user_id.)
+-- Row-level security: each logged-in user can only touch their OWN rows.
+-- (user_id holds the authenticated user's id, i.e. auth.uid().)
 alter table blocks enable row level security;
 
-create policy "anon can do everything" on blocks
-  for all using (true) with check (true);
+drop policy if exists "anon can do everything" on blocks;
+
+create policy "own rows" on blocks
+  for all to authenticated
+  using ((auth.uid())::text = user_id)
+  with check ((auth.uid())::text = user_id);

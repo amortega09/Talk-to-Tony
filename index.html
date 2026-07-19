@@ -13,7 +13,20 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="app">
+  <!-- Login screen -->
+  <section class="auth-screen" id="authScreen" hidden>
+    <div class="auth-card">
+      <img class="auth-logo" src="icons/icon-192.png" alt="" />
+      <h1 class="auth-title">Day</h1>
+      <p class="auth-sub">Track your day, 30 minutes at a time.</p>
+      <input class="auth-input" id="authEmail" type="email" inputmode="email"
+             autocomplete="email" placeholder="you@email.com" />
+      <button class="primary-btn auth-btn" id="authSend">Email me a login link</button>
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+  </section>
+
+  <div id="app" hidden>
     <header class="topbar">
       <button class="nav-btn" id="prevDay" aria-label="Previous day">‹</button>
       <div class="date-block" id="dateBlock">
@@ -25,7 +38,13 @@
 
     <div class="summary" id="summary"></div>
 
-    <main class="timeline" id="timeline"></main>
+    <main class="timeline" id="timeline">
+      <div id="blockList"></div>
+      <div class="reflect">
+        <div class="reflect-label">How was today?</div>
+        <textarea class="reflect-input" id="reflectInput" rows="2" placeholder="A line about your day — what went well, what didn't…"></textarea>
+      </div>
+    </main>
 
     <footer class="statusbar">
       <span id="syncStatus" class="sync-status">·</span>
@@ -40,7 +59,7 @@
     <header class="topbar">
       <button class="nav-btn" id="statsBack" aria-label="Back">‹</button>
       <div class="date-block"><div class="date-main">Statistics</div></div>
-      <div style="width:40px"></div>
+      <button class="text-btn" id="signOut">Sign out</button>
     </header>
     <div class="range-seg" id="rangeSeg">
       <button data-range="7" class="active">7 days</button>

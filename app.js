@@ -17,17 +17,11 @@ const CATEGORIES = [
 ];
 const CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 
-// ---- Device user id (no login needed) ----
-function deviceId() {
-  let id = localStorage.getItem("day_device_id");
-  if (!id) {
-    id = (crypto.randomUUID && crypto.randomUUID()) ||
-         "dev-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem("day_device_id", id);
-  }
-  return id;
-}
-const USER_ID = deviceId();
+// Special "slot" key used to store the day's reflection note in the same table.
+const REFLECT_KEY = "__reflect__";
+
+// ---- Authenticated user id (set after Supabase magic-link login) ----
+let USER_ID = null;
 
 // ---- Supabase (optional) ----
 let sb = null;
@@ -164,7 +158,7 @@ function render() {
   }
 
   // Timeline
-  const tl = document.getElementById("timeline");
+  const tl = document.getElementById("blockList");
   tl.innerHTML = "";
   let lastHour = -1;
   for (const slot of SLOTS) {
@@ -189,6 +183,12 @@ function render() {
       </div>`;
     attachPress(el, slot);
     tl.appendChild(el);
+  }
+
+  // Reflection note (don't clobber while the user is typing)
+  const ri = document.getElementById("reflectInput");
+  if (document.activeElement !== ri) {
+    ri.value = (data[REFLECT_KEY] && data[REFLECT_KEY].note) || "";
   }
 }
 
@@ -276,6 +276,16 @@ function openSheet(slotList) {
   document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
   document.getElementById("sheetBackdrop").hidden = false;
 }
+function saveReflection() {
+  const note = document.getElementById("reflectInput").value.trim();
+  const dateStr = ymd(current);
+  const cur = (data[REFLECT_KEY] && data[REFLECT_KEY].note) || "";
+  if (note === cur) return; // nothing changed
+  if (note) data[REFLECT_KEY] = { category: "reflection", note };
+  else delete data[REFLECT_KEY];
+  pushBlocks(dateStr, [REFLECT_KEY], note ? { category: "reflection", note } : null);
+}
+
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
   editing = null; selectedCat = null;
@@ -308,12 +318,15 @@ function exportData() {
     if (k && k.startsWith("day_data_")) {
       const date = k.replace("day_data_", "");
       const day = JSON.parse(localStorage.getItem(k));
-      all[date] = SLOTS.filter((s) => day[s]).map((s) => ({
-        start_time: s,
-        category: day[s].category,
-        category_label: (CAT[day[s].category] || CAT.other).label,
-        note: day[s].note || "",
-      }));
+      all[date] = {
+        reflection: (day[REFLECT_KEY] && day[REFLECT_KEY].note) || "",
+        blocks: SLOTS.filter((s) => day[s]).map((s) => ({
+          start_time: s,
+          category: day[s].category,
+          category_label: (CAT[day[s].category] || CAT.other).label,
+          note: day[s].note || "",
+        })),
+      };
     }
   }
   const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), user_id: USER_ID, days: all }, null, 2)],
@@ -474,14 +487,66 @@ document.getElementById("rangeSeg").addEventListener("click", (e) => {
   renderStats();
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
+document.getElementById("reflectInput").addEventListener("blur", saveReflection);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "sheetBackdrop") closeSheet();
 });
 
+// ---- Auth ----
+function applySession(session) {
+  const uid = (session && session.user && session.user.id) || null;
+  if (uid === USER_ID) return; // no change
+  USER_ID = uid;
+  if (uid) {
+    document.getElementById("authScreen").hidden = true;
+    document.getElementById("app").hidden = false;
+    goto(new Date());
+  } else {
+    document.getElementById("app").hidden = true;
+    document.getElementById("statsScreen").hidden = true;
+    document.getElementById("authScreen").hidden = false;
+  }
+}
+
+async function sendMagicLink() {
+  const email = document.getElementById("authEmail").value.trim();
+  const msg = document.getElementById("authMsg");
+  if (!email) { msg.textContent = "Enter your email first."; return; }
+  msg.textContent = "Sending…";
+  try {
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href.split("#")[0] },
+    });
+    msg.textContent = error ? ("Error: " + error.message)
+      : "✉️ Check your email for the login link.";
+  } catch (e) {
+    msg.textContent = "Error: " + e.message;
+  }
+}
+
+async function initAuth() {
+  if (!sb) {
+    document.getElementById("app").hidden = true;
+    document.getElementById("authScreen").hidden = false;
+    document.getElementById("authMsg").textContent =
+      "Supabase isn't configured yet — add your keys in config.js.";
+    return;
+  }
+  document.getElementById("authSend").addEventListener("click", sendMagicLink);
+  document.getElementById("authEmail").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMagicLink();
+  });
+  document.getElementById("signOut").addEventListener("click", () => sb.auth.signOut());
+  sb.auth.onAuthStateChange((_e, session) => applySession(session));
+  const { data } = await sb.auth.getSession();
+  applySession(data.session);
+}
+
 // ---- Boot ----
-goto(new Date());
+initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
