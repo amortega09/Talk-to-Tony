@@ -395,6 +395,13 @@ body { background: var(--bg-grad); background-attachment: fixed; }
 .bar-val { flex: 0 0 48px; text-align: right; font-size: 12.5px; font-weight: 650; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .stats-empty { text-align: center; color: var(--text-soft); font-size: 14px; padding: 48px 20px; }
 
+/* ── Wide screens: let it breathe ────────── */
+@media (min-width: 900px) {
+  #app, .stats-screen, .sheet { max-width: 720px; }
+  .block { min-height: 44px; }
+  .date-main { font-size: 32px; }
+}
+
 /* ── Dark mode ───────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
