@@ -147,8 +147,7 @@ function render() {
       const c = CAT[cid] || CAT.other;
       const chip = document.createElement("div");
       chip.className = "chip";
-      chip.style.setProperty("--chip-bg", c.color + "22");
-      chip.style.setProperty("--chip-fg", c.color);
+      chip.style.setProperty("--chip-color", c.color);
       chip.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label} · ${(n / 2)}h`;
       summary.appendChild(chip);
     });
