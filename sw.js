@@ -1,5 +1,5 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v6";
+const CACHE = "day-v7";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js",
   "./manifest.webmanifest",
@@ -18,11 +18,16 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// Network-first: always try fresh, fall back to cache when offline.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Never cache Supabase API calls — always go to network.
-  if (url.hostname.endsWith("supabase.co")) return;
+  if (url.hostname.endsWith("supabase.co")) return; // never touch API calls
+  if (e.request.method !== "GET") return;
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).catch(() => hit))
+    fetch(e.request).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });
