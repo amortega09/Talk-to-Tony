@@ -93,6 +93,20 @@ html, body {
 }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; }
 
+/* ── Plan banner (Notion callout) ────────── */
+.plan-banner {
+  margin: 8px 0 4px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, #d1a13a 12%, var(--surface));
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+/* ── "+ New" category tile ───────────────── */
+.cat-btn.cat-add { color: var(--text-soft); border-style: dashed; }
+
 /* ── Timeline: flat list with hairlines ──── */
 .timeline {
   flex: 1;

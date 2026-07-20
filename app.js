@@ -4,7 +4,7 @@
      { date:"2026-07-19", start_time:"08:30", category:"work", note:"..." }
    =========================================================== */
 
-const CATEGORIES = [
+const BUILTIN_CATEGORIES = [
   { id: "sleep",    label: "Sleep",    color: "#7b8cde" },
   { id: "work",     label: "Work",     color: "#4a5d4e" },
   { id: "exercise", label: "Exercise", color: "#e08a4a" },
@@ -15,10 +15,25 @@ const CATEGORIES = [
   { id: "relax",    label: "Relax",    color: "#6aa86a" },
   { id: "other",    label: "Other",    color: "#9b9793" },
 ];
-const CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+// Palette used to auto-assign colors to custom categories.
+const AUTO_COLORS = [
+  "#c0693e", "#4f8a8b", "#a86bb0", "#5a8f4a", "#c99a3a", "#b45d7a",
+  "#6a7fd0", "#7a9e5e", "#c65f5f", "#4a8fb0", "#9a7f4a", "#8a6fb0",
+];
 
-// Special "slot" key used to store the day's reflection note in the same table.
+let customCats = [];                 // [{id,label,color}], user-created, synced
+let CATEGORIES = BUILTIN_CATEGORIES.slice();
+let CAT = {};
+function rebuildCats() {
+  CATEGORIES = BUILTIN_CATEGORIES.concat(customCats);
+  CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+}
+rebuildCats();
+
+// Special "slot" keys stored in the same table (never real times).
 const REFLECT_KEY = "__reflect__";
+const PLAN_KEY = "__plan__";
+const SETTINGS_DATE = "2000-01-01";  // sentinel row for synced settings
 
 // ---- Authenticated user id (set after Supabase magic-link login) ----
 let USER_ID = null;
@@ -60,6 +75,58 @@ function loadLocal(dateStr) {
 }
 function saveLocal(dateStr, obj) {
   localStorage.setItem(localKey(dateStr), JSON.stringify(obj));
+}
+
+// ---- Settings (custom categories), synced via a sentinel row ----
+function slugify(s) {
+  return "c_" + s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24);
+}
+function loadSettingsLocal() {
+  try {
+    const s = JSON.parse(localStorage.getItem("day_settings")) || {};
+    customCats = Array.isArray(s.customCats) ? s.customCats : [];
+  } catch { customCats = []; }
+  rebuildCats();
+}
+async function pullSettings() {
+  loadSettingsLocal();
+  if (!sb) return;
+  try {
+    const { data: rows } = await sb.from("blocks")
+      .select("note").eq("user_id", USER_ID)
+      .eq("date", SETTINGS_DATE).eq("start_time", "__settings__");
+    if (rows && rows[0]) {
+      const s = JSON.parse(rows[0].note || "{}");
+      if (Array.isArray(s.customCats)) {
+        customCats = s.customCats;
+        localStorage.setItem("day_settings", JSON.stringify({ customCats }));
+        rebuildCats();
+      }
+    }
+  } catch (e) { console.warn(e); }
+}
+async function saveSettings() {
+  localStorage.setItem("day_settings", JSON.stringify({ customCats }));
+  if (!sb) return;
+  try {
+    await sb.from("blocks").upsert({
+      user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
+      category: "settings", note: JSON.stringify({ customCats }),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,date,start_time" });
+  } catch (e) { console.warn(e); }
+}
+function addCustomCategory(label) {
+  label = (label || "").trim();
+  if (!label) return null;
+  let id = slugify(label);
+  if (!id || id === "c_") id = "c_" + Date.now().toString(36);
+  if (CAT[id]) return id; // already exists
+  const color = AUTO_COLORS[customCats.length % AUTO_COLORS.length];
+  customCats.push({ id, label, color });
+  rebuildCats();
+  saveSettings();
+  return id;
 }
 
 // ---- Sync ----
@@ -151,12 +218,6 @@ function render() {
       chip.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label} · ${(n / 2)}h`;
       summary.appendChild(chip);
     });
-  if (untracked > 0 && untracked < SLOTS.length) {
-    const chip = document.createElement("div");
-    chip.className = "chip";
-    chip.textContent = `Untracked · ${untracked / 2}h`;
-    summary.appendChild(chip);
-  }
 
   // Timeline
   const tl = document.getElementById("blockList");
@@ -202,6 +263,20 @@ function render() {
   const ri = document.getElementById("reflectInput");
   if (document.activeElement !== ri) {
     ri.value = (data[REFLECT_KEY] && data[REFLECT_KEY].note) || "";
+  }
+
+  // Today's objectives banner (whatever was planned the day before)
+  const pb = document.getElementById("planBanner");
+  const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
+  if (todaysPlan) { pb.hidden = false; pb.textContent = "🎯 " + todaysPlan; }
+  else { pb.hidden = true; }
+
+  // "Objectives for tomorrow" box reflects next day's plan
+  const pi = document.getElementById("planInput");
+  if (document.activeElement !== pi) {
+    const next = new Date(current); next.setDate(next.getDate() + 1);
+    const nd = loadLocal(ymd(next));
+    pi.value = (nd[PLAN_KEY] && nd[PLAN_KEY].note) || "";
   }
 }
 
@@ -345,6 +420,12 @@ function openSheet(slotList) {
   document.getElementById("sheetTime").textContent = slotList.length > 1
     ? `${to12(first)} – ${to12(endSlot)} · ${hrs % 1 ? hrs.toFixed(1) : hrs}h`
     : `${to12(first)} – ${to12(endSlot)}`;
+  renderCatGrid();
+  document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
+  document.getElementById("sheetBackdrop").hidden = false;
+}
+
+function renderCatGrid() {
   const grid = document.getElementById("catGrid");
   grid.innerHTML = "";
   for (const c of CATEGORIES) {
@@ -359,8 +440,16 @@ function openSheet(slotList) {
     });
     grid.appendChild(btn);
   }
-  document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
-  document.getElementById("sheetBackdrop").hidden = false;
+  // "+ New" tile to create a custom category
+  const add = document.createElement("button");
+  add.className = "cat-btn cat-add";
+  add.innerHTML = `<span class="cdot" style="border:1.5px dashed currentColor;background:none"></span>New`;
+  add.addEventListener("click", () => {
+    const name = window.prompt("New category name:");
+    const id = addCustomCategory(name);
+    if (id) { selectedCat = id; renderCatGrid(); }
+  });
+  grid.appendChild(add);
 }
 function saveReflection() {
   const note = document.getElementById("reflectInput").value.trim();
@@ -370,6 +459,39 @@ function saveReflection() {
   if (note) data[REFLECT_KEY] = { category: "reflection", note };
   else delete data[REFLECT_KEY];
   pushBlocks(dateStr, [REFLECT_KEY], note ? { category: "reflection", note } : null);
+}
+
+// Sync specific slots for an arbitrary date (used by the plan box).
+async function syncSlots(dateStr, slotList, block) {
+  if (!sb) return;
+  try {
+    if (block) {
+      const rows = slotList.map((s) => ({
+        user_id: USER_ID, date: dateStr, start_time: s,
+        category: block.category, note: block.note || "",
+        updated_at: new Date().toISOString(),
+      }));
+      await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
+    } else {
+      await sb.from("blocks").delete()
+        .eq("user_id", USER_ID).eq("date", dateStr).in("start_time", slotList);
+    }
+  } catch (e) { console.warn(e); }
+}
+
+function savePlan() {
+  const note = document.getElementById("planInput").value.trim();
+  const next = new Date(current); next.setDate(next.getDate() + 1);
+  const dateStr = ymd(next);
+  const day = loadLocal(dateStr);
+  const cur = (day[PLAN_KEY] && day[PLAN_KEY].note) || "";
+  if (note === cur) return;
+  const block = note ? { category: "plan", note } : null;
+  if (note) day[PLAN_KEY] = block; else delete day[PLAN_KEY];
+  saveLocal(dateStr, day);
+  syncSlots(dateStr, [PLAN_KEY], block);
+  // If we're viewing that day right now, keep it in sync.
+  if (dateStr === ymd(current)) { if (note) data[PLAN_KEY] = block; else delete data[PLAN_KEY]; }
 }
 
 function closeSheet() {
@@ -407,6 +529,7 @@ function exportData() {
       const day = JSON.parse(localStorage.getItem(k));
       all[date] = {
         reflection: (day[REFLECT_KEY] && day[REFLECT_KEY].note) || "",
+        objectives: (day[PLAN_KEY] && day[PLAN_KEY].note) || "",
         blocks: SLOTS.filter((s) => day[s]).map((s) => ({
           start_time: s,
           category: day[s].category,
@@ -578,6 +701,7 @@ document.getElementById("rangeSeg").addEventListener("click", (e) => {
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
+document.getElementById("planInput").addEventListener("blur", savePlan);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
@@ -592,7 +716,7 @@ function applySession(session) {
   if (uid) {
     document.getElementById("authScreen").hidden = true;
     document.getElementById("app").hidden = false;
-    goto(new Date());
+    pullSettings().then(() => goto(new Date()));
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
