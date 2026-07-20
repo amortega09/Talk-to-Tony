@@ -437,6 +437,7 @@ function openSheet(slotList) {
     : `${to12(first)} – ${to12(endSlot)}`;
   renderCatGrid();
   renderSubRow();
+  renderNoteSuggest();
   document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
   document.getElementById("sheetBackdrop").hidden = false;
 }
@@ -477,6 +478,46 @@ function renderSubRow() {
   row.appendChild(add);
 }
 
+// Recent distinct notes previously typed in this category (most recent first).
+function recentNotesFor(catId, limit) {
+  const dateKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("day_data_")) dateKeys.push(k);
+  }
+  dateKeys.sort().reverse(); // newest dates first
+  const seen = new Set(), out = [];
+  for (const k of dateKeys) {
+    let day; try { day = JSON.parse(localStorage.getItem(k)); } catch { continue; }
+    for (const s of SLOTS) {
+      const b = day[s];
+      if (b && b.category === catId && b.note) {
+        const n = b.note.trim();
+        if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+      }
+    }
+    if (out.length >= (limit || 6)) break;
+  }
+  return out.slice(0, limit || 6);
+}
+
+function renderNoteSuggest() {
+  const row = document.getElementById("noteSuggest");
+  row.innerHTML = "";
+  if (!selectedCat) { row.hidden = true; return; }
+  const notes = recentNotesFor(selectedCat, 6);
+  if (!notes.length) { row.hidden = true; return; }
+  row.hidden = false;
+  for (const n of notes) {
+    const chip = document.createElement("button");
+    chip.className = "sub-chip note-suggest";
+    chip.textContent = n.length > 28 ? n.slice(0, 27) + "…" : n;
+    chip.title = n;
+    chip.addEventListener("click", () => { document.getElementById("noteInput").value = n; });
+    row.appendChild(chip);
+  }
+}
+
 function removeSub(catId, label) {
   if (!window.confirm(`Remove "${label}" from ${(CAT[catId] || {}).label || "this category"}?`)) return;
   customSubs[catId] = (customSubs[catId] || []).filter((s) => s !== label);
@@ -500,6 +541,7 @@ function renderCatGrid() {
       grid.querySelectorAll(".cat-btn").forEach((b) => b.classList.remove("selected"));
       btn.classList.add("selected");
       renderSubRow();
+      renderNoteSuggest();
     });
     if (isCustom) {
       // Long-press (or right-click) a custom category to rename/delete it.
@@ -518,7 +560,7 @@ function renderCatGrid() {
   add.addEventListener("click", () => {
     const name = window.prompt("New category name:");
     const id = addCustomCategory(name);
-    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); }
+    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); renderNoteSuggest(); }
   });
   grid.appendChild(add);
 }

@@ -296,6 +296,8 @@ html, body {
 .sub-chip:hover { background: var(--hover); }
 .sub-chip.selected { background: var(--link); border-color: var(--link); color: #fff; font-weight: 600; }
 .sub-chip.sub-add { border-style: dashed; }
+.sub-chip.note-suggest { font-weight: 400; color: var(--text-soft); }
+#noteSuggest { margin-top: -4px; }
 .note-input {
   width: 100%;
   border: 1px solid var(--line);
