@@ -744,6 +744,236 @@ function closeStats() {
   document.getElementById("statsScreen").hidden = true;
 }
 
+// ===========================================================
+//  Insights — each opens its own page from the bottom popup
+// ===========================================================
+let insightRange = 7;
+let currentInsight = null;
+
+const INSIGHTS = [
+  { id: "subs",     title: "Projects",        icon: "🗂",  desc: "Time by subcategory / project", fn: renderInsightSubs },
+  { id: "heatmap",  title: "Weekly rhythm",   icon: "🔥",  desc: "Your week as a heatmap",        fn: renderInsightHeatmap },
+  { id: "trends",   title: "Trends",          icon: "📈",  desc: "Sleep & productive hours over time", fn: renderInsightTrends },
+  { id: "streak",   title: "Consistency",     icon: "✅",  desc: "Streaks & sleep targets",       fn: renderInsightStreak },
+  { id: "weekday",  title: "Day-of-week",     icon: "📅",  desc: "Patterns by weekday",           fn: renderInsightWeekday },
+  { id: "goals",    title: "Objectives",      icon: "🎯",  desc: "Planned vs. actually logged",   fn: renderInsightGoals },
+];
+
+// ---- shared helpers ----
+const catColor = (id) => (CAT[id] || CAT.other).color;
+const catLabel = (id) => (CAT[id] || CAT.other).label;
+const PRODUCTIVE = ["work", "learn", "exercise"];
+const WD_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
+function weekdayOf(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+function fmtH(h) { return (h % 1 ? h.toFixed(1) : h) + "h"; }
+function trackedDates(map) {
+  return Object.keys(map).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && SLOTS.some((s) => map[d][s])).sort();
+}
+function barRow(label, color, hrs, maxH) {
+  const pct = maxH ? (hrs / maxH) * 100 : 0;
+  return `<div class="bar-row">
+    <div class="bar-label"><span class="dot" style="background:${color}"></span>${escapeHtml(label)}</div>
+    <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+    <div class="bar-val">${fmtH(hrs)}</div></div>`;
+}
+const emptyMsg = (t) => `<div class="stats-empty">${t}</div>`;
+
+// ---- 1. Subcategory / project breakdown ----
+function renderInsightSubs(map) {
+  const mins = {}; // "cat sub" -> minutes
+  for (const d of trackedDates(map))
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      if (b && b.sub) { const k = b.category + " " + b.sub; mins[k] = (mins[k] || 0) + 30; }
+    }
+  const keys = Object.keys(mins).sort((a, b) => mins[b] - mins[a]);
+  if (!keys.length) return emptyMsg("No projects/subcategories logged in this range yet.");
+  const maxH = Math.max(...keys.map((k) => mins[k])) / 60;
+  return `<div class="stats-h">Time by project</div>` + keys.map((k) => {
+    const [cat, sub] = k.split(" ");
+    return barRow(`${catLabel(cat)} · ${sub}`, catColor(cat), mins[k] / 60, maxH);
+  }).join("");
+}
+
+// ---- 2. Weekly heatmap ----
+function renderInsightHeatmap(map) {
+  const dates = trackedDates(map);
+  if (!dates.length) return emptyMsg("Nothing to map yet.");
+  const wdCount = [0,0,0,0,0,0,0];
+  const cell = {}; // `${wd}_${i}` -> {counts, total}
+  for (const d of dates) {
+    const wd = weekdayOf(d); wdCount[wd]++;
+    SLOTS.forEach((s, i) => {
+      const b = map[d][s];
+      if (!b) return;
+      const c = cell[wd + "_" + i] || (cell[wd + "_" + i] = { counts: {}, total: 0 });
+      c.counts[b.category] = (c.counts[b.category] || 0) + 1; c.total++;
+    });
+  }
+  let head = `<div class="hm-row hm-head"><div class="hm-time"></div>`;
+  for (const wd of WD_ORDER) head += `<div class="hm-cell hm-lbl">${WD_LABELS[wd][0]}</div>`;
+  head += `</div>`;
+  let rows = "";
+  for (let i = 0; i < SLOTS.length; i++) {
+    const showTime = i % 4 === 0; // every 2h
+    rows += `<div class="hm-row"><div class="hm-time">${showTime ? formatHour(parseInt(SLOTS[i], 10)) : ""}</div>`;
+    for (const wd of WD_ORDER) {
+      const c = cell[wd + "_" + i];
+      let style = "background:transparent";
+      if (c && wdCount[wd]) {
+        let top = null, n = 0;
+        for (const k in c.counts) if (c.counts[k] > n) { n = c.counts[k]; top = k; }
+        const alpha = 0.18 + 0.82 * (n / wdCount[wd]);
+        style = `background:${catColor(top)};opacity:${alpha.toFixed(2)}`;
+      }
+      rows += `<div class="hm-cell" style="${style}"></div>`;
+    }
+    rows += `</div>`;
+  }
+  return `<div class="stats-h">Weekly rhythm</div><div class="heatmap">${head}${rows}</div>`;
+}
+
+// ---- 3. Trends over time ----
+function renderInsightTrends(map) {
+  const dates = trackedDates(map).slice(-30);
+  if (!dates.length) return emptyMsg("No data to trend yet.");
+  const rows = dates.map((d) => {
+    let sleep = 0, prod = 0;
+    for (const s of SLOTS) {
+      const b = map[d][s]; if (!b) continue;
+      if (b.category === "sleep") sleep += 0.5;
+      if (PRODUCTIVE.includes(b.category)) prod += 0.5;
+    }
+    return { d, sleep, prod };
+  });
+  const maxH = Math.max(12, ...rows.map((r) => Math.max(r.sleep, r.prod)));
+  const body = rows.map((r) => {
+    const [y, m, day] = r.d.split("-").map(Number);
+    const lbl = new Date(y, m - 1, day).toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+    return `<div class="trend-row">
+      <div class="trend-date">${lbl}</div>
+      <div class="trend-bars">
+        <div class="bar-track"><div class="bar-fill" style="width:${(r.sleep/maxH)*100}%;background:${catColor("sleep")}"></div></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(r.prod/maxH)*100}%;background:${catColor("work")}"></div></div>
+      </div>
+      <div class="trend-val">${fmtH(r.sleep)}<br>${fmtH(r.prod)}</div>
+    </div>`;
+  }).join("");
+  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep &nbsp; <span style="color:${catColor("work")}">■</span> Productive (work·learn·exercise)</div>${body}`;
+}
+
+// ---- 4. Consistency / streak ----
+function renderInsightStreak(map) {
+  const dates = trackedDates(map);
+  if (!dates.length) return emptyMsg("Start logging to build a streak.");
+  const set = new Set(dates);
+  // current streak counting back from today
+  let streak = 0; let cur = new Date();
+  for (;;) { if (set.has(ymd(cur))) { streak++; cur.setDate(cur.getDate() - 1); } else break; }
+  // longest streak
+  let longest = 0, run = 0, prev = null;
+  for (const d of dates) {
+    if (prev) {
+      const [y, m, da] = prev.split("-").map(Number);
+      const nx = new Date(y, m - 1, da); nx.setDate(nx.getDate() + 1);
+      run = (ymd(nx) === d) ? run + 1 : 1;
+    } else run = 1;
+    longest = Math.max(longest, run); prev = d;
+  }
+  const TARGET = 7;
+  let nights = 0, sleepSum = 0;
+  for (const d of dates) {
+    let sl = 0; for (const s of SLOTS) if (map[d][s] && map[d][s].category === "sleep") sl += 0.5;
+    sleepSum += sl; if (sl >= TARGET) nights++;
+  }
+  return `<div class="stat-cards">
+    <div class="stat-card"><div class="num">🔥 ${streak}</div><div class="lbl">current streak</div></div>
+    <div class="stat-card"><div class="num">${longest}</div><div class="lbl">longest streak</div></div>
+    <div class="stat-card"><div class="num">${dates.length}</div><div class="lbl">days tracked</div></div>
+    <div class="stat-card"><div class="num">${nights}</div><div class="lbl">nights ≥ ${TARGET}h sleep</div></div>
+    <div class="stat-card"><div class="num">${(sleepSum/dates.length).toFixed(1)}h</div><div class="lbl">avg sleep</div></div>
+  </div>`;
+}
+
+// ---- 5. Day-of-week patterns ----
+function renderInsightWeekday(map) {
+  const dates = trackedDates(map);
+  if (!dates.length) return emptyMsg("No weekday patterns yet.");
+  const wdMins = {}, wdDays = [0,0,0,0,0,0,0];
+  for (const d of dates) {
+    const wd = weekdayOf(d); wdDays[wd]++;
+    for (const s of SLOTS) { const b = map[d][s]; if (b) { (wdMins[wd] = wdMins[wd] || {}); wdMins[wd][b.category] = (wdMins[wd][b.category] || 0) + 30; } }
+  }
+  const maxAvg = Math.max(1, ...WD_ORDER.map((wd) => {
+    const m = wdMins[wd] || {}; const tot = Object.values(m).reduce((a, b) => a + b, 0);
+    return wdDays[wd] ? tot / 60 / wdDays[wd] : 0;
+  }));
+  return `<div class="stats-h">Average tracked per weekday</div>` + WD_ORDER.map((wd) => {
+    const m = wdMins[wd] || {}; const totMin = Object.values(m).reduce((a, b) => a + b, 0);
+    const avgH = wdDays[wd] ? (totMin / 60 / wdDays[wd]) : 0;
+    let top = null, n = 0; for (const k in m) if (m[k] > n) { n = m[k]; top = k; }
+    const label = WD_LABELS[wd] + (top ? ` · mostly ${catLabel(top)}` : "");
+    return barRow(label, top ? catColor(top) : "#bbb", Math.round(avgH * 10) / 10, maxAvg);
+  }).join("");
+}
+
+// ---- 6. Objective follow-through ----
+function renderInsightGoals(map) {
+  const planned = Object.keys(map).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][PLAN_KEY] && map[d][PLAN_KEY].note).sort().reverse();
+  if (!planned.length) return emptyMsg("Set “Objectives for tomorrow” to track follow-through.");
+  let logged = 0;
+  const list = planned.map((d) => {
+    const did = SLOTS.some((s) => map[d][s]);
+    if (did) logged++;
+    const [y, m, da] = d.split("-").map(Number);
+    const lbl = new Date(y, m - 1, da).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    return `<div class="goal-row">
+      <div class="goal-check">${did ? "✅" : "⚪️"}</div>
+      <div class="goal-text"><div class="goal-date">${lbl}</div><div class="goal-obj">${escapeHtml(map[d][PLAN_KEY].note)}</div></div>
+    </div>`;
+  }).join("");
+  const rate = Math.round((logged / planned.length) * 100);
+  return `<div class="stat-cards">
+    <div class="stat-card"><div class="num">${rate}%</div><div class="lbl">planned days with activity logged</div></div>
+    <div class="stat-card"><div class="num">${planned.length}</div><div class="lbl">days with objectives</div></div>
+  </div><div class="stats-h">Objectives</div>${list}`;
+}
+
+// ---- menu + page routing ----
+function openInsightsMenu() {
+  const list = document.getElementById("menuList");
+  list.innerHTML = "";
+  for (const it of INSIGHTS) {
+    const btn = document.createElement("button");
+    btn.className = "menu-item";
+    btn.innerHTML = `<span class="menu-icon">${it.icon}</span><span class="menu-text"><span class="menu-title">${it.title}</span><span class="menu-desc">${it.desc}</span></span>`;
+    btn.addEventListener("click", () => { closeInsightsMenu(); openInsight(it.id); });
+    list.appendChild(btn);
+  }
+  document.getElementById("insightsMenu").hidden = false;
+}
+function closeInsightsMenu() { document.getElementById("insightsMenu").hidden = true; }
+
+function openInsight(id) {
+  currentInsight = INSIGHTS.find((i) => i.id === id);
+  document.getElementById("insightTitle").textContent = currentInsight.title;
+  document.getElementById("insightScreen").hidden = false;
+  renderInsight();
+}
+function closeInsight() { document.getElementById("insightScreen").hidden = true; }
+
+async function renderInsight() {
+  if (!currentInsight) return;
+  const body = document.getElementById("insightBody");
+  body.innerHTML = `<div class="stats-empty">Loading…</div>`;
+  const map = await gatherRange(insightRange);
+  body.innerHTML = currentInsight.fn(map);
+}
+
 // ---- Navigation ----
 function goto(d) {
   current = d;
@@ -773,6 +1003,19 @@ document.getElementById("rangeSeg").addEventListener("click", (e) => {
   btn.classList.add("active");
   renderStats();
 });
+document.getElementById("insightsBtn").addEventListener("click", openInsightsMenu);
+document.getElementById("insightsMenu").addEventListener("click", (e) => {
+  if (e.target.id === "insightsMenu") closeInsightsMenu();
+});
+document.getElementById("insightBack").addEventListener("click", closeInsight);
+document.getElementById("insightRangeSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-range]");
+  if (!btn) return;
+  insightRange = parseInt(btn.dataset.range, 10);
+  document.querySelectorAll("#insightRangeSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderInsight();
+});
 document.getElementById("exportBtn").addEventListener("click", exportData);
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
 document.getElementById("planInput").addEventListener("blur", savePlan);
@@ -794,6 +1037,8 @@ function applySession(session) {
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
+    document.getElementById("insightScreen").hidden = true;
+    document.getElementById("insightsMenu").hidden = true;
     document.getElementById("authScreen").hidden = false;
   }
 }

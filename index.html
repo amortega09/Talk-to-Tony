@@ -52,10 +52,35 @@
     <footer class="statusbar">
       <span id="syncStatus" class="sync-status">·</span>
       <button class="text-btn" id="statsBtn">Stats</button>
+      <button class="text-btn" id="insightsBtn">Insights</button>
       <button class="text-btn" id="todayBtn">Today</button>
       <button class="text-btn" id="exportBtn">Export</button>
     </footer>
   </div>
+
+  <!-- Insights menu (bottom popup) -->
+  <div class="sheet-backdrop" id="insightsMenu" hidden>
+    <div class="sheet" id="insightsSheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div class="sheet-time">Insights</div>
+      <div class="menu-list" id="menuList"></div>
+    </div>
+  </div>
+
+  <!-- Insight page -->
+  <section class="stats-screen" id="insightScreen" hidden>
+    <header class="topbar">
+      <button class="nav-btn" id="insightBack" aria-label="Back">‹</button>
+      <div class="date-block"><div class="date-main" id="insightTitle">Insight</div></div>
+      <div style="width:32px"></div>
+    </header>
+    <div class="range-seg" id="insightRangeSeg">
+      <button data-range="7" class="active">7 days</button>
+      <button data-range="30">30 days</button>
+      <button data-range="0">All</button>
+    </div>
+    <div class="stats-body" id="insightBody"></div>
+  </section>
 
   <!-- Stats screen -->
   <section class="stats-screen" id="statsScreen" hidden>
