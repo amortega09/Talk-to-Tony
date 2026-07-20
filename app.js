@@ -233,27 +233,6 @@ function render() {
   document.getElementById("dateSub").textContent =
     current.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
-  // Summary chips (counts -> hours)
-  const counts = {};
-  for (const slot of SLOTS) {
-    const b = data[slot];
-    if (b) counts[b.category] = (counts[b.category] || 0) + 1;
-  }
-  const summary = document.getElementById("summary");
-  summary.innerHTML = "";
-  const tracked = Object.values(counts).reduce((a, b) => a + b, 0);
-  const untracked = SLOTS.length - tracked;
-  Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .forEach(([cid, n]) => {
-      const c = CAT[cid] || CAT.other;
-      const chip = document.createElement("div");
-      chip.className = "chip";
-      chip.style.setProperty("--chip-color", c.color);
-      chip.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label} · ${(n / 2)}h`;
-      summary.appendChild(chip);
-    });
-
   // Timeline
   const tl = document.getElementById("blockList");
   tl.innerHTML = "";
