@@ -22,6 +22,7 @@ const AUTO_COLORS = [
 ];
 
 let customCats = [];                 // [{id,label,color}], user-created, synced
+let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
 function rebuildCats() {
@@ -65,6 +66,7 @@ let current = new Date();
 let data = {};          // { "08:30": {category, note}, ... } for current day
 let editing = null;     // array of slot strings being edited
 let selectedCat = null;
+let selectedSub = null; // chosen subcategory label (optional)
 let rangeAnchor = null; // slot where a press-and-hold range started
 
 // ---- Local persistence ----
@@ -85,7 +87,8 @@ function loadSettingsLocal() {
   try {
     const s = JSON.parse(localStorage.getItem("day_settings")) || {};
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
-  } catch { customCats = []; }
+    customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
+  } catch { customCats = []; customSubs = {}; }
   rebuildCats();
 }
 async function pullSettings() {
@@ -97,24 +100,29 @@ async function pullSettings() {
       .eq("date", SETTINGS_DATE).eq("start_time", "__settings__");
     if (rows && rows[0]) {
       const s = JSON.parse(rows[0].note || "{}");
-      if (Array.isArray(s.customCats)) {
-        customCats = s.customCats;
-        localStorage.setItem("day_settings", JSON.stringify({ customCats }));
-        rebuildCats();
-      }
+      if (Array.isArray(s.customCats)) customCats = s.customCats;
+      if (s.subs && typeof s.subs === "object") customSubs = s.subs;
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs }));
+      rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
+}
+function rememberSub(catId, label) {
+  label = (label || "").trim();
+  if (!catId || !label) return;
+  const arr = customSubs[catId] || (customSubs[catId] = []);
+  if (!arr.includes(label)) { arr.push(label); saveSettings(); }
 }
 function addCustomCategory(label) {
   label = (label || "").trim();
@@ -169,11 +177,11 @@ async function pullDay(dateStr) {
   setStatus("syncing", "Syncing…");
   try {
     const { data: rows, error } = await sb
-      .from("blocks").select("start_time,category,note")
+      .from("blocks").select("start_time,category,note,subcategory")
       .eq("user_id", USER_ID).eq("date", dateStr);
     if (error) throw error;
     const remote = {};
-    for (const r of rows) remote[r.start_time] = { category: r.category, note: r.note || "" };
+    for (const r of rows) remote[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
     // Remote is source of truth once synced.
     data = remote;
     saveLocal(dateStr, data);
@@ -194,7 +202,7 @@ async function pushBlocks(dateStr, slotList, block) {
     if (block) {
       const rows = slotList.map((s) => ({
         user_id: USER_ID, date: dateStr, start_time: s,
-        category: block.category, note: block.note || "",
+        category: block.category, note: block.note || "", subcategory: block.sub || "",
         updated_at: new Date().toISOString(),
       }));
       const { error } = await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
@@ -267,7 +275,7 @@ function render() {
     el.innerHTML = `
       <div class="block-time">${to12(slot)}</div>
       <div class="block-body">
-        <div class="block-cat">${b ? (c.label) : "—"}</div>
+        <div class="block-cat">${b ? (c.label + (b.sub ? ` · ${escapeHtml(b.sub)}` : "")) : "—"}</div>
         ${b && b.note ? `<div class="block-note">${escapeHtml(b.note)}</div>` : ""}
       </div>`;
     el.dataset.slot = slot;
@@ -442,14 +450,60 @@ function openSheet(slotList) {
   const first = slotList[0], last = slotList[slotList.length - 1];
   const existing = data[first];
   selectedCat = existing ? existing.category : null;
+  selectedSub = existing ? (existing.sub || null) : null;
   const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
   const hrs = slotList.length / 2;
   document.getElementById("sheetTime").textContent = slotList.length > 1
     ? `${to12(first)} – ${to12(endSlot)} · ${hrs % 1 ? hrs.toFixed(1) : hrs}h`
     : `${to12(first)} – ${to12(endSlot)}`;
   renderCatGrid();
+  renderSubRow();
   document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
   document.getElementById("sheetBackdrop").hidden = false;
+}
+
+function renderSubRow() {
+  const row = document.getElementById("subRow");
+  if (!selectedCat) { row.hidden = true; row.innerHTML = ""; return; }
+  row.hidden = false;
+  row.innerHTML = "";
+  const subs = customSubs[selectedCat] || [];
+  for (const s of subs) {
+    const chip = document.createElement("button");
+    chip.className = "sub-chip" + (selectedSub === s ? " selected" : "");
+    chip.textContent = s;
+    chip.addEventListener("click", () => {
+      selectedSub = (selectedSub === s) ? null : s; // tap again to deselect
+      renderSubRow();
+    });
+    // Long-press / right-click to remove a remembered subcategory
+    let t = null;
+    chip.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; removeSub(selectedCat, s); }, 500); });
+    chip.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
+    chip.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
+    chip.addEventListener("contextmenu", (e) => { e.preventDefault(); removeSub(selectedCat, s); });
+    row.appendChild(chip);
+  }
+  const add = document.createElement("button");
+  add.className = "sub-chip sub-add";
+  add.textContent = subs.length ? "+ Add" : "+ Add project / detail";
+  add.addEventListener("click", () => {
+    const name = window.prompt("Project / detail name:");
+    if (name && name.trim()) {
+      rememberSub(selectedCat, name.trim());
+      selectedSub = name.trim();
+      renderSubRow();
+    }
+  });
+  row.appendChild(add);
+}
+
+function removeSub(catId, label) {
+  if (!window.confirm(`Remove "${label}" from ${(CAT[catId] || {}).label || "this category"}?`)) return;
+  customSubs[catId] = (customSubs[catId] || []).filter((s) => s !== label);
+  if (selectedSub === label) selectedSub = null;
+  saveSettings();
+  renderSubRow();
 }
 
 function renderCatGrid() {
@@ -462,9 +516,11 @@ function renderCatGrid() {
     btn.style.setProperty("--cat-color", c.color);
     btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
     btn.addEventListener("click", () => {
+      if (selectedCat !== c.id) selectedSub = null; // switching category clears sub
       selectedCat = c.id;
       grid.querySelectorAll(".cat-btn").forEach((b) => b.classList.remove("selected"));
       btn.classList.add("selected");
+      renderSubRow();
     });
     if (isCustom) {
       // Long-press (or right-click) a custom category to rename/delete it.
@@ -483,7 +539,7 @@ function renderCatGrid() {
   add.addEventListener("click", () => {
     const name = window.prompt("New category name:");
     const id = addCustomCategory(name);
-    if (id) { selectedCat = id; renderCatGrid(); }
+    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); }
   });
   grid.appendChild(add);
 }
@@ -532,7 +588,7 @@ function savePlan() {
 
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
-  editing = null; selectedCat = null;
+  editing = null; selectedCat = null; selectedSub = null;
   highlightSlots(null);
 }
 function saveSheet() {
@@ -540,8 +596,10 @@ function saveSheet() {
   const note = document.getElementById("noteInput").value.trim();
   const dateStr = ymd(current);
   if (!selectedCat) { closeSheet(); return; }
-  const block = { category: selectedCat, note };
-  for (const s of editing) data[s] = { category: selectedCat, note };
+  const sub = selectedSub || "";
+  if (sub) rememberSub(selectedCat, sub);
+  const block = { category: selectedCat, note, sub };
+  for (const s of editing) data[s] = { category: selectedCat, note, sub };
   pushBlocks(dateStr, editing, block);
   render();
   closeSheet();
@@ -570,6 +628,7 @@ function exportData() {
           start_time: s,
           category: day[s].category,
           category_label: (CAT[day[s].category] || CAT.other).label,
+          subcategory: day[s].sub || "",
           note: day[s].note || "",
         })),
       };

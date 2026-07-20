@@ -12,6 +12,9 @@ create table if not exists blocks (
   unique (user_id, date, start_time)
 );
 
+-- Optional second level, e.g. Work → "Project X". Reusable & queryable.
+alter table blocks add column if not exists subcategory text default '';
+
 create index if not exists blocks_user_date_idx on blocks (user_id, date);
 
 -- Row-level security: each logged-in user can only touch their OWN rows.

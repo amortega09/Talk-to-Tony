@@ -277,6 +277,25 @@ html, body {
   color: color-mix(in srgb, var(--cat-color, #666) 65%, var(--text));
   font-weight: 600;
 }
+.sub-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 14px;
+}
+.sub-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .1s, border-color .1s, color .1s;
+}
+.sub-chip:hover { background: var(--hover); }
+.sub-chip.selected { background: var(--link); border-color: var(--link); color: #fff; font-weight: 600; }
+.sub-chip.sub-add { border-style: dashed; }
 .note-input {
   width: 100%;
   border: 1px solid var(--line);
