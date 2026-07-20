@@ -128,6 +128,33 @@ function addCustomCategory(label) {
   saveSettings();
   return id;
 }
+function renameCustomCategory(id, label) {
+  const c = customCats.find((c) => c.id === id);
+  if (c) { c.label = label; rebuildCats(); saveSettings(); }
+}
+function removeCustomCategory(id) {
+  customCats = customCats.filter((c) => c.id !== id);
+  rebuildCats();
+  saveSettings();
+}
+// Long-press handler: rename, or clear the text to delete.
+function manageCategory(c) {
+  const name = window.prompt(
+    `Rename "${c.label}" — or clear the text and press OK to delete it.`, c.label);
+  if (name === null) return; // cancelled
+  const t = name.trim();
+  if (!t) {
+    if (window.confirm(`Delete "${c.label}"? Past entries in this category will show as “Other”.`)) {
+      removeCustomCategory(c.id);
+      if (selectedCat === c.id) selectedCat = null;
+      renderCatGrid();
+    }
+    return;
+  }
+  renameCustomCategory(c.id, t);
+  renderCatGrid();
+  if (editing) render(); // refresh timeline labels if a block was open
+}
 
 // ---- Sync ----
 const statusEl = () => document.getElementById("syncStatus");
@@ -429,6 +456,7 @@ function renderCatGrid() {
   const grid = document.getElementById("catGrid");
   grid.innerHTML = "";
   for (const c of CATEGORIES) {
+    const isCustom = c.id.startsWith("c_");
     const btn = document.createElement("button");
     btn.className = "cat-btn" + (selectedCat === c.id ? " selected" : "");
     btn.style.setProperty("--cat-color", c.color);
@@ -438,6 +466,14 @@ function renderCatGrid() {
       grid.querySelectorAll(".cat-btn").forEach((b) => b.classList.remove("selected"));
       btn.classList.add("selected");
     });
+    if (isCustom) {
+      // Long-press (or right-click) a custom category to rename/delete it.
+      let t = null;
+      btn.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; manageCategory(c); }, 500); });
+      btn.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
+      btn.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
+      btn.addEventListener("contextmenu", (e) => { e.preventDefault(); manageCategory(c); });
+    }
     grid.appendChild(btn);
   }
   // "+ New" tile to create a custom category
