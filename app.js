@@ -820,7 +820,7 @@ function exportData() {
 let statsRange = 7; // days; 0 = all
 
 // Returns { "YYYY-MM-DD": { "08:30": {category,note}, ... }, ... }
-async function gatherRange(days) {
+function gatherLocalRange(days) {
   const map = {};
   // Local first
   for (let i = 0; i < localStorage.length; i++) {
@@ -829,23 +829,6 @@ async function gatherRange(days) {
       const date = k.replace("day_data_", "");
       try { map[date] = JSON.parse(localStorage.getItem(k)) || {}; } catch {}
     }
-  }
-  // Remote authoritative (fills in days visited on other devices)
-  if (sb) {
-    let start = null;
-    if (days > 0) {
-      const d = new Date(); d.setDate(d.getDate() - (days - 1)); start = ymd(d);
-    }
-    try {
-      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
-      if (start) q = q.gte("date", start);
-      const { data: rows, error } = await q;
-      if (!error && rows) {
-        for (const r of rows) {
-          (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
-        }
-      }
-    } catch (e) { console.warn(e); }
   }
   // Filter to range
   if (days > 0) {
@@ -868,10 +851,8 @@ function slotToMinutes(slot) {
   const [h, m] = slot.split(":").map(Number); return h * 60 + m;
 }
 
-async function renderStats() {
+function renderStatsWithMap(map) {
   const body = document.getElementById("statsBody");
-  body.innerHTML = `<div class="stats-empty">Loading…</div>`;
-  const map = await gatherRange(statsRange);
   const dates = Object.keys(map).filter((d) => SLOTS.some((s) => map[d][s]));
 
   if (!dates.length) {
@@ -929,6 +910,40 @@ async function renderStats() {
     }).join("");
 
   body.innerHTML = cards + `<div class="stats-h">Time by category</div>` + bars;
+}
+
+async function renderStats() {
+  const map = gatherLocalRange(statsRange);
+  renderStatsWithMap(map);
+  
+  if (sb) {
+    let start = null;
+    if (statsRange > 0) {
+      const d = new Date(); d.setDate(d.getDate() - (statsRange - 1)); start = ymd(d);
+    }
+    try {
+      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
+      if (start) q = q.gte("date", start);
+      const { data: rows, error } = await q;
+      if (!error && rows) {
+        let changed = false;
+        for (const r of rows) {
+          const oldDay = map[r.date] || {};
+          const oldBlock = oldDay[r.start_time];
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "")) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
+            changed = true;
+          }
+        }
+        if (changed) {
+          for (const d of Object.keys(map)) {
+            saveLocal(d, map[d]);
+          }
+          renderStatsWithMap(map);
+        }
+      }
+    } catch (e) { console.warn(e); }
+  }
 }
 
 function openStats() {
@@ -1120,22 +1135,89 @@ function renderInsightWeekday(map) {
 function renderInsightGoals(map) {
   const planned = Object.keys(map).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][PLAN_KEY] && map[d][PLAN_KEY].note).sort().reverse();
   if (!planned.length) return emptyMsg("Set “Objectives for tomorrow” to track follow-through.");
-  let logged = 0;
+  
+  let loggedDays = 0;
+  let totalTasks = 0;
+  let completedTasks = 0;
+  
   const list = planned.map((d) => {
     const did = SLOTS.some((s) => map[d][s]);
-    if (did) logged++;
+    if (did) loggedDays++;
+    
     const [y, m, da] = d.split("-").map(Number);
     const lbl = new Date(y, m - 1, da).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    return `<div class="goal-row">
-      <div class="goal-check">${did ? "✅" : "⚪️"}</div>
-      <div class="goal-text"><div class="goal-date">${lbl}</div><div class="goal-obj">${escapeHtml(map[d][PLAN_KEY].note)}</div></div>
-    </div>`;
+    
+    const note = map[d][PLAN_KEY].note || "";
+    const lines = note.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    
+    let totalCount = 0;
+    let completedCount = 0;
+    let subListHtml = "";
+    
+    lines.forEach((line) => {
+      let isChecked = false;
+      let cleanText = line;
+      
+      let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+      let prefix = bulletMatch ? bulletMatch[1] : "";
+      let remainder = bulletMatch ? bulletMatch[2] : line;
+      
+      let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+      if (checkMatch) {
+        isChecked = checkMatch[1].toLowerCase() === "x";
+        cleanText = checkMatch[2];
+      } else {
+        cleanText = remainder;
+      }
+      
+      totalCount++;
+      totalTasks++;
+      if (isChecked) {
+        completedCount++;
+        completedTasks++;
+      }
+      
+      const itemClass = isChecked ? "goal-sub-item completed" : "goal-sub-item";
+      subListHtml += `
+        <div class="${itemClass}">
+          <span class="goal-sub-check-box"></span>
+          <span class="goal-sub-text">${escapeHtml(cleanText)}</span>
+        </div>`;
+    });
+    
+    return `
+      <div class="goal-row">
+        <div class="goal-row-header">
+          <div class="goal-check-wrapper">
+            <span class="goal-check">${did ? "✅" : "⚪️"}</span>
+          </div>
+          <div class="goal-day-info">
+            <span class="goal-date">${lbl}</span>
+            <span class="goal-day-stats">${completedCount} of ${totalCount} met</span>
+          </div>
+        </div>
+        <div class="goal-sub-list">
+          ${subListHtml}
+        </div>
+      </div>`;
   }).join("");
-  const rate = Math.round((logged / planned.length) * 100);
-  return `<div class="stat-cards">
-    <div class="stat-card"><div class="num">${rate}%</div><div class="lbl">planned days with activity logged</div></div>
-    <div class="stat-card"><div class="num">${planned.length}</div><div class="lbl">days with objectives</div></div>
-  </div><div class="stats-h">Objectives</div>${list}`;
+  
+  const consistencyRate = Math.round((loggedDays / planned.length) * 100);
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  
+  return `
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="num">${completionRate}%</div>
+        <div class="lbl">objectives met (${completedTasks}/${totalTasks})</div>
+      </div>
+      <div class="stat-card">
+        <div class="num">${consistencyRate}%</div>
+        <div class="lbl">logging consistency (${loggedDays}/${planned.length} days)</div>
+      </div>
+    </div>
+    <div class="stats-h">Objectives History</div>
+    ${list}`;
 }
 
 // ---- menu + page routing ----
@@ -1164,9 +1246,38 @@ function closeInsight() { document.getElementById("insightScreen").hidden = true
 async function renderInsight() {
   if (!currentInsight) return;
   const body = document.getElementById("insightBody");
-  body.innerHTML = `<div class="stats-empty">Loading…</div>`;
-  const map = await gatherRange(insightRange);
+  
+  const map = gatherLocalRange(insightRange);
   body.innerHTML = currentInsight.fn(map);
+  
+  if (sb) {
+    let start = null;
+    if (insightRange > 0) {
+      const d = new Date(); d.setDate(d.getDate() - (insightRange - 1)); start = ymd(d);
+    }
+    try {
+      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
+      if (start) q = q.gte("date", start);
+      const { data: rows, error } = await q;
+      if (!error && rows) {
+        let changed = false;
+        for (const r of rows) {
+          const oldDay = map[r.date] || {};
+          const oldBlock = oldDay[r.start_time];
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "")) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
+            changed = true;
+          }
+        }
+        if (changed) {
+          for (const d of Object.keys(map)) {
+            saveLocal(d, map[d]);
+          }
+          body.innerHTML = currentInsight.fn(map);
+        }
+      }
+    } catch (e) { console.warn(e); }
+  }
 }
 
 // ---- Navigation ----
