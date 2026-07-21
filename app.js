@@ -282,8 +282,24 @@ function render() {
   // Today's objectives banner (whatever was planned the day before)
   const pb = document.getElementById("planBanner");
   const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
-  if (todaysPlan) { pb.hidden = false; pb.textContent = "🎯 " + todaysPlan; }
-  else { pb.hidden = true; }
+  if (todaysPlan && todaysPlan.trim()) {
+    pb.hidden = false;
+    const lines = todaysPlan.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      let html = `<div class="plan-banner-title"><span class="plan-banner-icon">🎯</span> Today's Objectives</div><div class="plan-banner-list">`;
+      for (const line of lines) {
+        const cleanLine = line.replace(/^[•\-\*\d+\.\s]+/, "").trim() || line;
+        html += `<div class="plan-banner-item"><span class="plan-banner-bullet">•</span><span class="plan-banner-text">${escapeHtml(cleanLine)}</span></div>`;
+      }
+      html += `</div>`;
+      pb.innerHTML = html;
+    } else {
+      pb.hidden = true;
+    }
+  } else {
+    pb.hidden = true;
+    pb.innerHTML = "";
+  }
 
   // "Objectives for tomorrow" box reflects next day's plan
   const pi = document.getElementById("planInput");
@@ -449,13 +465,31 @@ function renderSubRow() {
   row.innerHTML = "";
   const subs = customSubs[selectedCat] || [];
   for (const s of subs) {
-    const chip = document.createElement("button");
+    const chip = document.createElement("div");
     chip.className = "sub-chip" + (selectedSub === s ? " selected" : "");
-    chip.textContent = s;
-    chip.addEventListener("click", () => {
+    
+    const labelSpan = document.createElement("span");
+    labelSpan.className = "sub-chip-label";
+    labelSpan.textContent = s;
+    labelSpan.addEventListener("click", () => {
       selectedSub = (selectedSub === s) ? null : s; // tap again to deselect
       renderSubRow();
     });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "sub-chip-remove";
+    delBtn.type = "button";
+    delBtn.setAttribute("aria-label", `Remove ${s}`);
+    delBtn.title = `Remove "${s}"`;
+    delBtn.innerHTML = "&times;";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeSub(selectedCat, s);
+    });
+
+    chip.appendChild(labelSpan);
+    chip.appendChild(delBtn);
+
     // Long-press / right-click to remove a remembered subcategory
     let t = null;
     chip.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; removeSub(selectedCat, s); }, 500); });
