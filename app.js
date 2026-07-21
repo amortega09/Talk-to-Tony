@@ -292,6 +292,32 @@ function toggleObjective(idx) {
   render();
 }
 
+// Carry an unchecked objective forward into the next day's plan.
+function carryForward(text) {
+  const next = new Date(current); next.setDate(next.getDate() + 1);
+  const dateStr = ymd(next);
+  const day = loadLocal(dateStr);
+  const existing = (day[PLAN_KEY] && day[PLAN_KEY].note) || "";
+  const clean = text.trim();
+  if (!clean) return;
+  // Don't duplicate if already there
+  if (existing.split(/\r?\n/).some((l) => l.replace(/^[•\-\*\d+\.\s]*(\[[ xX]\])?\s*/i, "").trim() === clean)) {
+    setStatus("", "Already in tomorrow's plan");
+    setTimeout(() => setStatus("", ""), 2000);
+    return;
+  }
+  const newNote = existing ? existing + "\n• " + clean : "• " + clean;
+  const block = { category: "plan", note: newNote };
+  day[PLAN_KEY] = block;
+  saveLocal(dateStr, day);
+  syncSlots(dateStr, [PLAN_KEY], block);
+  // Keep planInput in sync if visible
+  const pi = document.getElementById("planInput");
+  if (pi && document.activeElement !== pi) pi.value = newNote;
+  setStatus("ok", "Carried to tomorrow ✓");
+  setTimeout(() => setStatus("", ""), 2000);
+}
+
 function render() {
   document.getElementById("dateMain").textContent = prettyDate(current);
   document.getElementById("dateSub").textContent =
@@ -404,6 +430,20 @@ function render() {
         
         itemEl.appendChild(checkBox);
         itemEl.appendChild(textSpan);
+
+        // Carry-forward button — only on unmet objectives
+        if (!isChecked) {
+          const carryBtn = document.createElement("button");
+          carryBtn.className = "carry-btn";
+          carryBtn.title = "Carry forward to tomorrow";
+          carryBtn.setAttribute("aria-label", "Carry to tomorrow");
+          carryBtn.textContent = "→";
+          carryBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            carryForward(cleanText);
+          });
+          itemEl.appendChild(carryBtn);
+        }
         
         itemEl.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -1180,20 +1220,24 @@ function renderInsightGoals(map) {
       const itemClass = isChecked ? "goal-sub-item completed" : "goal-sub-item";
       subListHtml += `
         <div class="${itemClass}">
-          <span class="goal-sub-check-box"></span>
+          <span class="goal-sub-dot ${isChecked ? 'met' : 'unmet'}"></span>
           <span class="goal-sub-text">${escapeHtml(cleanText)}</span>
         </div>`;
     });
+
+    // Colour the day badge: green if all met, amber if partial, red if none
+    const ratio = totalCount > 0 ? completedCount / totalCount : 0;
+    const badgeClass = completedCount === totalCount && totalCount > 0 ? "goal-badge-all"
+      : ratio >= 0.5 ? "goal-badge-some"
+      : completedCount > 0 ? "goal-badge-few"
+      : "goal-badge-none";
     
     return `
       <div class="goal-row">
         <div class="goal-row-header">
-          <div class="goal-check-wrapper">
-            <span class="goal-check">${did ? "✅" : "⚪️"}</span>
-          </div>
           <div class="goal-day-info">
             <span class="goal-date">${lbl}</span>
-            <span class="goal-day-stats">${completedCount} of ${totalCount} met</span>
+            <span class="goal-day-stats ${badgeClass}">${completedCount}/${totalCount} met</span>
           </div>
         </div>
         <div class="goal-sub-list">
