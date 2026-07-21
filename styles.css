@@ -107,19 +107,108 @@ html, body {
 .plan-banner-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: color-mix(in srgb, #d1a13a 80%, var(--text));
   margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.plan-banner-title-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .plan-banner-icon { font-size: 14px; }
-.plan-banner-list { display: flex; flex-direction: column; gap: 6px; }
-.plan-banner-item { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; line-height: 1.4; }
-.plan-banner-bullet { color: #d1a13a; font-weight: bold; font-size: 14px; line-height: 1.3; flex-shrink: 0; }
-.plan-banner-text { flex: 1; word-break: break-word; }
+.plan-banner-toggle {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background .12s;
+}
+.plan-banner-toggle:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  .plan-banner-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+.plan-banner-chevron {
+  transition: transform .2s ease;
+  transform-origin: center;
+}
+.plan-banner.collapsed .plan-banner-chevron {
+  transform: rotate(180deg);
+}
+.plan-banner.collapsed {
+  padding-bottom: 10px;
+}
+.plan-banner.collapsed .plan-banner-list {
+  display: none;
+}
+.plan-banner-list { display: flex; flex-direction: column; gap: 8px; }
+.plan-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+}
+.plan-banner-check-box {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid color-mix(in srgb, #d1a13a 75%, var(--text));
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: var(--surface);
+  transition: background .12s, border-color .12s;
+  box-sizing: border-box;
+}
+.plan-banner-item:hover .plan-banner-check-box {
+  border-color: #d1a13a;
+  background: color-mix(in srgb, #d1a13a 8%, var(--surface));
+}
+.plan-banner-item.completed .plan-banner-check-box {
+  background: #d1a13a;
+  border-color: #d1a13a;
+}
+.plan-banner-item.completed .plan-banner-check-box::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-bottom: 2px;
+  box-sizing: border-box;
+}
+.plan-banner-text {
+  flex: 1;
+  word-break: break-word;
+  transition: color .12s, opacity .12s;
+}
+.plan-banner-item.completed .plan-banner-text {
+  text-decoration: line-through;
+  color: var(--text-soft);
+  opacity: 0.65;
+}
 
 /* ── "+ New" category tile ───────────────── */
 .cat-btn.cat-add { color: var(--text-soft); border-style: dashed; }

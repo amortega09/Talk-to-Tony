@@ -228,6 +228,70 @@ function prettyDate(d) {
   return d.toLocaleDateString(undefined, { weekday: "long" });
 }
 
+function togglePlanBannerCollapse(e) {
+  if (e) e.stopPropagation();
+  const pb = document.getElementById("planBanner");
+  if (!pb) return;
+  const isCollapsed = pb.classList.contains("collapsed");
+  if (isCollapsed) {
+    pb.classList.remove("collapsed");
+    localStorage.setItem("day_plan_banner_collapsed", "false");
+  } else {
+    pb.classList.add("collapsed");
+    localStorage.setItem("day_plan_banner_collapsed", "true");
+  }
+}
+
+function toggleObjective(idx) {
+  const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
+  if (!todaysPlan) return;
+  
+  let lines = todaysPlan.split(/\r?\n/);
+  let nonElLineIndices = [];
+  lines.forEach((line, index) => {
+    if (line.trim() !== "") {
+      nonElLineIndices.push(index);
+    }
+  });
+  
+  const targetOriginalIndex = nonElLineIndices[idx];
+  if (targetOriginalIndex === undefined) return;
+  
+  const line = lines[targetOriginalIndex];
+  let cleanLine = line.trim();
+  
+  let bulletMatch = cleanLine.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+  let prefix = bulletMatch ? bulletMatch[1] : "";
+  let remainder = bulletMatch ? bulletMatch[2] : cleanLine;
+  
+  let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+  let newLine;
+  if (checkMatch) {
+    const isChecked = checkMatch[1].toLowerCase() === "x";
+    const text = checkMatch[2];
+    const newCheck = isChecked ? "[ ]" : "[x]";
+    newLine = `${prefix}${newCheck} ${text}`;
+  } else {
+    newLine = `${prefix}[x] ${remainder}`;
+  }
+  
+  lines[targetOriginalIndex] = newLine;
+  const newNote = lines.join("\n");
+  data[PLAN_KEY] = { category: "plan", note: newNote };
+  const dateStr = ymd(current);
+  pushBlocks(dateStr, [PLAN_KEY], data[PLAN_KEY]);
+  
+  const next = new Date(current); next.setDate(next.getDate() + 1);
+  if (dateStr === ymd(next)) {
+    const pi = document.getElementById("planInput");
+    if (pi && document.activeElement !== pi) {
+      pi.value = newNote;
+    }
+  }
+  
+  render();
+}
+
 function render() {
   document.getElementById("dateMain").textContent = prettyDate(current);
   document.getElementById("dateSub").textContent =
@@ -286,13 +350,68 @@ function render() {
     pb.hidden = false;
     const lines = todaysPlan.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length > 0) {
-      let html = `<div class="plan-banner-title"><span class="plan-banner-icon">🎯</span> Today's Objectives</div><div class="plan-banner-list">`;
-      for (const line of lines) {
-        const cleanLine = line.replace(/^[•\-\*\d+\.\s]+/, "").trim() || line;
-        html += `<div class="plan-banner-item"><span class="plan-banner-bullet">•</span><span class="plan-banner-text">${escapeHtml(cleanLine)}</span></div>`;
+      pb.innerHTML = `
+        <div class="plan-banner-title" id="planBannerTitle">
+          <div class="plan-banner-title-left">
+            <span class="plan-banner-icon">🎯</span>
+            <span>Today's Objectives</span>
+          </div>
+          <button class="plan-banner-toggle" id="planBannerToggle" aria-label="Toggle objectives view">
+            <svg class="plan-banner-chevron" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+        </div>
+        <div class="plan-banner-list" id="planBannerList"></div>
+      `;
+      
+      const isCollapsed = localStorage.getItem("day_plan_banner_collapsed") === "true";
+      if (isCollapsed) {
+        pb.classList.add("collapsed");
+      } else {
+        pb.classList.remove("collapsed");
       }
-      html += `</div>`;
-      pb.innerHTML = html;
+
+      document.getElementById("planBannerToggle").addEventListener("click", togglePlanBannerCollapse);
+      document.getElementById("planBannerTitle").addEventListener("click", togglePlanBannerCollapse);
+
+      const listEl = document.getElementById("planBannerList");
+      lines.forEach((line, idx) => {
+        let isChecked = false;
+        let cleanText = line;
+        
+        let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+        let prefix = bulletMatch ? bulletMatch[1] : "";
+        let remainder = bulletMatch ? bulletMatch[2] : line;
+        
+        let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+        if (checkMatch) {
+          isChecked = checkMatch[1].toLowerCase() === "x";
+          cleanText = checkMatch[2];
+        } else {
+          cleanText = remainder;
+        }
+        
+        const itemEl = document.createElement("div");
+        itemEl.className = isChecked ? "plan-banner-item completed" : "plan-banner-item";
+        
+        const checkBox = document.createElement("span");
+        checkBox.className = "plan-banner-check-box";
+        
+        const textSpan = document.createElement("span");
+        textSpan.className = "plan-banner-text";
+        textSpan.textContent = cleanText;
+        
+        itemEl.appendChild(checkBox);
+        itemEl.appendChild(textSpan);
+        
+        itemEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleObjective(idx);
+        });
+        
+        listEl.appendChild(itemEl);
+      });
     } else {
       pb.hidden = true;
     }
@@ -1093,8 +1212,70 @@ document.getElementById("insightRangeSeg").addEventListener("click", (e) => {
   renderInsight();
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
+// Bullet point auto-formatting and list continuation
+const handleListKeydown = (e) => {
+  if (e.key === "Enter") {
+    const el = e.target;
+    const val = el.value;
+    const pos = el.selectionStart;
+    
+    // Find beginning of current line
+    const lastNewline = val.lastIndexOf("\n", pos - 1);
+    const lineStart = lastNewline + 1;
+    const currentLine = val.substring(lineStart, pos);
+    
+    // Match bullet or checklist prefixes
+    const match = currentLine.match(/^([•\-\*\d+\.\s]*(\[[ xX]\])?\s*)/);
+    if (match && match[1]) {
+      const prefix = match[1];
+      const remainder = currentLine.substring(prefix.length).trim();
+      
+      e.preventDefault();
+      
+      if (remainder === "") {
+        // Clear empty bullet line on Enter to end the list
+        const newVal = val.substring(0, lineStart) + val.substring(pos);
+        el.value = newVal;
+        el.selectionStart = el.selectionEnd = lineStart;
+      } else {
+        // Continue list prefix
+        let nextPrefix = prefix;
+        const numMatch = prefix.match(/^(\d+)(\.\s*)/);
+        if (numMatch) {
+          nextPrefix = (parseInt(numMatch[1], 10) + 1) + numMatch[2];
+        } else if (prefix.includes("[x]")) {
+          nextPrefix = prefix.replace("[x]", "[ ]");
+        } else if (prefix.includes("[X]")) {
+          nextPrefix = prefix.replace("[X]", "[ ]");
+        }
+        
+        const insertion = "\n" + nextPrefix;
+        const newVal = val.substring(0, pos) + insertion + val.substring(pos);
+        el.value = newVal;
+        el.selectionStart = el.selectionEnd = pos + insertion.length;
+      }
+      el.dispatchEvent(new Event("input"));
+    }
+  }
+};
+
+const handleListInput = (e) => {
+  const el = e.target;
+  const val = el.value;
+  // Automatically prepend a bullet point if they start typing the first character and it's not a bullet/list character
+  if (val.length === 1 && !/^[-*•\d+\[]/.test(val)) {
+    el.value = "• " + val;
+    el.selectionStart = el.selectionEnd = 3;
+    el.dispatchEvent(new Event("input"));
+  }
+};
+
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
+document.getElementById("reflectInput").addEventListener("keydown", handleListKeydown);
+document.getElementById("reflectInput").addEventListener("input", handleListInput);
 document.getElementById("planInput").addEventListener("blur", savePlan);
+document.getElementById("planInput").addEventListener("keydown", handleListKeydown);
+document.getElementById("planInput").addEventListener("input", handleListInput);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
