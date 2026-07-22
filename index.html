@@ -23,6 +23,11 @@
       <input class="auth-input" id="authEmail" type="email" inputmode="email"
              autocomplete="email" placeholder="you@email.com" />
       <button class="primary-btn auth-btn" id="authSend">Email me a login link</button>
+      <div class="auth-setup" id="authSetup" hidden>
+        <input class="auth-input" id="supabaseUrl" type="url" placeholder="Supabase URL" autocomplete="off" />
+        <input class="auth-input" id="supabaseKey" type="password" placeholder="Supabase anon key" autocomplete="off" />
+        <button class="ghost-btn auth-btn" id="saveSupabaseConfig" type="button">Save Supabase settings</button>
+      </div>
       <div class="auth-msg" id="authMsg"></div>
     </div>
   </section>

@@ -524,6 +524,15 @@ html, body {
 }
 .auth-input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 20%, transparent); }
 .auth-btn { width: 100%; flex: none; }
+.auth-setup {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.auth-setup .auth-input {
+  font-size: 13px;
+  text-align: left;
+}
 .auth-msg { font-size: 13px; color: var(--text-soft); margin-top: 14px; min-height: 18px; }
 
 /* ── Stats screen ────────────────────────── */

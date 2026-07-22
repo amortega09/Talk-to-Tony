@@ -52,10 +52,24 @@ let USER_ID = null;
 
 // ---- Supabase (optional) ----
 let sb = null;
-const cfg = window.APP_CONFIG || {};
-if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) {
-  sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+function loadSavedSupabaseConfig() {
+  try { return JSON.parse(localStorage.getItem("day_supabase_config")) || {}; }
+  catch { return {}; }
 }
+function getSupabaseConfig() {
+  const saved = loadSavedSupabaseConfig();
+  return {
+    SUPABASE_URL: (window.APP_CONFIG && window.APP_CONFIG.SUPABASE_URL) || saved.SUPABASE_URL || "",
+    SUPABASE_ANON_KEY: (window.APP_CONFIG && window.APP_CONFIG.SUPABASE_ANON_KEY) || saved.SUPABASE_ANON_KEY || "",
+  };
+}
+function configureSupabase() {
+  const cfg = getSupabaseConfig();
+  if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) {
+    sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  }
+}
+configureSupabase();
 
 // ---- Date helpers ----
 function ymd(d) {
@@ -1834,6 +1848,11 @@ function applySession(session) {
 async function sendMagicLink() {
   const email = document.getElementById("authEmail").value.trim();
   const msg = document.getElementById("authMsg");
+  if (!sb) {
+    msg.textContent = "Add Supabase settings below first.";
+    document.getElementById("authSetup").hidden = false;
+    return;
+  }
   if (!email) { msg.textContent = "Enter your email first."; return; }
   msg.textContent = "Sending…";
   try {
@@ -1848,18 +1867,44 @@ async function sendMagicLink() {
   }
 }
 
-async function initAuth() {
-  if (!sb) {
-    document.getElementById("app").hidden = true;
-    document.getElementById("authScreen").hidden = false;
-    document.getElementById("authMsg").textContent =
-      "Supabase isn't configured yet — add your keys in config.js.";
+async function saveBrowserSupabaseConfig() {
+  const url = document.getElementById("supabaseUrl").value.trim();
+  const key = document.getElementById("supabaseKey").value.trim();
+  const msg = document.getElementById("authMsg");
+  if (!url || !key) {
+    msg.textContent = "Paste both your Supabase URL and anon key.";
     return;
   }
+  localStorage.setItem("day_supabase_config", JSON.stringify({
+    SUPABASE_URL: url,
+    SUPABASE_ANON_KEY: key,
+  }));
+  configureSupabase();
+  if (!sb) {
+    msg.textContent = "Could not initialise Supabase. Check the URL/key.";
+    return;
+  }
+  msg.textContent = "Supabase saved. Now send yourself a login link.";
+}
+
+function wireAuthControls() {
   document.getElementById("authSend").addEventListener("click", sendMagicLink);
   document.getElementById("authEmail").addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendMagicLink();
   });
+  document.getElementById("saveSupabaseConfig").addEventListener("click", saveBrowserSupabaseConfig);
+}
+
+async function initAuth() {
+  wireAuthControls();
+  if (!sb) {
+    document.getElementById("app").hidden = true;
+    document.getElementById("authScreen").hidden = false;
+    document.getElementById("authSetup").hidden = false;
+    document.getElementById("authMsg").textContent =
+      "Supabase isn't configured yet.";
+    return;
+  }
   document.getElementById("signOut").addEventListener("click", () => sb.auth.signOut());
   sb.auth.onAuthStateChange((_e, session) => applySession(session));
   const { data } = await sb.auth.getSession();
