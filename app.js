@@ -8,6 +8,7 @@ const BUILTIN_CATEGORIES = [
   { id: "sleep",    label: "Sleep",    color: "#7b8cde" },
   { id: "work",     label: "Work",     color: "#4a5d4e" },
   { id: "exercise", label: "Exercise", color: "#e08a4a" },
+  { id: "gym",      label: "Gym",      color: "#c0693e" },
   { id: "food",     label: "Food",     color: "#d1a13a" },
   { id: "learn",    label: "Learn",    color: "#5aa0a8" },
   { id: "social",   label: "Social",   color: "#c76b98" },
@@ -26,8 +27,10 @@ let customSubs = {};                 // { catId: [label,...] }, remembered subca
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
 function rebuildCats() {
-  CATEGORIES = BUILTIN_CATEGORIES.concat(customCats);
-  CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+  const builtinLabels = new Set(BUILTIN_CATEGORIES.map((c) => c.label.toLowerCase()));
+  const visibleCustomCats = customCats.filter((c) => !builtinLabels.has(c.label.toLowerCase()));
+  CATEGORIES = BUILTIN_CATEGORIES.concat(visibleCustomCats);
+  CAT = Object.fromEntries(BUILTIN_CATEGORIES.concat(customCats).map((c) => [c.id, c]));
 }
 rebuildCats();
 
@@ -599,12 +602,12 @@ function highlightSlots(slotList) {
 }
 
 // ---- Edit sheet ----
-function openSheet(slotList) {
+function openSheet(slotList, preferredCat) {
   editing = slotList;
   highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
   const existing = data[first];
-  selectedCat = existing ? existing.category : null;
+  selectedCat = existing ? existing.category : (preferredCat || null);
   selectedSub = existing ? (existing.sub || null) : null;
   const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
   const hrs = slotList.length / 2;
@@ -616,6 +619,12 @@ function openSheet(slotList) {
   renderNoteSuggest();
   document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
   document.getElementById("sheetBackdrop").hidden = false;
+}
+
+function openGymTimeBlock() {
+  const now = new Date();
+  const slot = String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30");
+  openSheet([slot], "gym");
 }
 
 function renderSubRow() {
@@ -1014,9 +1023,14 @@ const INSIGHTS = [
 // ---- shared helpers ----
 const catColor = (id) => (CAT[id] || CAT.other).color;
 const catLabel = (id) => (CAT[id] || CAT.other).label;
-const PRODUCTIVE = ["work", "learn", "exercise"];
+const PRODUCTIVE = ["work", "learn", "exercise", "gym"];
 const WD_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
+function isGymBlock(b) {
+  if (!b) return false;
+  const c = CAT[b.category];
+  return b.category === "gym" || (c && c.label.toLowerCase() === "gym");
+}
 function weekdayOf(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).getDay();
@@ -1352,18 +1366,30 @@ function saveGymLogger() {
 
 // -- Insights renderer --
 function renderInsightGym(map) {
-  // Collect all days that have gym data, sorted newest first
-  const days = Object.keys(map)
-    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][GYM_KEY])
-    .sort()
-    .reverse();
+  const timelineDays = trackedDates(map).filter((d) => SLOTS.some((s) => isGymBlock(map[d][s])));
+  const legacyDays = Object.keys(map)
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][GYM_KEY]);
+  const days = Array.from(new Set(timelineDays.concat(legacyDays))).sort().reverse();
 
   if (!days.length) {
-    return `<div class="stats-empty">No gym sessions logged yet.<br>Use the <strong>🏋️ Log Workout</strong> button on the main screen.</div>`;
+    return `<div class="stats-empty">No gym sessions logged yet.<br>Tap Gym to log the current time block.</div>`;
   }
 
+  let totalSlots = 0;
+  let daysWithTimelineGym = 0;
+  for (const d of timelineDays) {
+    const count = SLOTS.filter((s) => isGymBlock(map[d][s])).length;
+    totalSlots += count;
+    if (count) daysWithTimelineGym++;
+  }
+
+  const cards = `<div class="stat-cards">
+    <div class="stat-card"><div class="num">${fmtH(totalSlots / 2)}</div><div class="lbl">gym time logged</div></div>
+    <div class="stat-card"><div class="num">${daysWithTimelineGym}</div><div class="lbl">days with gym blocks</div></div>
+  </div>`;
+
   // Weight history (mini chart using bar widths)
-  const weightDays = days.filter((d) => {
+  const weightDays = legacyDays.sort().reverse().filter((d) => {
     const raw = map[d][GYM_KEY];
     try { const g = JSON.parse(raw.note || "{}"); return g.weight != null; } catch { return false; }
   }).slice(0, 14).reverse();
@@ -1393,28 +1419,54 @@ function renderInsightGym(map) {
     weightHtml = `<div class="stats-h">Weight history (kg)</div>${bars}`;
   }
 
-  // Session log
+  // Session log: prefer normal timeline blocks, then show older structured logs.
   const sessionHtml = days.slice(0, 20).map((d) => {
-    let gym;
-    try { gym = JSON.parse(map[d][GYM_KEY].note || "{}"); } catch { return ""; }
     const [y, mo, da] = d.split("-").map(Number);
     const lbl = new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    const weightTag = gym.weight != null ? `<span class="gym-weight-tag">${gym.weight} kg</span>` : "";
-    const sessRows = (gym.sessions || []).map((s) => {
-      const detail = [s.sets ? `${s.sets}×` : "", s.reps ? `${s.reps}` : "", s.kg !== undefined ? ` @ ${s.kg} kg` : ""].join("");
-      return `<div class="gym-log-row"><span class="gym-log-exercise">${escapeHtml(s.exercise || "—")}</span><span class="gym-log-detail">${escapeHtml(detail)}</span></div>`;
+    const slotRows = [];
+    let active = null;
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}` : null;
+      if (key && active && active.key === key && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
+        active.last = s;
+      } else {
+        if (active) slotRows.push(active);
+        active = key ? { key, first: s, last: s, block: b } : null;
+      }
+    }
+    if (active) slotRows.push(active);
+
+    const timelineRows = slotRows.map((r) => {
+      const endSlot = SLOTS[(SLOTS.indexOf(r.last) + 1) % 48] || "00:00";
+      const label = r.block.sub || r.block.note || "Gym";
+      const detail = `${to12(r.first)} - ${to12(endSlot)}`;
+      return `<div class="gym-log-row"><span class="gym-log-exercise">${escapeHtml(label)}</span><span class="gym-log-detail">${detail}</span></div>`;
     }).join("");
+
+    let gym = null;
+    if (map[d][GYM_KEY]) {
+      try { gym = JSON.parse(map[d][GYM_KEY].note || "{}"); } catch {}
+    }
+    const weightTag = gym && gym.weight != null ? `<span class="gym-weight-tag">${gym.weight} kg</span>` : "";
+    const legacyRows = gym ? (gym.sessions || []).map((s) => {
+      const detail = [s.sets ? `${s.sets}x` : "", s.reps ? `${s.reps}` : "", s.kg !== undefined ? ` @ ${s.kg} kg` : ""].join("");
+      return `<div class="gym-log-row"><span class="gym-log-exercise">${escapeHtml(s.exercise || "Gym detail")}</span><span class="gym-log-detail">${escapeHtml(detail)}</span></div>`;
+    }).join("") : "";
+
     return `<div class="goal-row">
       <div class="goal-row-header">
         <div class="goal-day-info">
           <span class="goal-date">${lbl}</span>${weightTag}
         </div>
       </div>
-      ${sessRows || `<div class="gym-log-row"><span class="gym-log-exercise" style="color:var(--text-faint)">Weight only</span></div>`}
+      ${timelineRows || ""}
+      ${legacyRows || ""}
+      ${(!timelineRows && !legacyRows && weightTag) ? `<div class="gym-log-row"><span class="gym-log-exercise" style="color:var(--text-faint)">Weight only</span></div>` : ""}
     </div>`;
   }).join("");
 
-  return weightHtml + `<div class="stats-h">Session log</div>` + sessionHtml;
+  return cards + weightHtml + `<div class="stats-h">Session log</div>` + sessionHtml;
 }
 
 // ---- menu + page routing ----
@@ -1497,8 +1549,7 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
-// Gym Logger wiring
-document.getElementById("gymBtn").addEventListener("click", openGymLogger);
+document.getElementById("gymBtn").addEventListener("click", openGymTimeBlock);
 document.getElementById("gymBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "gymBackdrop") closeGymLogger();
 });
