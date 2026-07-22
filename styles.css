@@ -696,6 +696,85 @@ html, body {
   #app, .stats-screen, .sheet { max-width: 720px; }
 }
 
+/* ── Gym Logger ──────────────────────────── */
+.gym-field-row {
+  margin-bottom: 14px;
+}
+.gym-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.gym-sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.gym-session-row {
+  display: grid;
+  grid-template-columns: 1fr 52px 52px 60px 28px;
+  gap: 5px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.gym-input {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  width: 100%;
+  transition: border-color .12s, box-shadow .12s;
+}
+.gym-input:focus {
+  border-color: var(--link);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 20%, transparent);
+}
+.gym-input.gym-num { text-align: center; padding: 8px 4px; }
+.gym-input::placeholder { color: var(--text-faint); }
+.gym-remove-btn {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+  transition: color .1s;
+}
+.gym-remove-btn:hover { color: #d44c47; }
+
+/* ── Gym Insights ────────────────────────── */
+.gym-weight-tag {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: color-mix(in srgb, #e08a4a 18%, var(--surface));
+  color: color-mix(in srgb, #e08a4a 90%, var(--text));
+  margin-left: 8px;
+}
+.gym-log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.gym-log-row:last-child { border-bottom: none; }
+.gym-log-exercise { flex: 1; font-weight: 500; }
+.gym-log-detail { color: var(--text-soft); font-size: 12.5px; white-space: nowrap; }
+
 /* ── Dark mode (Notion dark) ─────────────── */
 @media (prefers-color-scheme: dark) {
   :root {

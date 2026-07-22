@@ -34,6 +34,7 @@ rebuildCats();
 // Special "slot" keys stored in the same table (never real times).
 const REFLECT_KEY = "__reflect__";
 const PLAN_KEY = "__plan__";
+const GYM_KEY = "__gym__";
 const SETTINGS_DATE = "2000-01-01";  // sentinel row for synced settings
 
 // ---- Authenticated user id (set after Supabase magic-link login) ----
@@ -1007,6 +1008,7 @@ const INSIGHTS = [
   { id: "streak",   title: "Consistency",     icon: "✅",  desc: "Streaks & sleep targets",       fn: renderInsightStreak },
   { id: "weekday",  title: "Day-of-week",     icon: "📅",  desc: "Patterns by weekday",           fn: renderInsightWeekday },
   { id: "goals",    title: "Objectives",      icon: "🎯",  desc: "Planned vs. actually logged",   fn: renderInsightGoals },
+  { id: "gym",      title: "Gym Tracker",     icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym },
 ];
 
 // ---- shared helpers ----
@@ -1264,6 +1266,157 @@ function renderInsightGoals(map) {
     ${list}`;
 }
 
+// ====================================================================
+//  Gym Tracker
+// ====================================================================
+
+// -- Data helpers --
+function gymLocalKey(dateStr) { return "day_data_" + dateStr; }
+function loadGym(dateStr) {
+  const day = loadLocal(dateStr);
+  const raw = day[GYM_KEY];
+  if (!raw) return { weight: null, sessions: [] };
+  try { return JSON.parse(raw.note || "{}"); } catch { return { weight: null, sessions: [] }; }
+}
+function saveGym(dateStr, gymObj) {
+  const day = loadLocal(dateStr);
+  const block = { category: "gym", note: JSON.stringify(gymObj) };
+  day[GYM_KEY] = block;
+  saveLocal(dateStr, day);
+  pushBlocks(dateStr, [GYM_KEY], block);
+}
+
+// -- Dedicated gym logging sheet (separate from the main time-block sheet) --
+function openGymLogger() {
+  const dateStr = ymd(current);
+  const gym = loadGym(dateStr);
+  const el = document.getElementById("gymSheet");
+
+  // Populate inputs
+  document.getElementById("gymWeight").value = gym.weight !== null ? gym.weight : "";
+
+  // Render saved sessions
+  const sessEl = document.getElementById("gymSessions");
+  sessEl.innerHTML = "";
+  const sessions = gym.sessions || [];
+  sessions.forEach((s, i) => addSessionRow(s, i));
+
+  document.getElementById("gymBackdrop").hidden = false;
+}
+function closeGymLogger() {
+  document.getElementById("gymBackdrop").hidden = true;
+}
+
+function addSessionRow(s, idx) {
+  const container = document.getElementById("gymSessions");
+  const row = document.createElement("div");
+  row.className = "gym-session-row";
+  row.dataset.idx = idx !== undefined ? idx : container.children.length;
+  row.innerHTML = `
+    <input class="gym-input" type="text" placeholder="Exercise (e.g. Bench press)" value="${s ? escapeHtml(s.exercise || "") : ""}">
+    <input class="gym-input gym-num" type="number" min="1" placeholder="Sets" value="${s ? (s.sets || "") : ""}">
+    <input class="gym-input gym-num" type="number" min="1" placeholder="Reps" value="${s ? (s.reps || "") : ""}">
+    <input class="gym-input gym-num" type="number" min="0" step="0.5" placeholder="kg" value="${s ? (s.kg !== undefined ? s.kg : "") : ""}">
+    <button class="gym-remove-btn" aria-label="Remove" title="Remove">×</button>
+  `;
+  row.querySelector(".gym-remove-btn").addEventListener("click", () => row.remove());
+  container.appendChild(row);
+}
+
+function saveGymLogger() {
+  const dateStr = ymd(current);
+  const weightVal = document.getElementById("gymWeight").value.trim();
+  const weight = weightVal !== "" ? parseFloat(weightVal) : null;
+
+  const sessions = [];
+  document.querySelectorAll(".gym-session-row").forEach((row) => {
+    const inputs = row.querySelectorAll("input");
+    const exercise = inputs[0].value.trim();
+    const sets = parseInt(inputs[1].value, 10);
+    const reps = parseInt(inputs[2].value, 10);
+    const kgVal = inputs[3].value.trim();
+    if (exercise) {
+      const obj = { exercise };
+      if (!isNaN(sets)) obj.sets = sets;
+      if (!isNaN(reps)) obj.reps = reps;
+      if (kgVal !== "") obj.kg = parseFloat(kgVal);
+      sessions.push(obj);
+    }
+  });
+
+  saveGym(dateStr, { weight, sessions });
+  closeGymLogger();
+  setStatus("ok", "Gym saved ✓");
+  setTimeout(() => setStatus("", ""), 2000);
+}
+
+// -- Insights renderer --
+function renderInsightGym(map) {
+  // Collect all days that have gym data, sorted newest first
+  const days = Object.keys(map)
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][GYM_KEY])
+    .sort()
+    .reverse();
+
+  if (!days.length) {
+    return `<div class="stats-empty">No gym sessions logged yet.<br>Use the <strong>🏋️ Log Workout</strong> button on the main screen.</div>`;
+  }
+
+  // Weight history (mini chart using bar widths)
+  const weightDays = days.filter((d) => {
+    const raw = map[d][GYM_KEY];
+    try { const g = JSON.parse(raw.note || "{}"); return g.weight != null; } catch { return false; }
+  }).slice(0, 14).reverse();
+
+  let weightHtml = "";
+  if (weightDays.length > 0) {
+    const weights = weightDays.map((d) => {
+      try { return JSON.parse(map[d][GYM_KEY].note || "{}").weight; } catch { return null; }
+    }).filter((w) => w != null);
+    const minW = Math.min(...weights) - 1;
+    const maxW = Math.max(...weights) + 1;
+    const range = maxW - minW || 1;
+
+    const bars = weightDays.map((d, i) => {
+      const w = weights[i];
+      if (w == null) return "";
+      const pct = ((w - minW) / range) * 100;
+      const [y, mo, da] = d.split("-").map(Number);
+      const lbl = new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+      return `<div class="bar-row">
+        <div class="bar-label"><span class="dot" style="background:#e08a4a"></span>${lbl}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:#e08a4a"></div></div>
+        <div class="bar-val">${w} kg</div>
+      </div>`;
+    }).join("");
+
+    weightHtml = `<div class="stats-h">Weight history (kg)</div>${bars}`;
+  }
+
+  // Session log
+  const sessionHtml = days.slice(0, 20).map((d) => {
+    let gym;
+    try { gym = JSON.parse(map[d][GYM_KEY].note || "{}"); } catch { return ""; }
+    const [y, mo, da] = d.split("-").map(Number);
+    const lbl = new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const weightTag = gym.weight != null ? `<span class="gym-weight-tag">${gym.weight} kg</span>` : "";
+    const sessRows = (gym.sessions || []).map((s) => {
+      const detail = [s.sets ? `${s.sets}×` : "", s.reps ? `${s.reps}` : "", s.kg !== undefined ? ` @ ${s.kg} kg` : ""].join("");
+      return `<div class="gym-log-row"><span class="gym-log-exercise">${escapeHtml(s.exercise || "—")}</span><span class="gym-log-detail">${escapeHtml(detail)}</span></div>`;
+    }).join("");
+    return `<div class="goal-row">
+      <div class="goal-row-header">
+        <div class="goal-day-info">
+          <span class="goal-date">${lbl}</span>${weightTag}
+        </div>
+      </div>
+      ${sessRows || `<div class="gym-log-row"><span class="gym-log-exercise" style="color:var(--text-faint)">Weight only</span></div>`}
+    </div>`;
+  }).join("");
+
+  return weightHtml + `<div class="stats-h">Session log</div>` + sessionHtml;
+}
+
 // ---- menu + page routing ----
 function openInsightsMenu() {
   const list = document.getElementById("menuList");
@@ -1344,6 +1497,14 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
+// Gym Logger wiring
+document.getElementById("gymBtn").addEventListener("click", openGymLogger);
+document.getElementById("gymBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "gymBackdrop") closeGymLogger();
+});
+document.getElementById("gymSaveBtn").addEventListener("click", saveGymLogger);
+document.getElementById("gymCancelBtn").addEventListener("click", closeGymLogger);
+document.getElementById("gymAddSetBtn").addEventListener("click", () => addSessionRow(null));
 document.getElementById("statsBack").addEventListener("click", closeStats);
 document.getElementById("rangeSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-range]");
