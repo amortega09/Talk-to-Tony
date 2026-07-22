@@ -715,9 +715,25 @@ html, body {
   justify-content: space-between;
   margin-bottom: 8px;
 }
+.gym-inline-panel {
+  margin-bottom: 12px;
+}
+.gym-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
 .gym-session-row {
   display: grid;
   grid-template-columns: 1fr 52px 52px 60px 28px;
+  gap: 5px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.gym-inline-row {
+  display: grid;
+  grid-template-columns: minmax(116px, 1fr) 54px 54px 64px 28px;
   gap: 5px;
   margin-bottom: 6px;
   align-items: center;
@@ -740,6 +756,9 @@ html, body {
 }
 .gym-input.gym-num { text-align: center; padding: 8px 4px; }
 .gym-input::placeholder { color: var(--text-faint); }
+.gym-note-hidden {
+  display: none;
+}
 .gym-remove-btn {
   border: none;
   background: none;
@@ -752,6 +771,17 @@ html, body {
   transition: color .1s;
 }
 .gym-remove-btn:hover { color: #d44c47; }
+
+@media (max-width: 460px) {
+  .gym-inline-row {
+    grid-template-columns: 1fr 48px 48px 56px 24px;
+  }
+  .gym-input {
+    font-size: 12px;
+    padding: 8px 7px;
+  }
+  .gym-input.gym-num { padding: 8px 2px; }
+}
 
 /* ── Gym Insights ────────────────────────── */
 .gym-weight-tag {

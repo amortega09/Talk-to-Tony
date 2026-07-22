@@ -22,9 +22,15 @@ const AUTO_COLORS = [
   "#6a7fd0", "#7a9e5e", "#c65f5f", "#4a8fb0", "#9a7f4a", "#8a6fb0",
 ];
 const DEFAULT_GYM_SUBS = ["Strength", "Cardio", "Mobility", "Upper", "Lower"];
+const DEFAULT_GYM_EXERCISES = [
+  "Dumbbell press", "Bench press", "Squat", "Deadlift", "Lat pulldown",
+  "Shoulder press", "Row", "Leg press", "Bicep curl", "Tricep pushdown",
+];
+const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
+let gymExercises = DEFAULT_GYM_EXERCISES.slice();
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
 function rebuildCats() {
@@ -93,7 +99,8 @@ function loadSettingsLocal() {
     const s = JSON.parse(localStorage.getItem("day_settings")) || {};
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
-  } catch { customCats = []; customSubs = {}; }
+    gymExercises = mergeGymExercises(s.gymExercises);
+  } catch { customCats = []; customSubs = {}; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
   rebuildCats();
 }
 async function pullSettings() {
@@ -107,21 +114,41 @@ async function pullSettings() {
       const s = JSON.parse(rows[0].note || "{}");
       if (Array.isArray(s.customCats)) customCats = s.customCats;
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs }));
+      gymExercises = mergeGymExercises(s.gymExercises);
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
+}
+function mergeGymExercises(items) {
+  const seen = new Set();
+  return DEFAULT_GYM_EXERCISES.concat(Array.isArray(items) ? items : [])
+    .map((s) => (s || "").trim())
+    .filter((s) => {
+      const key = s.toLowerCase();
+      if (!s || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+function rememberGymExercise(label) {
+  label = (label || "").trim();
+  if (!label) return;
+  if (!gymExercises.some((s) => s.toLowerCase() === label.toLowerCase())) {
+    gymExercises.push(label);
+    saveSettings();
+  }
 }
 function rememberSub(catId, label) {
   label = (label || "").trim();
@@ -345,12 +372,13 @@ function render() {
     const el = document.createElement("div");
     el.className = "block " + (b ? "filled" : "empty") + (slot === rangeAnchor ? " anchor" : "");
     const c = b ? (CAT[b.category] || CAT.other) : null;
+    const noteText = displayBlockNote(b);
     if (c) el.style.setProperty("--blk-color", c.color);
     el.innerHTML = `
       <div class="block-time">${to12(slot)}</div>
       <div class="block-body">
         <div class="block-cat">${b ? (c.label + (b.sub ? ` · ${escapeHtml(b.sub)}` : "")) : "—"}</div>
-        ${b && b.note ? `<div class="block-note">${escapeHtml(b.note)}</div>` : ""}
+        ${noteText ? `<div class="block-note">${escapeHtml(noteText)}</div>` : ""}
       </div>`;
     el.dataset.slot = slot;
     attachPress(el, slot);
@@ -489,6 +517,29 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+function parseGymWorkoutNote(note) {
+  if (!note || !note.startsWith(GYM_NOTE_PREFIX)) return null;
+  try {
+    const obj = JSON.parse(note.slice(GYM_NOTE_PREFIX.length));
+    return obj && Array.isArray(obj.exercises) ? obj : null;
+  } catch {
+    return null;
+  }
+}
+function formatGymExercise(ex) {
+  const volume = ex.sets && ex.reps ? `${ex.sets}x${ex.reps}` : "";
+  const load = ex.kg != null && ex.kg !== "" ? ` @ ${ex.kg}kg` : "";
+  return `${ex.exercise}${volume || load ? " " + volume + load : ""}`;
+}
+function gymWorkoutSummary(note) {
+  const workout = parseGymWorkoutNote(note);
+  if (!workout) return note || "";
+  return workout.exercises.map(formatGymExercise).join("; ");
+}
+function displayBlockNote(block) {
+  if (!block || !block.note) return "";
+  return isGymBlock(block) ? gymWorkoutSummary(block.note) : block.note;
+}
 
 // ---- Press & hold + range selection (tap end, or drag to paint) ----
 let suppressNextTap = false; // swallow the release right after a long-press fires
@@ -619,7 +670,8 @@ function openSheet(slotList, preferredCat) {
   renderSubRow();
   renderNoteSuggest();
   updateNotePlaceholder();
-  document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
+  document.getElementById("noteInput").value = existing ? (isGymBlock(existing) ? "" : (existing.note || "")) : "";
+  renderGymInline(existing);
   document.getElementById("sheetBackdrop").hidden = false;
 }
 
@@ -694,8 +746,79 @@ function updateNotePlaceholder() {
   const input = document.getElementById("noteInput");
   if (!input) return;
   input.placeholder = isGymCategoryId(selectedCat)
-    ? "What did you train? (required)"
+    ? "Optional note"
     : "What are you doing? (optional)";
+  input.classList.toggle("gym-note-hidden", isGymCategoryId(selectedCat));
+}
+
+function renderGymExerciseOptions() {
+  const list = document.getElementById("gymExerciseOptions");
+  list.innerHTML = "";
+  for (const name of gymExercises) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    list.appendChild(opt);
+  }
+}
+
+function addGymInlineRow(ex) {
+  const rows = document.getElementById("gymExerciseRows");
+  const row = document.createElement("div");
+  row.className = "gym-inline-row";
+  row.innerHTML = `
+    <input class="gym-input gym-exercise-name" list="gymExerciseOptions" type="text" placeholder="Exercise" value="${ex ? escapeHtml(ex.exercise || "") : ""}">
+    <input class="gym-input gym-num gym-sets" type="number" min="1" placeholder="Sets" value="${ex && ex.sets ? ex.sets : ""}">
+    <input class="gym-input gym-num gym-reps" type="number" min="1" placeholder="Reps" value="${ex && ex.reps ? ex.reps : ""}">
+    <input class="gym-input gym-num gym-kg" type="number" min="0" step="0.5" placeholder="kg" value="${ex && ex.kg != null ? ex.kg : ""}">
+    <button class="gym-remove-btn" type="button" aria-label="Remove exercise" title="Remove">×</button>
+  `;
+  row.querySelector(".gym-remove-btn").addEventListener("click", () => row.remove());
+  rows.appendChild(row);
+}
+
+function renderGymInline(existing) {
+  const panel = document.getElementById("gymInlinePanel");
+  const rows = document.getElementById("gymExerciseRows");
+  const isGym = isGymCategoryId(selectedCat);
+  panel.hidden = !isGym;
+  rows.innerHTML = "";
+  if (!isGym) return;
+
+  renderGymExerciseOptions();
+  const parsed = existing && isGymBlock(existing) ? parseGymWorkoutNote(existing.note || "") : null;
+  const exercises = parsed && parsed.exercises.length ? parsed.exercises : [{}];
+  exercises.forEach(addGymInlineRow);
+}
+
+function collectGymInlineWorkout() {
+  const exercises = [];
+  document.querySelectorAll(".gym-inline-row").forEach((row) => {
+    const exercise = row.querySelector(".gym-exercise-name").value.trim();
+    const sets = parseInt(row.querySelector(".gym-sets").value, 10);
+    const reps = parseInt(row.querySelector(".gym-reps").value, 10);
+    const kgVal = row.querySelector(".gym-kg").value.trim();
+    if (!exercise) return;
+    const ex = { exercise };
+    if (!isNaN(sets)) ex.sets = sets;
+    if (!isNaN(reps)) ex.reps = reps;
+    if (kgVal !== "") ex.kg = parseFloat(kgVal);
+    exercises.push(ex);
+  });
+  return { exercises };
+}
+
+function firstInvalidGymInlineInput() {
+  const rows = Array.from(document.querySelectorAll(".gym-inline-row"));
+  if (!rows.length) return document.getElementById("addInlineExercise");
+  for (const row of rows) {
+    const name = row.querySelector(".gym-exercise-name");
+    const sets = row.querySelector(".gym-sets");
+    const reps = row.querySelector(".gym-reps");
+    if (!name.value.trim()) return name;
+    if (!sets.value.trim()) return sets;
+    if (!reps.value.trim()) return reps;
+  }
+  return null;
 }
 
 // Recent distinct notes previously typed in this category (most recent first).
@@ -724,7 +847,7 @@ function recentNotesFor(catId, limit) {
 function renderNoteSuggest() {
   const row = document.getElementById("noteSuggest");
   row.innerHTML = "";
-  if (!selectedCat) { row.hidden = true; return; }
+  if (!selectedCat || isGymCategoryId(selectedCat)) { row.hidden = true; return; }
   const notes = recentNotesFor(selectedCat, 6);
   if (!notes.length) { row.hidden = true; return; }
   row.hidden = false;
@@ -763,6 +886,7 @@ function renderCatGrid() {
       renderSubRow();
       renderNoteSuggest();
       updateNotePlaceholder();
+      renderGymInline(null);
     });
     if (isCustom) {
       // Long-press (or right-click) a custom category to rename/delete it.
@@ -781,7 +905,7 @@ function renderCatGrid() {
   add.addEventListener("click", () => {
     const name = window.prompt("New category name:");
     const id = addCustomCategory(name);
-    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); renderNoteSuggest(); }
+    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); renderNoteSuggest(); updateNotePlaceholder(); renderGymInline(null); }
   });
   grid.appendChild(add);
 }
@@ -835,14 +959,20 @@ function closeSheet() {
 }
 function saveSheet() {
   if (!editing) return;
-  const note = document.getElementById("noteInput").value.trim();
+  let note = document.getElementById("noteInput").value.trim();
   const dateStr = ymd(current);
   if (!selectedCat) { closeSheet(); return; }
   const sub = selectedSub || "";
-  if (isGymCategoryId(selectedCat) && !sub && !note) {
-    setStatus("err", "Add what you did");
-    document.getElementById("noteInput").focus();
-    return;
+  if (isGymCategoryId(selectedCat)) {
+    const invalid = firstInvalidGymInlineInput();
+    if (invalid) {
+      setStatus("err", "Add exercise, sets, and reps");
+      invalid.focus();
+      return;
+    }
+    const workout = collectGymInlineWorkout();
+    workout.exercises.forEach((ex) => rememberGymExercise(ex.exercise));
+    note = GYM_NOTE_PREFIX + JSON.stringify(workout);
   }
   if (sub) rememberSub(selectedCat, sub);
   const block = { category: selectedCat, note, sub };
@@ -1472,7 +1602,7 @@ function renderInsightGym(map) {
 
     const timelineRows = slotRows.map((r) => {
       const endSlot = SLOTS[(SLOTS.indexOf(r.last) + 1) % 48] || "00:00";
-      const label = r.block.sub || r.block.note || "Gym";
+      const label = gymWorkoutSummary(r.block.note) || r.block.sub || "Gym";
       const detail = `${to12(r.first)} - ${to12(endSlot)}`;
       return `<div class="gym-log-row"><span class="gym-log-exercise">${escapeHtml(label)}</span><span class="gym-log-detail">${detail}</span></div>`;
     }).join("");
@@ -1589,6 +1719,7 @@ document.getElementById("gymBackdrop").addEventListener("click", (e) => {
 document.getElementById("gymSaveBtn").addEventListener("click", saveGymLogger);
 document.getElementById("gymCancelBtn").addEventListener("click", closeGymLogger);
 document.getElementById("gymAddSetBtn").addEventListener("click", () => addSessionRow(null));
+document.getElementById("addInlineExercise").addEventListener("click", () => addGymInlineRow(null));
 document.getElementById("statsBack").addEventListener("click", closeStats);
 document.getElementById("rangeSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-range]");
