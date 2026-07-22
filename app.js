@@ -21,6 +21,7 @@ const AUTO_COLORS = [
   "#c0693e", "#4f8a8b", "#a86bb0", "#5a8f4a", "#c99a3a", "#b45d7a",
   "#6a7fd0", "#7a9e5e", "#c65f5f", "#4a8fb0", "#9a7f4a", "#8a6fb0",
 ];
+const DEFAULT_GYM_SUBS = ["Strength", "Cardio", "Mobility", "Upper", "Lower"];
 
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
@@ -617,6 +618,7 @@ function openSheet(slotList, preferredCat) {
   renderCatGrid();
   renderSubRow();
   renderNoteSuggest();
+  updateNotePlaceholder();
   document.getElementById("noteInput").value = existing ? (existing.note || "") : "";
   document.getElementById("sheetBackdrop").hidden = false;
 }
@@ -632,8 +634,11 @@ function renderSubRow() {
   if (!selectedCat) { row.hidden = true; row.innerHTML = ""; return; }
   row.hidden = false;
   row.innerHTML = "";
-  const subs = customSubs[selectedCat] || [];
+  const remembered = customSubs[selectedCat] || [];
+  const defaults = isGymCategoryId(selectedCat) ? DEFAULT_GYM_SUBS : [];
+  const subs = defaults.concat(remembered.filter((s) => !defaults.some((d) => d.toLowerCase() === s.toLowerCase())));
   for (const s of subs) {
+    const isRemembered = remembered.includes(s);
     const chip = document.createElement("div");
     chip.className = "sub-chip" + (selectedSub === s ? " selected" : "");
     
@@ -645,33 +650,37 @@ function renderSubRow() {
       renderSubRow();
     });
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "sub-chip-remove";
-    delBtn.type = "button";
-    delBtn.setAttribute("aria-label", `Remove ${s}`);
-    delBtn.title = `Remove "${s}"`;
-    delBtn.innerHTML = "&times;";
-    delBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      removeSub(selectedCat, s);
-    });
-
     chip.appendChild(labelSpan);
-    chip.appendChild(delBtn);
+
+    if (isRemembered) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "sub-chip-remove";
+      delBtn.type = "button";
+      delBtn.setAttribute("aria-label", `Remove ${s}`);
+      delBtn.title = `Remove "${s}"`;
+      delBtn.innerHTML = "&times;";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeSub(selectedCat, s);
+      });
+      chip.appendChild(delBtn);
+    }
 
     // Long-press / right-click to remove a remembered subcategory
-    let t = null;
-    chip.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; removeSub(selectedCat, s); }, 500); });
-    chip.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
-    chip.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
-    chip.addEventListener("contextmenu", (e) => { e.preventDefault(); removeSub(selectedCat, s); });
+    if (isRemembered) {
+      let t = null;
+      chip.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; removeSub(selectedCat, s); }, 500); });
+      chip.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
+      chip.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
+      chip.addEventListener("contextmenu", (e) => { e.preventDefault(); removeSub(selectedCat, s); });
+    }
     row.appendChild(chip);
   }
   const add = document.createElement("button");
   add.className = "sub-chip sub-add";
-  add.textContent = subs.length ? "+ Add" : "+ Add project / detail";
+  add.textContent = subs.length ? "+ Add" : (isGymCategoryId(selectedCat) ? "+ Add workout detail" : "+ Add project / detail");
   add.addEventListener("click", () => {
-    const name = window.prompt("Project / detail name:");
+    const name = window.prompt(isGymCategoryId(selectedCat) ? "Workout detail:" : "Project / detail name:");
     if (name && name.trim()) {
       rememberSub(selectedCat, name.trim());
       selectedSub = name.trim();
@@ -679,6 +688,14 @@ function renderSubRow() {
     }
   });
   row.appendChild(add);
+}
+
+function updateNotePlaceholder() {
+  const input = document.getElementById("noteInput");
+  if (!input) return;
+  input.placeholder = isGymCategoryId(selectedCat)
+    ? "What did you train? (required)"
+    : "What are you doing? (optional)";
 }
 
 // Recent distinct notes previously typed in this category (most recent first).
@@ -745,6 +762,7 @@ function renderCatGrid() {
       btn.classList.add("selected");
       renderSubRow();
       renderNoteSuggest();
+      updateNotePlaceholder();
     });
     if (isCustom) {
       // Long-press (or right-click) a custom category to rename/delete it.
@@ -821,6 +839,11 @@ function saveSheet() {
   const dateStr = ymd(current);
   if (!selectedCat) { closeSheet(); return; }
   const sub = selectedSub || "";
+  if (isGymCategoryId(selectedCat) && !sub && !note) {
+    setStatus("err", "Add what you did");
+    document.getElementById("noteInput").focus();
+    return;
+  }
   if (sub) rememberSub(selectedCat, sub);
   const block = { category: selectedCat, note, sub };
   for (const s of editing) data[s] = { category: selectedCat, note, sub };
@@ -1026,10 +1049,12 @@ const catLabel = (id) => (CAT[id] || CAT.other).label;
 const PRODUCTIVE = ["work", "learn", "exercise", "gym"];
 const WD_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
+function isGymCategoryId(catId) {
+  const c = CAT[catId];
+  return catId === "gym" || (c && c.label.toLowerCase() === "gym");
+}
 function isGymBlock(b) {
-  if (!b) return false;
-  const c = CAT[b.category];
-  return b.category === "gym" || (c && c.label.toLowerCase() === "gym");
+  return !!b && isGymCategoryId(b.category);
 }
 function weekdayOf(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -1377,15 +1402,35 @@ function renderInsightGym(map) {
 
   let totalSlots = 0;
   let daysWithTimelineGym = 0;
+  const sessionsByDay = {};
   for (const d of timelineDays) {
     const count = SLOTS.filter((s) => isGymBlock(map[d][s])).length;
     totalSlots += count;
     if (count) daysWithTimelineGym++;
+
+    const slotRows = [];
+    let active = null;
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}` : null;
+      if (key && active && active.key === key && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
+        active.last = s;
+      } else {
+        if (active) slotRows.push(active);
+        active = key ? { key, first: s, last: s, block: b } : null;
+      }
+    }
+    if (active) slotRows.push(active);
+    sessionsByDay[d] = slotRows;
   }
+  const sessionCount = Object.values(sessionsByDay).reduce((sum, rows) => sum + rows.length, 0);
+  const avgSession = sessionCount ? (totalSlots / 2) / sessionCount : 0;
 
   const cards = `<div class="stat-cards">
     <div class="stat-card"><div class="num">${fmtH(totalSlots / 2)}</div><div class="lbl">gym time logged</div></div>
     <div class="stat-card"><div class="num">${daysWithTimelineGym}</div><div class="lbl">days with gym blocks</div></div>
+    <div class="stat-card"><div class="num">${sessionCount}</div><div class="lbl">sessions logged</div></div>
+    <div class="stat-card"><div class="num">${fmtH(avgSession)}</div><div class="lbl">avg session</div></div>
   </div>`;
 
   // Weight history (mini chart using bar widths)
@@ -1423,19 +1468,7 @@ function renderInsightGym(map) {
   const sessionHtml = days.slice(0, 20).map((d) => {
     const [y, mo, da] = d.split("-").map(Number);
     const lbl = new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    const slotRows = [];
-    let active = null;
-    for (const s of SLOTS) {
-      const b = map[d][s];
-      const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}` : null;
-      if (key && active && active.key === key && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
-        active.last = s;
-      } else {
-        if (active) slotRows.push(active);
-        active = key ? { key, first: s, last: s, block: b } : null;
-      }
-    }
-    if (active) slotRows.push(active);
+    const slotRows = sessionsByDay[d] || [];
 
     const timelineRows = slotRows.map((r) => {
       const endSlot = SLOTS[(SLOTS.indexOf(r.last) + 1) % 48] || "00:00";
@@ -1549,7 +1582,7 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
-document.getElementById("gymBtn").addEventListener("click", openGymTimeBlock);
+document.getElementById("gymBtn").addEventListener("click", () => openInsight("gym"));
 document.getElementById("gymBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "gymBackdrop") closeGymLogger();
 });
