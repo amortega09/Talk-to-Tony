@@ -23,7 +23,7 @@ const AUTO_COLORS = [
 ];
 const DEFAULT_GYM_SUBS = ["Strength", "Cardio", "Mobility", "Upper", "Lower"];
 const DEFAULT_GYM_EXERCISES = [
-  "Dumbbell press", "Bench press", "Squat", "Deadlift", "Lat pulldown",
+  "Dumbbell press", "Incline dumbbell press", "Chest flys", "Bench press", "Squat", "Deadlift", "Lat pulldown",
   "Shoulder press", "Row", "Leg press", "Bicep curl", "Tricep pushdown",
 ];
 const GYM_NOTE_PREFIX = "__gym_workout_v1__";
