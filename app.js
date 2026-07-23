@@ -24,7 +24,7 @@ const AUTO_COLORS = [
 const DEFAULT_GYM_SUBS = ["Strength", "Cardio", "Mobility", "Upper", "Lower"];
 const DEFAULT_GYM_EXERCISES = [
   "Dumbbell press", "Incline dumbbell press", "Chest flys", "Bench press", "Squat", "Deadlift", "Lat pulldown",
-  "Shoulder press", "Row", "Leg press", "Bicep curl", "Tricep pushdown",
+  "Shoulder press", "Shoulder flys", "Row", "Leg press", "Bicep curl", "Tricep pushdown", "1 min hang",
 ];
 const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 
@@ -826,11 +826,7 @@ function firstInvalidGymInlineInput() {
   if (!rows.length) return document.getElementById("addInlineExercise");
   for (const row of rows) {
     const name = row.querySelector(".gym-exercise-name");
-    const sets = row.querySelector(".gym-sets");
-    const reps = row.querySelector(".gym-reps");
     if (!name.value.trim()) return name;
-    if (!sets.value.trim()) return sets;
-    if (!reps.value.trim()) return reps;
   }
   return null;
 }
@@ -980,7 +976,7 @@ function saveSheet() {
   if (isGymCategoryId(selectedCat)) {
     const invalid = firstInvalidGymInlineInput();
     if (invalid) {
-      setStatus("err", "Add exercise, sets, and reps");
+      setStatus("err", "Add an exercise");
       invalid.focus();
       return;
     }
