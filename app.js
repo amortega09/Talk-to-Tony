@@ -92,6 +92,7 @@ let data = {};          // { "08:30": {category, note}, ... } for current day
 let editing = null;     // array of slot strings being edited
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
+let selectedActivityLabel = null;
 let rangeAnchor = null; // slot where a press-and-hold range started
 
 // ---- Local persistence ----
@@ -673,8 +674,15 @@ function openSheet(slotList, preferredCat) {
   highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
   const existing = data[first];
-  selectedCat = existing ? existing.category : (preferredCat || null);
-  selectedSub = existing ? (existing.sub || null) : null;
+  const existingCategory = existing && CAT[existing.category];
+  const legacyActivity = existingCategory && existingCategory.id.startsWith("c_") && !existing.sub
+    ? existingCategory.label
+    : null;
+  selectedCat = legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null));
+  selectedSub = existing ? (existing.sub || legacyActivity || null) : null;
+  selectedActivityLabel = existing
+    ? (existing.sub || legacyActivity || displayBlockNote(existing) || ((CAT[existing.category] || CAT.other).label))
+    : (preferredCat && CAT[preferredCat] ? CAT[preferredCat].label : null);
   const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
   const hrs = slotList.length / 2;
   document.getElementById("sheetTime").textContent = slotList.length > 1
@@ -689,6 +697,71 @@ function openSheet(slotList, preferredCat) {
   document.getElementById("sheetBackdrop").hidden = false;
 }
 
+// Activity-first picker. Broad categories remain the stable reporting layer,
+// while subcategories and recent notes are presented as the things people
+// actually recognise and want to log.
+function recentActivityOptions(limit) {
+  const dateKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("day_data_")) dateKeys.push(k);
+  }
+  dateKeys.sort().reverse();
+
+  const out = [], seen = new Set();
+  for (const k of dateKeys) {
+    let day;
+    try { day = JSON.parse(localStorage.getItem(k)) || {}; } catch { continue; }
+    for (let i = SLOTS.length - 1; i >= 0; i--) {
+      const b = day[SLOTS[i]];
+      if (!b || isGymBlock(b) && parseGymWorkoutNote(b.note)) continue;
+      const category = CAT[b.category] || CAT.other;
+      const legacyActivity = category.id.startsWith("c_") && !b.sub ? category.label : "";
+      const note = (b.note || "").trim();
+      const label = (b.sub || legacyActivity || note || category.label).trim();
+      const key = label.toLowerCase();
+      if (!label || seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        label,
+        catId: legacyActivity ? "other" : b.category,
+        sub: b.sub || legacyActivity,
+        // A note-only activity is reusable by putting the same task back into
+        // the note field. Named activities start with a clean optional note.
+        note: b.sub ? "" : note,
+      });
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+function activityOptions() {
+  const out = [], seen = new Set();
+  const add = (item) => {
+    const key = (item.label || "").trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  };
+
+  // Keep the activity currently being edited visible, even before it has
+  // been saved to the remembered activity list.
+  if (selectedSub) add({ label: selectedSub, catId: selectedCat || "other", sub: selectedSub, note: "" });
+  recentActivityOptions(10).forEach(add);
+  for (const [catId, labels] of Object.entries(customSubs)) {
+    for (const label of labels) add({ label, catId, sub: label, note: "" });
+  }
+  // Existing custom categories were effectively activities. Surface them as
+  // activities without rewriting historical records.
+  for (const c of customCats) add({ label: c.label, catId: "other", sub: c.label, note: "", legacyCat: c });
+  ["sleep", "gym", "food"].forEach((id) => {
+    const c = CAT[id];
+    if (c) add({ label: c.label, catId: id, sub: "", note: "" });
+  });
+  return out;
+}
+
 function openGymTimeBlock() {
   const now = new Date();
   const slot = String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30");
@@ -697,63 +770,23 @@ function openGymTimeBlock() {
 
 function renderSubRow() {
   const row = document.getElementById("subRow");
-  if (!selectedCat) { row.hidden = true; row.innerHTML = ""; return; }
   row.hidden = false;
   row.innerHTML = "";
-  const remembered = customSubs[selectedCat] || [];
-  const defaults = isGymCategoryId(selectedCat) ? DEFAULT_GYM_SUBS : [];
-  const subs = defaults.concat(remembered.filter((s) => !defaults.some((d) => d.toLowerCase() === s.toLowerCase())));
-  for (const s of subs) {
-    const isRemembered = remembered.includes(s);
-    const chip = document.createElement("div");
-    chip.className = "sub-chip" + (selectedSub === s ? " selected" : "");
-    
-    const labelSpan = document.createElement("span");
-    labelSpan.className = "sub-chip-label";
-    labelSpan.textContent = s;
-    labelSpan.addEventListener("click", () => {
-      selectedSub = (selectedSub === s) ? null : s; // tap again to deselect
+  for (const c of BUILTIN_CATEGORIES) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "sub-chip area-chip" + (selectedCat === c.id ? " selected" : "");
+    chip.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
+    chip.addEventListener("click", () => {
+      selectedCat = c.id;
       renderSubRow();
+      renderCatGrid();
+      renderNoteSuggest();
+      updateNotePlaceholder();
+      renderGymInline(null);
     });
-
-    chip.appendChild(labelSpan);
-
-    if (isRemembered) {
-      const delBtn = document.createElement("button");
-      delBtn.className = "sub-chip-remove";
-      delBtn.type = "button";
-      delBtn.setAttribute("aria-label", `Remove ${s}`);
-      delBtn.title = `Remove "${s}"`;
-      delBtn.innerHTML = "&times;";
-      delBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        removeSub(selectedCat, s);
-      });
-      chip.appendChild(delBtn);
-    }
-
-    // Long-press / right-click to remove a remembered subcategory
-    if (isRemembered) {
-      let t = null;
-      chip.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; removeSub(selectedCat, s); }, 500); });
-      chip.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
-      chip.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
-      chip.addEventListener("contextmenu", (e) => { e.preventDefault(); removeSub(selectedCat, s); });
-    }
     row.appendChild(chip);
   }
-  const add = document.createElement("button");
-  add.className = "sub-chip sub-add";
-  add.textContent = subs.length ? "+ Add" : (isGymCategoryId(selectedCat) ? "+ Add workout detail" : "+ Add project / detail");
-  add.addEventListener("click", () => {
-    const name = window.prompt(isGymCategoryId(selectedCat) ? "Workout detail:" : "Project / detail name:");
-    if (name && name.trim()) {
-      rememberSub(selectedCat, name.trim());
-      selectedSub = name.trim();
-      renderSubRow();
-    }
-  });
-  row.appendChild(add);
 }
 
 function updateNotePlaceholder() {
@@ -882,40 +915,52 @@ function removeSub(catId, label) {
 function renderCatGrid() {
   const grid = document.getElementById("catGrid");
   grid.innerHTML = "";
-  for (const c of CATEGORIES) {
-    const isCustom = c.id.startsWith("c_");
+  for (const activity of activityOptions()) {
+    const c = CAT[activity.catId] || CAT.other;
     const btn = document.createElement("button");
-    btn.className = "cat-btn" + (selectedCat === c.id ? " selected" : "");
+    const selected = selectedActivityLabel &&
+      selectedActivityLabel.toLowerCase() === activity.label.toLowerCase();
+    btn.className = "cat-btn activity-btn" + (selected ? " selected" : "");
     btn.style.setProperty("--cat-color", c.color);
-    btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
+    btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span><span class="activity-copy"><span>${escapeHtml(activity.label)}</span><small>${escapeHtml(c.label)}</small></span>`;
     btn.addEventListener("click", () => {
-      if (selectedCat !== c.id) selectedSub = null; // switching category clears sub
-      selectedCat = c.id;
-      grid.querySelectorAll(".cat-btn").forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
+      selectedCat = activity.catId;
+      selectedSub = activity.sub || null;
+      selectedActivityLabel = activity.label;
+      document.getElementById("noteInput").value = activity.note || "";
+      renderCatGrid();
       renderSubRow();
       renderNoteSuggest();
       updateNotePlaceholder();
       renderGymInline(null);
     });
-    if (isCustom) {
+    if (activity.legacyCat) {
       // Long-press (or right-click) a custom category to rename/delete it.
       let t = null;
-      btn.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; manageCategory(c); }, 500); });
+      btn.addEventListener("pointerdown", () => { t = setTimeout(() => { t = null; manageCategory(activity.legacyCat); }, 500); });
       btn.addEventListener("pointerup", () => { if (t) { clearTimeout(t); t = null; } });
       btn.addEventListener("pointerleave", () => { if (t) { clearTimeout(t); t = null; } });
-      btn.addEventListener("contextmenu", (e) => { e.preventDefault(); manageCategory(c); });
+      btn.addEventListener("contextmenu", (e) => { e.preventDefault(); manageCategory(activity.legacyCat); });
     }
     grid.appendChild(btn);
   }
-  // "+ New" tile to create a custom category
+  // New activities default to Other; the area chips immediately below make
+  // classification a one-tap, optional decision.
   const add = document.createElement("button");
   add.className = "cat-btn cat-add";
-  add.innerHTML = `<span class="cdot" style="border:1.5px dashed currentColor;background:none"></span>New`;
+  add.innerHTML = `<span class="cdot" style="border:1.5px dashed currentColor;background:none"></span>New activity`;
   add.addEventListener("click", () => {
-    const name = window.prompt("New category name:");
-    const id = addCustomCategory(name);
-    if (id) { selectedCat = id; selectedSub = null; renderCatGrid(); renderSubRow(); renderNoteSuggest(); updateNotePlaceholder(); renderGymInline(null); }
+    const name = window.prompt("What did you do?");
+    if (!name || !name.trim()) return;
+    selectedCat = (selectedCat && BUILTIN_CATEGORIES.some((c) => c.id === selectedCat)) ? selectedCat : "other";
+    selectedSub = name.trim();
+    selectedActivityLabel = selectedSub;
+    document.getElementById("noteInput").value = "";
+    renderCatGrid();
+    renderSubRow();
+    renderNoteSuggest();
+    updateNotePlaceholder();
+    renderGymInline(null);
   });
   grid.appendChild(add);
 }
@@ -964,7 +1009,7 @@ function savePlan() {
 
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
-  editing = null; selectedCat = null; selectedSub = null;
+  editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
   highlightSlots(null);
 }
 function saveSheet() {

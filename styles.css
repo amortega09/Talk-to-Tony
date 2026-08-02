@@ -385,6 +385,22 @@ html, body {
 @keyframes slideup { from { transform: translateY(100%); } }
 .sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
 .sheet-time { text-align: center; font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+.picker-label {
+  margin: 0 2px 9px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: .01em;
+}
+.picker-label-small { margin-top: 15px; margin-bottom: 7px; }
+.picker-label span { color: var(--text-faint); font-weight: 450; }
+.activity-btn { text-align: left; }
+.activity-copy { display: flex; min-width: 0; flex-direction: column; line-height: 1.15; }
+.activity-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-copy small { margin-top: 4px; color: var(--text-faint); font-size: 10px; font-weight: 500; }
+.area-row { gap: 6px; }
+.area-chip { display: inline-flex; align-items: center; gap: 6px; }
+.area-chip .cdot { width: 7px; height: 7px; }
 .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
 .cat-btn {
   border: 1px solid var(--line);
