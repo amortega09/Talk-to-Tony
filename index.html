@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=23" />
+  <link rel="stylesheet" href="styles.css?v=24" />
 </head>
 <body>
   <!-- Login screen -->
@@ -109,8 +109,10 @@
       <div class="sheet-handle"></div>
       <div class="sheet-time" id="sheetTime"></div>
       <div class="picker-label">What did you do?</div>
+      <input class="activity-search" id="activitySearch" type="search"
+             placeholder="Search or add an activity…" autocomplete="off" />
       <div class="cat-grid" id="catGrid"></div>
-      <div class="area-picker">
+      <div class="area-picker" id="areaPicker" hidden>
         <div class="picker-label picker-label-small">Broad area <span>for statistics</span></div>
         <div class="sub-row area-row" id="subRow"></div>
       </div>
@@ -157,6 +159,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

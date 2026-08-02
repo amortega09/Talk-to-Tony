@@ -681,13 +681,14 @@ function openSheet(slotList, preferredCat) {
   selectedCat = legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null));
   selectedSub = existing ? (existing.sub || legacyActivity || null) : null;
   selectedActivityLabel = existing
-    ? (existing.sub || legacyActivity || displayBlockNote(existing) || ((CAT[existing.category] || CAT.other).label))
+    ? (existing.sub || legacyActivity || (isGymBlock(existing) ? existingCategory.label : displayBlockNote(existing)) || ((CAT[existing.category] || CAT.other).label))
     : (preferredCat && CAT[preferredCat] ? CAT[preferredCat].label : null);
   const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
   const hrs = slotList.length / 2;
   document.getElementById("sheetTime").textContent = slotList.length > 1
     ? `${to12(first)} – ${to12(endSlot)} · ${hrs % 1 ? hrs.toFixed(1) : hrs}h`
     : `${to12(first)} – ${to12(endSlot)}`;
+  document.getElementById("activitySearch").value = selectedActivityLabel || "";
   renderCatGrid();
   renderSubRow();
   renderNoteSuggest();
@@ -770,6 +771,7 @@ function openGymTimeBlock() {
 
 function renderSubRow() {
   const row = document.getElementById("subRow");
+  document.getElementById("areaPicker").hidden = !selectedActivityLabel;
   row.hidden = false;
   row.innerHTML = "";
   for (const c of BUILTIN_CATEGORIES) {
@@ -912,10 +914,50 @@ function removeSub(catId, label) {
   renderSubRow();
 }
 
+function selectActivity(activity) {
+  const existing = editing && data[editing[0]];
+  const preserveGymWorkout = existing && isGymBlock(existing) && isGymCategoryId(activity.catId);
+  selectedCat = activity.catId;
+  selectedSub = activity.sub || null;
+  selectedActivityLabel = activity.label;
+  document.getElementById("activitySearch").value = activity.label;
+  document.getElementById("noteInput").value = activity.note || "";
+  renderCatGrid();
+  renderSubRow();
+  renderNoteSuggest();
+  updateNotePlaceholder();
+  renderGymInline(preserveGymWorkout ? existing : null);
+}
+
+function createActivityFromSearch() {
+  const input = document.getElementById("activitySearch");
+  const label = input.value.trim();
+  if (!label) { input.focus(); return; }
+  const exact = activityOptions().find((a) => a.label.toLowerCase() === label.toLowerCase());
+  if (exact) { selectActivity(exact); return; }
+  selectedCat = (selectedCat && BUILTIN_CATEGORIES.some((c) => c.id === selectedCat)) ? selectedCat : "other";
+  selectedSub = label;
+  selectedActivityLabel = label;
+  document.getElementById("noteInput").value = "";
+  renderCatGrid();
+  renderSubRow();
+  renderNoteSuggest();
+  updateNotePlaceholder();
+  renderGymInline(null);
+}
+
 function renderCatGrid() {
   const grid = document.getElementById("catGrid");
   grid.innerHTML = "";
-  for (const activity of activityOptions()) {
+  const query = document.getElementById("activitySearch").value.trim().toLowerCase();
+  const all = activityOptions();
+  const matches = query
+    ? all.filter((a) => a.label.toLowerCase().startsWith(query))
+      .concat(all.filter((a) => !a.label.toLowerCase().startsWith(query) && a.label.toLowerCase().includes(query)))
+      .slice(0, 9)
+    : all.slice(0, 6);
+
+  for (const activity of matches) {
     const c = CAT[activity.catId] || CAT.other;
     const btn = document.createElement("button");
     const selected = selectedActivityLabel &&
@@ -923,17 +965,7 @@ function renderCatGrid() {
     btn.className = "cat-btn activity-btn" + (selected ? " selected" : "");
     btn.style.setProperty("--cat-color", c.color);
     btn.innerHTML = `<span class="cdot" style="background:${c.color}"></span><span class="activity-copy"><span>${escapeHtml(activity.label)}</span><small>${escapeHtml(c.label)}</small></span>`;
-    btn.addEventListener("click", () => {
-      selectedCat = activity.catId;
-      selectedSub = activity.sub || null;
-      selectedActivityLabel = activity.label;
-      document.getElementById("noteInput").value = activity.note || "";
-      renderCatGrid();
-      renderSubRow();
-      renderNoteSuggest();
-      updateNotePlaceholder();
-      renderGymInline(null);
-    });
+    btn.addEventListener("click", () => selectActivity(activity));
     if (activity.legacyCat) {
       // Long-press (or right-click) a custom category to rename/delete it.
       let t = null;
@@ -944,25 +976,15 @@ function renderCatGrid() {
     }
     grid.appendChild(btn);
   }
-  // New activities default to Other; the area chips immediately below make
-  // classification a one-tap, optional decision.
-  const add = document.createElement("button");
-  add.className = "cat-btn cat-add";
-  add.innerHTML = `<span class="cdot" style="border:1.5px dashed currentColor;background:none"></span>New activity`;
-  add.addEventListener("click", () => {
-    const name = window.prompt("What did you do?");
-    if (!name || !name.trim()) return;
-    selectedCat = (selectedCat && BUILTIN_CATEGORIES.some((c) => c.id === selectedCat)) ? selectedCat : "other";
-    selectedSub = name.trim();
-    selectedActivityLabel = selectedSub;
-    document.getElementById("noteInput").value = "";
-    renderCatGrid();
-    renderSubRow();
-    renderNoteSuggest();
-    updateNotePlaceholder();
-    renderGymInline(null);
-  });
-  grid.appendChild(add);
+
+  const exactMatch = query && all.some((a) => a.label.toLowerCase() === query);
+  if (query && !exactMatch) {
+    const add = document.createElement("button");
+    add.className = "cat-btn cat-add activity-create";
+    add.innerHTML = `<span class="cdot" style="border:1.5px dashed currentColor;background:none"></span>Create “${escapeHtml(document.getElementById("activitySearch").value.trim())}”`;
+    add.addEventListener("click", createActivityFromSearch);
+    grid.appendChild(add);
+  }
 }
 function saveReflection() {
   const note = document.getElementById("reflectInput").value.trim();
@@ -1798,6 +1820,20 @@ document.getElementById("insightRangeSeg").addEventListener("click", (e) => {
   renderInsight();
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
+document.getElementById("activitySearch").addEventListener("input", (e) => {
+  if (!selectedActivityLabel || e.target.value.trim().toLowerCase() !== selectedActivityLabel.toLowerCase()) {
+    selectedActivityLabel = null;
+    selectedSub = null;
+    document.getElementById("areaPicker").hidden = true;
+  }
+  renderCatGrid();
+});
+document.getElementById("activitySearch").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    createActivityFromSearch();
+  }
+});
 // Bullet point auto-formatting and list continuation
 const handleListKeydown = (e) => {
   if (e.key === "Enter") {
@@ -1957,5 +1993,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=23").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=24").catch(() => {});
 }

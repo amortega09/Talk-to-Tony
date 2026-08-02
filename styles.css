@@ -381,6 +381,10 @@ html, body {
   padding: 8px 20px calc(var(--safe-bottom) + 20px);
   box-shadow: 0 -4px 30px rgba(0,0,0,.12);
   animation: slideup .22s cubic-bezier(.2,.8,.2,1);
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 @keyframes slideup { from { transform: translateY(100%); } }
 .sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
@@ -394,6 +398,20 @@ html, body {
 }
 .picker-label-small { margin-top: 15px; margin-bottom: 7px; }
 .picker-label span { color: var(--text-faint); font-weight: 450; }
+.activity-search {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  margin-bottom: 9px;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.activity-search:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 20%, transparent); }
+.activity-search::placeholder { color: var(--text-faint); }
 .activity-btn { text-align: left; }
 .activity-copy { display: flex; min-width: 0; flex-direction: column; line-height: 1.15; }
 .activity-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -401,6 +419,7 @@ html, body {
 .area-row { gap: 6px; }
 .area-chip { display: inline-flex; align-items: center; gap: 6px; }
 .area-chip .cdot { width: 7px; height: 7px; }
+.activity-create { grid-column: 1 / -1; }
 .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
 .cat-btn {
   border: 1px solid var(--line);
@@ -488,7 +507,16 @@ html, body {
 }
 .note-input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 20%, transparent); }
 .note-input::placeholder { color: var(--text-faint); }
-.sheet-actions { display: flex; gap: 8px; }
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  position: sticky;
+  bottom: calc(0px - var(--safe-bottom) - 20px);
+  padding: 10px 0 calc(var(--safe-bottom) + 20px);
+  margin-bottom: calc(0px - var(--safe-bottom) - 20px);
+  background: var(--surface);
+  z-index: 2;
+}
 .primary-btn {
   flex: 2;
   border: none; background: var(--link); color: #fff;
