@@ -30,6 +30,7 @@ const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
+let activityAreas = {};              // { normalized activity label: builtin category id }
 let gymExercises = DEFAULT_GYM_EXERCISES.slice();
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
@@ -114,8 +115,9 @@ function loadSettingsLocal() {
     const s = JSON.parse(localStorage.getItem("day_settings")) || {};
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
+    activityAreas = (s.activityAreas && typeof s.activityAreas === "object") ? s.activityAreas : {};
     gymExercises = mergeGymExercises(s.gymExercises);
-  } catch { customCats = []; customSubs = {}; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
+  } catch { customCats = []; customSubs = {}; activityAreas = {}; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
   rebuildCats();
 }
 async function pullSettings() {
@@ -129,19 +131,20 @@ async function pullSettings() {
       const s = JSON.parse(rows[0].note || "{}");
       if (Array.isArray(s.customCats)) customCats = s.customCats;
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
+      if (s.activityAreas && typeof s.activityAreas === "object") activityAreas = s.activityAreas;
       gymExercises = mergeGymExercises(s.gymExercises);
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, gymExercises }));
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, gymExercises }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, gymExercises }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
@@ -170,6 +173,18 @@ function rememberSub(catId, label) {
   if (!catId || !label) return;
   const arr = customSubs[catId] || (customSubs[catId] = []);
   if (!arr.includes(label)) { arr.push(label); saveSettings(); }
+}
+function normalizeActivityLabel(label) {
+  return (label || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+function rememberActivityArea(label, catId) {
+  const key = normalizeActivityLabel(label);
+  if (isGymCategoryId(catId)) catId = "exercise";
+  if (!key || !BUILTIN_CATEGORIES.some((c) => c.id === catId)) return;
+  if (activityAreas[key] !== catId) {
+    activityAreas[key] = catId;
+    saveSettings();
+  }
 }
 function addCustomCategory(label) {
   label = (label || "").trim();
@@ -678,10 +693,11 @@ function openSheet(slotList, preferredCat) {
   const legacyActivity = existingCategory && existingCategory.id.startsWith("c_") && !existing.sub
     ? existingCategory.label
     : null;
-  selectedCat = legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null));
-  selectedSub = existing ? (existing.sub || legacyActivity || null) : null;
+  const existingGym = isGymBlock(existing);
+  selectedCat = existingGym ? "gym" : (legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null)));
+  selectedSub = existingGym ? null : (existing ? (existing.sub || legacyActivity || null) : null);
   selectedActivityLabel = existing
-    ? (existing.sub || legacyActivity || (isGymBlock(existing) ? existingCategory.label : displayBlockNote(existing)) || ((CAT[existing.category] || CAT.other).label))
+    ? (existingGym ? "Gym" : (existing.sub || legacyActivity || displayBlockNote(existing) || ((CAT[existing.category] || CAT.other).label)))
     : (preferredCat && CAT[preferredCat] ? CAT[preferredCat].label : null);
   const endSlot = SLOTS[(SLOTS.indexOf(last) + 1) % 48] || "00:00";
   const hrs = slotList.length / 2;
@@ -719,14 +735,15 @@ function recentActivityOptions(limit) {
       const category = CAT[b.category] || CAT.other;
       const legacyActivity = category.id.startsWith("c_") && !b.sub ? category.label : "";
       const note = (b.note || "").trim();
-      const label = (b.sub || legacyActivity || note || category.label).trim();
+      const historicalGym = isGymBlock(b);
+      const label = (historicalGym ? "Gym" : (b.sub || legacyActivity || note || category.label)).trim();
       const key = label.toLowerCase();
       if (!label || seen.has(key)) continue;
       seen.add(key);
       out.push({
         label,
-        catId: legacyActivity ? "other" : b.category,
-        sub: b.sub || legacyActivity,
+        catId: historicalGym ? "gym" : (activityAreas[key] || (legacyActivity ? "other" : b.category)),
+        sub: historicalGym ? "" : (b.sub || legacyActivity),
         // A note-only activity is reusable by putting the same task back into
         // the note field. Named activities start with a clean optional note.
         note: b.sub ? "" : note,
@@ -740,8 +757,10 @@ function recentActivityOptions(limit) {
 function activityOptions() {
   const out = [], seen = new Set();
   const add = (item) => {
-    const key = (item.label || "").trim().toLowerCase();
+    if (isGymActivityLabel(item.label)) item = { ...item, label: "Gym", catId: "gym", sub: "", note: "" };
+    const key = normalizeActivityLabel(item.label);
     if (!key || seen.has(key)) return;
+    if (activityAreas[key] && !isGymActivityLabel(item.label)) item = { ...item, catId: activityAreas[key] };
     seen.add(key);
     out.push(item);
   };
@@ -1052,6 +1071,7 @@ function saveSheet() {
     note = GYM_NOTE_PREFIX + JSON.stringify(workout);
   }
   if (sub) rememberSub(selectedCat, sub);
+  rememberActivityArea(selectedActivityLabel || sub || (CAT[selectedCat] && CAT[selectedCat].label), selectedCat);
   const block = { category: selectedCat, note, sub };
   for (const s of editing) data[s] = { category: selectedCat, note, sub };
   pushBlocks(dateStr, editing, block);
@@ -1100,6 +1120,29 @@ function exportData() {
 let statsRange = 7; // days; 0 = all
 const SLEEP_EFFICIENCY = 0.9;
 
+// Historical versions allowed task names to be saved as categories. These
+// defaults repair the obvious aliases in existing data without rewriting it.
+// A user's explicit area choice is remembered in activityAreas and wins over
+// these defaults for blocks that were previously Other/custom.
+const DEFAULT_ACTIVITY_AREAS = Object.freeze({
+  "chores": "chores",
+  "gym": "exercise",
+  "gym - back and arms": "exercise",
+  "immaterial": "work",
+  "interview": "work",
+  "investing": "learn",
+  "job interview": "work",
+  "learning about companies": "learn",
+  "meeting": "work",
+  "moeve": "work",
+  "monthly report": "work",
+  "party": "social",
+  "prep": "work",
+  "presentation work": "work",
+  "shopping": "chores",
+  "watch film": "relax",
+});
+
 // Gym keeps its specialist logger and insight, but belongs to Exercise in
 // general category metrics so the two do not fragment the same activity.
 function reportingCategoryId(catId) {
@@ -1111,42 +1154,66 @@ function reportingCategoryId(catId) {
   return CAT[catId] ? catId : "other";
 }
 
+function blockSubcategory(block) {
+  return ((block && (block.sub || block.subcategory)) || "").trim();
+}
+
+function legacyActivityLabel(block) {
+  if (!block || !block.category || !block.category.startsWith("c_")) return "";
+  return ((CAT[block.category] && CAT[block.category].label) || block.category_label || "").trim();
+}
+
+function blockActivityLabel(block) {
+  if (!block) return "";
+  const note = (block.note || "").trim();
+  return blockSubcategory(block) || legacyActivityLabel(block) ||
+    (note.startsWith(GYM_NOTE_PREFIX) ? "" : note);
+}
+
+// General reports must classify the whole block, not only its old category id.
+// This lets one activity retain a stable broad area across old and new entries.
+function reportingCategoryForBlock(block) {
+  if (!block) return "other";
+  if (isGymBlock(block)) return "exercise";
+  const storedArea = reportingCategoryId(block.category);
+  if (storedArea !== "other") return storedArea;
+  const key = normalizeActivityLabel(blockActivityLabel(block));
+  const inferred = activityAreas[key] || DEFAULT_ACTIVITY_AREAS[key];
+  return BUILTIN_CATEGORIES.some((c) => c.id === inferred) ? inferred : "other";
+}
+
 function rawSleepHours(day) {
-  return SLOTS.reduce((hours, s) => hours + (day[s] && reportingCategoryId(day[s].category) === "sleep" ? 0.5 : 0), 0);
+  return SLOTS.reduce((hours, s) => hours + (day[s] && reportingCategoryForBlock(day[s]) === "sleep" ? 0.5 : 0), 0);
 }
 
 function actualSleepHours(day) {
   return rawSleepHours(day) * SLEEP_EFFICIENCY;
 }
 
-// Derive clock metrics only from logged sleep boundaries. A generic first or
-// last activity is not evidence of when someone woke up or went to bed.
-function wakeTimeForDay(day) {
-  let start = -1;
-  for (let i = 0; i < 24; i++) { // only infer from the first tracked morning block
-    if (!day[SLOTS[i]]) continue;
-    if (reportingCategoryId(day[SLOTS[i]].category) !== "sleep") return null;
-    start = i;
-    break;
+// Find the main sleep run ending that morning. Earlier midnight activity does
+// not invalidate a later 01:00–09:00 sleep, as it did in the old calculation.
+function mainMorningSleepEpisode(day) {
+  const episodes = [];
+  let active = null;
+  for (let i = 0; i < 24; i++) { // midnight through 11:30
+    const asleep = day[SLOTS[i]] && reportingCategoryForBlock(day[SLOTS[i]]) === "sleep";
+    if (asleep && !active) active = { start: i, end: i + 1 };
+    else if (asleep) active.end = i + 1;
+    else if (active) { episodes.push(active); active = null; }
   }
-  if (start < 0 || start > 16) return null; // after 08:00 is more likely a nap
-  let end = start;
-  while (end + 1 < SLOTS.length && day[SLOTS[end + 1]] && reportingCategoryId(day[SLOTS[end + 1]].category) === "sleep") end++;
-  return (end + 1) * 30;
+  if (active) episodes.push(active);
+  const substantial = episodes.filter((e) => e.end - e.start >= 4); // ignore short naps
+  return substantial.sort((a, b) => (b.end - b.start) - (a.end - a.start))[0] || null;
 }
 
-function windDownTimeForDay(day) {
-  let end = -1;
-  for (let i = SLOTS.length - 1; i >= 36; i--) {
-    if (!day[SLOTS[i]]) continue;
-    if (reportingCategoryId(day[SLOTS[i]].category) !== "sleep") return null;
-    end = i;
-    break;
-  }
-  if (end < 0) return null;
-  let start = end;
-  while (start > 0 && day[SLOTS[start - 1]] && reportingCategoryId(day[SLOTS[start - 1]].category) === "sleep") start--;
-  return start * 30;
+function wakeTimeForDay(day) {
+  const sleep = mainMorningSleepEpisode(day);
+  return sleep ? sleep.end * 30 : null;
+}
+
+function bedtimeForDay(day) {
+  const sleep = mainMorningSleepEpisode(day);
+  return sleep ? sleep.start * 30 : null;
 }
 
 function averageClockMinutes(values) {
@@ -1200,7 +1267,7 @@ function renderStatsWithMap(map) {
 
   const catMins = {};   // category -> minutes
   let totalBlocks = 0;
-  const wakeMins = [], windDownMins = [];
+  const wakeMins = [], bedtimeMins = [];
   let actualSleepTotal = 0, sleepDays = 0;
   for (const d of dates) {
     const day = map[d];
@@ -1210,14 +1277,14 @@ function renderStatsWithMap(map) {
       sleepDays++;
     }
     const wake = wakeTimeForDay(day);
-    const windDown = windDownTimeForDay(day);
+    const bedtime = bedtimeForDay(day);
     if (wake != null) wakeMins.push(wake);
-    if (windDown != null) windDownMins.push(windDown);
+    if (bedtime != null) bedtimeMins.push(bedtime);
     for (const s of SLOTS) {
       const b = day[s];
       if (!b) continue;
       totalBlocks++;
-      const catId = reportingCategoryId(b.category);
+      const catId = reportingCategoryForBlock(b);
       catMins[catId] = (catMins[catId] || 0) + 30;
     }
   }
@@ -1231,8 +1298,8 @@ function renderStatsWithMap(map) {
       <div class="stat-card"><div class="num">${dates.length}</div><div class="lbl">days tracked</div></div>
       <div class="stat-card"><div class="num">${avgPerDay.toFixed(1)}h</div><div class="lbl">tracked / day</div></div>
       <div class="stat-card"><div class="num">${minutesToClock(averageClockMinutes(wakeMins))}</div><div class="lbl">avg wake-up</div></div>
-      <div class="stat-card"><div class="num">${minutesToClock(averageClockMinutes(windDownMins))}</div><div class="lbl">avg wind-down</div></div>
-      <div class="stat-card"><div class="num">${avgSleep.toFixed(1)}h</div><div class="lbl">avg sleep / day</div></div>
+      <div class="stat-card"><div class="num">${minutesToClock(averageClockMinutes(bedtimeMins))}</div><div class="lbl">avg bedtime</div></div>
+      <div class="stat-card"><div class="num">${avgSleep.toFixed(1)}h</div><div class="lbl">avg actual sleep</div></div>
       <div class="stat-card"><div class="num">${totalHours}h</div><div class="lbl">total tracked</div></div>
     </div>`;
 
@@ -1302,8 +1369,8 @@ let insightRange = 7;
 let currentInsight = null;
 
 const INSIGHTS = [
-  { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Where your time went",          fn: renderInsightActivities },
-  { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap },
+  { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
+  { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
   { id: "trends",   title: "Trends",           icon: "📈",  desc: "Actual sleep & intentional time", fn: renderInsightTrends },
   { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Completion & logging follow-through", fn: renderInsightGoals },
   { id: "gym",      title: "Gym Tracker",      icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym, menu: false },
@@ -1319,8 +1386,17 @@ function isGymCategoryId(catId) {
   const c = CAT[catId];
   return catId === "gym" || (c && c.label.toLowerCase() === "gym");
 }
+function isGymActivityLabel(label) {
+  const value = normalizeActivityLabel(label);
+  return value === "gym" || /^gym\s*(?:-|–|—|:)\s*\S/.test(value);
+}
 function isGymBlock(b) {
-  return !!b && isGymCategoryId(b.category);
+  return !!b && (
+    isGymCategoryId(b.category) ||
+    normalizeActivityLabel(b.category_label) === "gym" ||
+    isGymActivityLabel(blockSubcategory(b)) ||
+    (b.note || "").startsWith(GYM_NOTE_PREFIX)
+  );
 }
 function weekdayOf(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -1358,30 +1434,27 @@ function renderInsightSubs(map) {
 
 // Activity/project totals are grouped by activity label rather than by
 // area+label. Reclassifying an activity should not split its historical total.
-// Legacy custom categories are treated as activities because that is how the
-// old picker was used.
+// Legacy custom categories and old note-only tasks are treated as activities
+// because that is how earlier versions of the picker were used.
 function renderInsightActivities(map) {
   const activities = {};
   for (const d of trackedDates(map)) {
     for (const s of SLOTS) {
       const b = map[d][s];
       if (!b) continue;
-      const legacy = b.category && b.category.startsWith("c_") && CAT[b.category]
-        ? CAT[b.category].label
-        : "";
-      const label = (b.sub || legacy || "").trim();
+      const label = (isGymBlock(b) ? "Gym" : (blockActivityLabel(b) || b.note || "")).trim();
       if (!label) continue;
-      const key = label.toLowerCase();
+      const key = normalizeActivityLabel(label);
       const item = activities[key] || (activities[key] = { label, mins: 0, categories: {} });
-      const catId = reportingCategoryId(b.category);
+      const catId = reportingCategoryForBlock(b);
       item.mins += 30;
       item.categories[catId] = (item.categories[catId] || 0) + 30;
     }
   }
   const items = Object.values(activities).sort((a, b) => b.mins - a.mins);
-  if (!items.length) return emptyMsg("No projects/subcategories logged in this range yet.");
+  if (!items.length) return emptyMsg("No named activities logged in this range yet.");
   const maxH = items[0].mins / 60;
-  return `<div class="stats-h">Time by project</div>` + items.map((item) => {
+  return `<div class="stats-h">Named activity time</div>` + items.map((item) => {
     const catId = Object.keys(item.categories).sort((a, b) => item.categories[b] - item.categories[a])[0] || "other";
     return barRow(`${catLabel(catId)} · ${item.label}`, catColor(catId), item.mins / 60, maxH);
   }).join("");
@@ -1399,7 +1472,7 @@ function renderInsightHeatmap(map) {
       const b = map[d][s];
       if (!b) return;
       const c = cell[wd + "_" + i] || (cell[wd + "_" + i] = { counts: {}, total: 0 });
-      const catId = reportingCategoryId(b.category);
+      const catId = reportingCategoryForBlock(b);
       c.counts[catId] = (c.counts[catId] || 0) + 1; c.total++;
     });
   }
@@ -1435,8 +1508,9 @@ function renderInsightTrends(map) {
     let sleep = 0, prod = 0;
     for (const s of SLOTS) {
       const b = map[d][s]; if (!b) continue;
-      if (reportingCategoryId(b.category) === "sleep") sleep += 0.5 * SLEEP_EFFICIENCY;
-      if (INTENTIONAL.includes(reportingCategoryId(b.category))) prod += 0.5;
+      const catId = reportingCategoryForBlock(b);
+      if (catId === "sleep") sleep += 0.5 * SLEEP_EFFICIENCY;
+      if (INTENTIONAL.includes(catId)) prod += 0.5;
     }
     return { d, sleep, prod };
   });
@@ -1453,7 +1527,7 @@ function renderInsightTrends(map) {
       <div class="trend-val">${fmtH(r.sleep)}<br>${fmtH(r.prod)}</div>
     </div>`;
   }).join("");
-  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep &nbsp; <span style="color:${catColor("work")}">■</span> Intentional (work·learn·exercise)</div>${body}`;
+  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep (0.9×) &nbsp; <span style="color:${catColor("work")}">■</span> Intentional</div>${body}`;
 }
 
 // ---- 4. Consistency / streak ----
@@ -1501,7 +1575,7 @@ function renderInsightWeekday(map) {
     for (const s of SLOTS) {
       const b = map[d][s];
       if (b) {
-        const catId = reportingCategoryId(b.category);
+        const catId = reportingCategoryForBlock(b);
         (wdMins[wd] = wdMins[wd] || {});
         wdMins[wd][catId] = (wdMins[wd][catId] || 0) + 30;
       }
@@ -1721,7 +1795,9 @@ function renderInsightGym(map) {
     for (const s of SLOTS) {
       const b = map[d][s];
       const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}` : null;
-      if (key && active && active.key === key && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
+      // A visit is one contiguous run of Gym blocks. Exercise details may
+      // legitimately differ between adjacent blocks and must not split it.
+      if (key && active && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
         active.last = s;
       } else {
         if (active) slotRows.push(active);
@@ -2095,5 +2171,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=26").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=29").catch(() => {});
 }
