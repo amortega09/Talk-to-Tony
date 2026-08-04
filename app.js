@@ -1098,6 +1098,66 @@ function exportData() {
 
 // ---- Statistics ----
 let statsRange = 7; // days; 0 = all
+const SLEEP_EFFICIENCY = 0.9;
+
+// Gym keeps its specialist logger and insight, but belongs to Exercise in
+// general category metrics so the two do not fragment the same activity.
+function reportingCategoryId(catId) {
+  if (isGymCategoryId(catId)) return "exercise";
+  const category = CAT[catId];
+  const builtinMatch = category && BUILTIN_CATEGORIES.find((c) => c.label.toLowerCase() === category.label.toLowerCase());
+  if (builtinMatch) return builtinMatch.id;
+  if (catId && catId.startsWith("c_")) return "other";
+  return CAT[catId] ? catId : "other";
+}
+
+function rawSleepHours(day) {
+  return SLOTS.reduce((hours, s) => hours + (day[s] && reportingCategoryId(day[s].category) === "sleep" ? 0.5 : 0), 0);
+}
+
+function actualSleepHours(day) {
+  return rawSleepHours(day) * SLEEP_EFFICIENCY;
+}
+
+// Derive clock metrics only from logged sleep boundaries. A generic first or
+// last activity is not evidence of when someone woke up or went to bed.
+function wakeTimeForDay(day) {
+  let start = -1;
+  for (let i = 0; i < 24; i++) { // only infer from the first tracked morning block
+    if (!day[SLOTS[i]]) continue;
+    if (reportingCategoryId(day[SLOTS[i]].category) !== "sleep") return null;
+    start = i;
+    break;
+  }
+  if (start < 0 || start > 16) return null; // after 08:00 is more likely a nap
+  let end = start;
+  while (end + 1 < SLOTS.length && day[SLOTS[end + 1]] && reportingCategoryId(day[SLOTS[end + 1]].category) === "sleep") end++;
+  return (end + 1) * 30;
+}
+
+function windDownTimeForDay(day) {
+  let end = -1;
+  for (let i = SLOTS.length - 1; i >= 36; i--) {
+    if (!day[SLOTS[i]]) continue;
+    if (reportingCategoryId(day[SLOTS[i]].category) !== "sleep") return null;
+    end = i;
+    break;
+  }
+  if (end < 0) return null;
+  let start = end;
+  while (start > 0 && day[SLOTS[start - 1]] && reportingCategoryId(day[SLOTS[start - 1]].category) === "sleep") start--;
+  return start * 30;
+}
+
+function averageClockMinutes(values) {
+  if (!values.length) return null;
+  const radians = values.map((v) => (v / 1440) * Math.PI * 2);
+  const sin = radians.reduce((sum, v) => sum + Math.sin(v), 0) / values.length;
+  const cos = radians.reduce((sum, v) => sum + Math.cos(v), 0) / values.length;
+  let angle = Math.atan2(sin, cos);
+  if (angle < 0) angle += Math.PI * 2;
+  return (angle / (Math.PI * 2)) * 1440;
+}
 
 // Returns { "YYYY-MM-DD": { "08:30": {category,note}, ... }, ... }
 function gatherLocalRange(days) {
@@ -1116,21 +1176,19 @@ function gatherLocalRange(days) {
     const cut = ymd(cutoff);
     for (const date of Object.keys(map)) if (date < cut) delete map[date];
   }
+  const today = ymd(new Date());
+  for (const date of Object.keys(map)) if (date > today) delete map[date];
   return map;
 }
 
 function minutesToClock(mins) {
   if (mins == null || isNaN(mins)) return "—";
-  let h = Math.round(mins / 30) * 30;
+  let h = ((Math.round(mins / 30) * 30) % 1440 + 1440) % 1440;
   let hh = Math.floor(h / 60), mm = h % 60;
   const ap = hh < 12 ? "AM" : "PM";
   let d = hh % 12; if (d === 0) d = 12;
   return `${d}:${String(mm).padStart(2, "0")} ${ap}`;
 }
-function slotToMinutes(slot) {
-  const [h, m] = slot.split(":").map(Number); return h * 60 + m;
-}
-
 function renderStatsWithMap(map) {
   const body = document.getElementById("statsBody");
   const dates = Object.keys(map).filter((d) => SLOTS.some((s) => map[d][s]));
@@ -1142,35 +1200,38 @@ function renderStatsWithMap(map) {
 
   const catMins = {};   // category -> minutes
   let totalBlocks = 0;
-  const wakeMins = [], lastMins = [];
+  const wakeMins = [], windDownMins = [];
+  let actualSleepTotal = 0, sleepDays = 0;
   for (const d of dates) {
-    let firstNonSleep = null, lastNonSleep = null;
+    const day = map[d];
+    const rawSleep = rawSleepHours(day);
+    if (rawSleep > 0) {
+      actualSleepTotal += rawSleep * SLEEP_EFFICIENCY;
+      sleepDays++;
+    }
+    const wake = wakeTimeForDay(day);
+    const windDown = windDownTimeForDay(day);
+    if (wake != null) wakeMins.push(wake);
+    if (windDown != null) windDownMins.push(windDown);
     for (const s of SLOTS) {
-      const b = map[d][s];
+      const b = day[s];
       if (!b) continue;
       totalBlocks++;
-      catMins[b.category] = (catMins[b.category] || 0) + 30;
-      if (b.category !== "sleep") {
-        if (firstNonSleep == null) firstNonSleep = slotToMinutes(s);
-        lastNonSleep = slotToMinutes(s);
-      }
+      const catId = reportingCategoryId(b.category);
+      catMins[catId] = (catMins[catId] || 0) + 30;
     }
-    if (firstNonSleep != null) wakeMins.push(firstNonSleep);
-    if (lastNonSleep != null) lastMins.push(lastNonSleep + 30);
   }
 
-  const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
   const totalHours = totalBlocks / 2;
   const avgPerDay = totalHours / dates.length;
-  const sleepHours = (catMins.sleep || 0) / 60;
-  const avgSleep = sleepHours / dates.length;
+  const avgSleep = sleepDays ? actualSleepTotal / sleepDays : 0;
 
   const cards = `
     <div class="stat-cards">
       <div class="stat-card"><div class="num">${dates.length}</div><div class="lbl">days tracked</div></div>
       <div class="stat-card"><div class="num">${avgPerDay.toFixed(1)}h</div><div class="lbl">tracked / day</div></div>
-      <div class="stat-card"><div class="num">${minutesToClock(avg(wakeMins))}</div><div class="lbl">avg wake-up</div></div>
-      <div class="stat-card"><div class="num">${minutesToClock(avg(lastMins))}</div><div class="lbl">avg wind-down</div></div>
+      <div class="stat-card"><div class="num">${minutesToClock(averageClockMinutes(wakeMins))}</div><div class="lbl">avg wake-up</div></div>
+      <div class="stat-card"><div class="num">${minutesToClock(averageClockMinutes(windDownMins))}</div><div class="lbl">avg wind-down</div></div>
       <div class="stat-card"><div class="num">${avgSleep.toFixed(1)}h</div><div class="lbl">avg sleep / day</div></div>
       <div class="stat-card"><div class="num">${totalHours}h</div><div class="lbl">total tracked</div></div>
     </div>`;
@@ -1202,7 +1263,7 @@ async function renderStats() {
       const d = new Date(); d.setDate(d.getDate() - (statsRange - 1)); start = ymd(d);
     }
     try {
-      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
+      let q = sb.from("blocks").select("date,start_time,category,note,subcategory").eq("user_id", USER_ID).lte("date", ymd(new Date()));
       if (start) q = q.gte("date", start);
       const { data: rows, error } = await q;
       if (!error && rows) {
@@ -1210,8 +1271,8 @@ async function renderStats() {
         for (const r of rows) {
           const oldDay = map[r.date] || {};
           const oldBlock = oldDay[r.start_time];
-          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "")) {
-            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "")) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
             changed = true;
           }
         }
@@ -1241,19 +1302,17 @@ let insightRange = 7;
 let currentInsight = null;
 
 const INSIGHTS = [
-  { id: "subs",     title: "Projects",        icon: "🗂",  desc: "Time by subcategory / project", fn: renderInsightSubs },
-  { id: "heatmap",  title: "Weekly rhythm",   icon: "🔥",  desc: "Your week as a heatmap",        fn: renderInsightHeatmap },
-  { id: "trends",   title: "Trends",          icon: "📈",  desc: "Sleep & productive hours over time", fn: renderInsightTrends },
-  { id: "streak",   title: "Consistency",     icon: "✅",  desc: "Streaks & sleep targets",       fn: renderInsightStreak },
-  { id: "weekday",  title: "Day-of-week",     icon: "📅",  desc: "Patterns by weekday",           fn: renderInsightWeekday },
-  { id: "goals",    title: "Objectives",      icon: "🎯",  desc: "Planned vs. actually logged",   fn: renderInsightGoals },
-  { id: "gym",      title: "Gym Tracker",     icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym },
+  { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Where your time went",          fn: renderInsightActivities },
+  { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap },
+  { id: "trends",   title: "Trends",           icon: "📈",  desc: "Actual sleep & intentional time", fn: renderInsightTrends },
+  { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Completion & logging follow-through", fn: renderInsightGoals },
+  { id: "gym",      title: "Gym Tracker",      icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym, menu: false },
 ];
 
 // ---- shared helpers ----
-const catColor = (id) => (CAT[id] || CAT.other).color;
-const catLabel = (id) => (CAT[id] || CAT.other).label;
-const PRODUCTIVE = ["work", "learn", "exercise", "gym"];
+const catColor = (id) => (CAT[reportingCategoryId(id)] || CAT.other).color;
+const catLabel = (id) => (CAT[reportingCategoryId(id)] || CAT.other).label;
+const INTENTIONAL = ["work", "learn", "exercise"];
 const WD_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
 function isGymCategoryId(catId) {
@@ -1297,6 +1356,37 @@ function renderInsightSubs(map) {
   }).join("");
 }
 
+// Activity/project totals are grouped by activity label rather than by
+// area+label. Reclassifying an activity should not split its historical total.
+// Legacy custom categories are treated as activities because that is how the
+// old picker was used.
+function renderInsightActivities(map) {
+  const activities = {};
+  for (const d of trackedDates(map)) {
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      if (!b) continue;
+      const legacy = b.category && b.category.startsWith("c_") && CAT[b.category]
+        ? CAT[b.category].label
+        : "";
+      const label = (b.sub || legacy || "").trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      const item = activities[key] || (activities[key] = { label, mins: 0, categories: {} });
+      const catId = reportingCategoryId(b.category);
+      item.mins += 30;
+      item.categories[catId] = (item.categories[catId] || 0) + 30;
+    }
+  }
+  const items = Object.values(activities).sort((a, b) => b.mins - a.mins);
+  if (!items.length) return emptyMsg("No projects/subcategories logged in this range yet.");
+  const maxH = items[0].mins / 60;
+  return `<div class="stats-h">Time by project</div>` + items.map((item) => {
+    const catId = Object.keys(item.categories).sort((a, b) => item.categories[b] - item.categories[a])[0] || "other";
+    return barRow(`${catLabel(catId)} · ${item.label}`, catColor(catId), item.mins / 60, maxH);
+  }).join("");
+}
+
 // ---- 2. Weekly heatmap ----
 function renderInsightHeatmap(map) {
   const dates = trackedDates(map);
@@ -1309,7 +1399,8 @@ function renderInsightHeatmap(map) {
       const b = map[d][s];
       if (!b) return;
       const c = cell[wd + "_" + i] || (cell[wd + "_" + i] = { counts: {}, total: 0 });
-      c.counts[b.category] = (c.counts[b.category] || 0) + 1; c.total++;
+      const catId = reportingCategoryId(b.category);
+      c.counts[catId] = (c.counts[catId] || 0) + 1; c.total++;
     });
   }
   let head = `<div class="hm-row hm-head"><div class="hm-time"></div>`;
@@ -1337,14 +1428,15 @@ function renderInsightHeatmap(map) {
 
 // ---- 3. Trends over time ----
 function renderInsightTrends(map) {
-  const dates = trackedDates(map).slice(-30);
+  const availableDates = trackedDates(map);
+  const dates = insightRange === 0 ? availableDates : availableDates.slice(-30);
   if (!dates.length) return emptyMsg("No data to trend yet.");
   const rows = dates.map((d) => {
     let sleep = 0, prod = 0;
     for (const s of SLOTS) {
       const b = map[d][s]; if (!b) continue;
-      if (b.category === "sleep") sleep += 0.5;
-      if (PRODUCTIVE.includes(b.category)) prod += 0.5;
+      if (reportingCategoryId(b.category) === "sleep") sleep += 0.5 * SLEEP_EFFICIENCY;
+      if (INTENTIONAL.includes(reportingCategoryId(b.category))) prod += 0.5;
     }
     return { d, sleep, prod };
   });
@@ -1361,7 +1453,7 @@ function renderInsightTrends(map) {
       <div class="trend-val">${fmtH(r.sleep)}<br>${fmtH(r.prod)}</div>
     </div>`;
   }).join("");
-  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep &nbsp; <span style="color:${catColor("work")}">■</span> Productive (work·learn·exercise)</div>${body}`;
+  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep &nbsp; <span style="color:${catColor("work")}">■</span> Intentional (work·learn·exercise)</div>${body}`;
 }
 
 // ---- 4. Consistency / streak ----
@@ -1369,8 +1461,10 @@ function renderInsightStreak(map) {
   const dates = trackedDates(map);
   if (!dates.length) return emptyMsg("Start logging to build a streak.");
   const set = new Set(dates);
-  // current streak counting back from today
+  // Today is still in progress, so an unlogged today does not erase a streak
+  // that was active yesterday.
   let streak = 0; let cur = new Date();
+  if (!set.has(ymd(cur))) cur.setDate(cur.getDate() - 1);
   for (;;) { if (set.has(ymd(cur))) { streak++; cur.setDate(cur.getDate() - 1); } else break; }
   // longest streak
   let longest = 0, run = 0, prev = null;
@@ -1383,17 +1477,17 @@ function renderInsightStreak(map) {
     longest = Math.max(longest, run); prev = d;
   }
   const TARGET = 7;
-  let nights = 0, sleepSum = 0;
+  let nights = 0, sleepSum = 0, sleepDays = 0;
   for (const d of dates) {
-    let sl = 0; for (const s of SLOTS) if (map[d][s] && map[d][s].category === "sleep") sl += 0.5;
-    sleepSum += sl; if (sl >= TARGET) nights++;
+    const sl = actualSleepHours(map[d]);
+    if (sl > 0) { sleepDays++; sleepSum += sl; if (sl >= TARGET) nights++; }
   }
   return `<div class="stat-cards">
     <div class="stat-card"><div class="num">🔥 ${streak}</div><div class="lbl">current streak</div></div>
     <div class="stat-card"><div class="num">${longest}</div><div class="lbl">longest streak</div></div>
     <div class="stat-card"><div class="num">${dates.length}</div><div class="lbl">days tracked</div></div>
     <div class="stat-card"><div class="num">${nights}</div><div class="lbl">nights ≥ ${TARGET}h sleep</div></div>
-    <div class="stat-card"><div class="num">${(sleepSum/dates.length).toFixed(1)}h</div><div class="lbl">avg sleep</div></div>
+    <div class="stat-card"><div class="num">${sleepDays ? (sleepSum/sleepDays).toFixed(1) : "0.0"}h</div><div class="lbl">avg sleep</div></div>
   </div>`;
 }
 
@@ -1404,7 +1498,14 @@ function renderInsightWeekday(map) {
   const wdMins = {}, wdDays = [0,0,0,0,0,0,0];
   for (const d of dates) {
     const wd = weekdayOf(d); wdDays[wd]++;
-    for (const s of SLOTS) { const b = map[d][s]; if (b) { (wdMins[wd] = wdMins[wd] || {}); wdMins[wd][b.category] = (wdMins[wd][b.category] || 0) + 30; } }
+    for (const s of SLOTS) {
+      const b = map[d][s];
+      if (b) {
+        const catId = reportingCategoryId(b.category);
+        (wdMins[wd] = wdMins[wd] || {});
+        wdMins[wd][catId] = (wdMins[wd][catId] || 0) + 30;
+      }
+    }
   }
   const maxAvg = Math.max(1, ...WD_ORDER.map((wd) => {
     const m = wdMins[wd] || {}; const tot = Object.values(m).reduce((a, b) => a + b, 0);
@@ -1714,6 +1815,7 @@ function openInsightsMenu() {
   const list = document.getElementById("menuList");
   list.innerHTML = "";
   for (const it of INSIGHTS) {
+    if (it.menu === false) continue;
     const btn = document.createElement("button");
     btn.className = "menu-item";
     btn.innerHTML = `<span class="menu-icon">${it.icon}</span><span class="menu-text"><span class="menu-title">${it.title}</span><span class="menu-desc">${it.desc}</span></span>`;
@@ -1745,7 +1847,7 @@ async function renderInsight() {
       const d = new Date(); d.setDate(d.getDate() - (insightRange - 1)); start = ymd(d);
     }
     try {
-      let q = sb.from("blocks").select("date,start_time,category,note").eq("user_id", USER_ID);
+      let q = sb.from("blocks").select("date,start_time,category,note,subcategory").eq("user_id", USER_ID).lte("date", ymd(new Date()));
       if (start) q = q.gte("date", start);
       const { data: rows, error } = await q;
       if (!error && rows) {
@@ -1753,8 +1855,8 @@ async function renderInsight() {
         for (const r of rows) {
           const oldDay = map[r.date] || {};
           const oldBlock = oldDay[r.start_time];
-          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "")) {
-            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "" };
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "")) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
             changed = true;
           }
         }
@@ -1993,5 +2095,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=24").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=26").catch(() => {});
 }
