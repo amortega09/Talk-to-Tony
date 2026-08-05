@@ -31,6 +31,7 @@ const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
 let activityAreas = {};              // { normalized activity label: builtin category id }
+let categoryMigrationVersion = 0;    // last completed historical recategorisation
 let gymExercises = DEFAULT_GYM_EXERCISES.slice();
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
@@ -116,8 +117,9 @@ function loadSettingsLocal() {
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
     activityAreas = (s.activityAreas && typeof s.activityAreas === "object") ? s.activityAreas : {};
+    categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
     gymExercises = mergeGymExercises(s.gymExercises);
-  } catch { customCats = []; customSubs = {}; activityAreas = {}; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
+  } catch { customCats = []; customSubs = {}; activityAreas = {}; categoryMigrationVersion = 0; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
   rebuildCats();
 }
 async function pullSettings() {
@@ -132,19 +134,20 @@ async function pullSettings() {
       if (Array.isArray(s.customCats)) customCats = s.customCats;
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
       if (s.activityAreas && typeof s.activityAreas === "object") activityAreas = s.activityAreas;
+      if (s.categoryMigrationVersion != null) categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
       gymExercises = mergeGymExercises(s.gymExercises);
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }));
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, gymExercises }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
@@ -1125,6 +1128,7 @@ const SLEEP_EFFICIENCY = 0.9;
 // A user's explicit area choice is remembered in activityAreas and wins over
 // these defaults for blocks that were previously Other/custom.
 const DEFAULT_ACTIVITY_AREAS = Object.freeze({
+  "calling thad, chatting on whatsapp, other stuff": "social",
   "chores": "chores",
   "gym": "exercise",
   "gym - back and arms": "exercise",
@@ -1132,15 +1136,20 @@ const DEFAULT_ACTIVITY_AREAS = Object.freeze({
   "interview": "work",
   "investing": "learn",
   "job interview": "work",
-  "learning about companies": "learn",
+  "learning about companies": "work",
   "meeting": "work",
   "moeve": "work",
   "monthly report": "work",
   "party": "social",
+  "pilot": "other",
   "prep": "work",
   "presentation work": "work",
+  "procrastinated and flicked": "relax",
+  "procrastinating": "relax",
   "shopping": "chores",
+  "shower": "chores",
   "watch film": "relax",
+  "weekday morning routine": "chores",
 });
 
 // Gym keeps its specialist logger and insight, but belongs to Exercise in
@@ -1170,16 +1179,118 @@ function blockActivityLabel(block) {
     (note.startsWith(GYM_NOTE_PREFIX) ? "" : note);
 }
 
+function preferredAreaForBlock(block) {
+  if (!block) return null;
+  const note = (block.note || "").trim();
+  const labels = [
+    blockSubcategory(block),
+    legacyActivityLabel(block),
+    note.startsWith(GYM_NOTE_PREFIX) ? "" : note,
+  ].map(normalizeActivityLabel).filter(Boolean);
+  for (const key of labels) if (activityAreas[key]) return activityAreas[key];
+  for (const key of labels) if (DEFAULT_ACTIVITY_AREAS[key]) return DEFAULT_ACTIVITY_AREAS[key];
+  return null;
+}
+
 // General reports must classify the whole block, not only its old category id.
 // This lets one activity retain a stable broad area across old and new entries.
 function reportingCategoryForBlock(block) {
   if (!block) return "other";
   if (isGymBlock(block)) return "exercise";
+  const preferredArea = preferredAreaForBlock(block);
+  if (BUILTIN_CATEGORIES.some((c) => c.id === preferredArea)) {
+    return reportingCategoryId(preferredArea);
+  }
   const storedArea = reportingCategoryId(block.category);
-  if (storedArea !== "other") return storedArea;
-  const key = normalizeActivityLabel(blockActivityLabel(block));
-  const inferred = activityAreas[key] || DEFAULT_ACTIVITY_AREAS[key];
-  return BUILTIN_CATEGORIES.some((c) => c.id === inferred) ? inferred : "other";
+  return BUILTIN_CATEGORIES.some((c) => c.id === storedArea) ? storedArea : "other";
+}
+
+const CATEGORY_MIGRATION_TARGET = 1;
+
+function canonicalStoredBlock(block) {
+  const category = isGymBlock(block)
+    ? "gym"
+    : (preferredAreaForBlock(block) || reportingCategoryId(block.category));
+  let sub = blockSubcategory(block);
+  if (!sub && block.category && block.category.startsWith("c_")) {
+    sub = legacyActivityLabel(block);
+  }
+  if (isGymBlock(block) && normalizeActivityLabel(sub) === "gym") sub = "";
+  return { category, sub };
+}
+
+function migrateLocalCategories() {
+  let changedBlocks = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith("day_data_")) continue;
+    let day;
+    try { day = JSON.parse(localStorage.getItem(key)) || {}; } catch { continue; }
+    let changedDay = false;
+    for (const slot of SLOTS) {
+      const block = day[slot];
+      if (!block) continue;
+      const next = canonicalStoredBlock(block);
+      if (block.category !== next.category || (block.sub || "") !== next.sub) {
+        day[slot] = { ...block, category: next.category, sub: next.sub };
+        changedBlocks++;
+        changedDay = true;
+      }
+    }
+    if (changedDay) localStorage.setItem(key, JSON.stringify(day));
+  }
+  return changedBlocks;
+}
+
+// One-time, idempotent migration from legacy task-as-category rows to the
+// current broad-category + nested-activity model. Times and notes are untouched.
+async function migrateHistoricalCategories() {
+  if (categoryMigrationVersion >= CATEGORY_MIGRATION_TARGET || !sb || !USER_ID) return 0;
+
+  // Seed the decisions approved for this migration. Subsequent picker changes
+  // remain user-controlled because this block runs only once.
+  Object.assign(activityAreas, DEFAULT_ACTIVITY_AREAS);
+
+  const rows = [];
+  for (let from = 0;; from += 1000) {
+    const { data: page, error } = await sb.from("blocks")
+      .select("date,start_time,category,note,subcategory")
+      .eq("user_id", USER_ID)
+      .order("date", { ascending: true })
+      .order("start_time", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    rows.push(...(page || []));
+    if (!page || page.length < 1000) break;
+  }
+
+  const changedRows = [];
+  for (const row of rows) {
+    if (!SLOTS.includes(row.start_time)) continue;
+    const block = { category: row.category, note: row.note || "", sub: row.subcategory || "" };
+    const next = canonicalStoredBlock(block);
+    if (row.category === next.category && (row.subcategory || "") === next.sub) continue;
+    changedRows.push({
+      user_id: USER_ID,
+      date: row.date,
+      start_time: row.start_time,
+      category: next.category,
+      subcategory: next.sub,
+      note: row.note || "",
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  for (let i = 0; i < changedRows.length; i += 500) {
+    const { error } = await sb.from("blocks")
+      .upsert(changedRows.slice(i, i + 500), { onConflict: "user_id,date,start_time" });
+    if (error) throw error;
+  }
+
+  migrateLocalCategories();
+  categoryMigrationVersion = CATEGORY_MIGRATION_TARGET;
+  await saveSettings();
+  return changedRows.length;
 }
 
 function rawSleepHours(day) {
@@ -2090,7 +2201,10 @@ function applySession(session) {
   if (uid) {
     document.getElementById("authScreen").hidden = true;
     document.getElementById("app").hidden = false;
-    pullSettings().then(() => goto(new Date()));
+    pullSettings()
+      .then(() => migrateHistoricalCategories())
+      .catch((e) => console.warn("Category migration will retry next time", e))
+      .finally(() => goto(new Date()));
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
@@ -2171,5 +2285,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=29").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=30").catch(() => {});
 }
