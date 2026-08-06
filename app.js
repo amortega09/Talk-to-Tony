@@ -857,7 +857,7 @@ function renderGymInline(existing) {
 
   renderGymExerciseOptions();
   const parsed = existing && isGymBlock(existing) ? parseGymWorkoutNote(existing.note || "") : null;
-  const exercises = parsed && parsed.exercises.length ? parsed.exercises : [{}];
+  const exercises = parsed && parsed.exercises.length ? parsed.exercises : [];
   exercises.forEach(addGymInlineRow);
 }
 
@@ -880,10 +880,15 @@ function collectGymInlineWorkout() {
 
 function firstInvalidGymInlineInput() {
   const rows = Array.from(document.querySelectorAll(".gym-inline-row"));
-  if (!rows.length) return document.getElementById("addInlineExercise");
   for (const row of rows) {
-    const name = row.querySelector(".gym-exercise-name");
-    if (!name.value.trim()) return name;
+    const name = row.querySelector(".gym-exercise-name").value.trim();
+    const sets = row.querySelector(".gym-sets").value.trim();
+    const reps = row.querySelector(".gym-reps").value.trim();
+    const kg = row.querySelector(".gym-kg").value.trim();
+    const hasData = sets !== "" || reps !== "" || kg !== "";
+    if (hasData && !name) {
+      return row.querySelector(".gym-exercise-name");
+    }
   }
   return null;
 }
@@ -1065,7 +1070,7 @@ function saveSheet() {
   if (isGymCategoryId(selectedCat)) {
     const invalid = firstInvalidGymInlineInput();
     if (invalid) {
-      setStatus("err", "Add an exercise");
+      setStatus("err", "Add exercise name");
       invalid.focus();
       return;
     }
