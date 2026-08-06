@@ -1487,7 +1487,6 @@ let currentInsight = null;
 const INSIGHTS = [
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
-  { id: "trends",   title: "Trends",           icon: "📈",  desc: "Actual sleep & intentional time", fn: renderInsightTrends },
   { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Completion & logging follow-through", fn: renderInsightGoals },
   { id: "gym",      title: "Gym Tracker",      icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym, menu: false },
 ];
@@ -1495,7 +1494,6 @@ const INSIGHTS = [
 // ---- shared helpers ----
 const catColor = (id) => (CAT[reportingCategoryId(id)] || CAT.other).color;
 const catLabel = (id) => (CAT[reportingCategoryId(id)] || CAT.other).label;
-const INTENTIONAL = ["work", "learn", "exercise"];
 const WD_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon-first
 function isGymCategoryId(catId) {
@@ -1615,36 +1613,6 @@ function renderInsightHeatmap(map) {
   return `<div class="stats-h">Weekly rhythm</div><div class="heatmap">${head}${rows}</div>`;
 }
 
-// ---- 3. Trends over time ----
-function renderInsightTrends(map) {
-  const availableDates = trackedDates(map);
-  const dates = insightRange === 0 ? availableDates : availableDates.slice(-30);
-  if (!dates.length) return emptyMsg("No data to trend yet.");
-  const rows = dates.map((d) => {
-    let sleep = 0, prod = 0;
-    for (const s of SLOTS) {
-      const b = map[d][s]; if (!b) continue;
-      const catId = reportingCategoryForBlock(b);
-      if (catId === "sleep") sleep += 0.5 * SLEEP_EFFICIENCY;
-      if (INTENTIONAL.includes(catId)) prod += 0.5;
-    }
-    return { d, sleep, prod };
-  });
-  const maxH = Math.max(12, ...rows.map((r) => Math.max(r.sleep, r.prod)));
-  const body = rows.map((r) => {
-    const [y, m, day] = r.d.split("-").map(Number);
-    const lbl = new Date(y, m - 1, day).toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
-    return `<div class="trend-row">
-      <div class="trend-date">${lbl}</div>
-      <div class="trend-bars">
-        <div class="bar-track"><div class="bar-fill" style="width:${(r.sleep/maxH)*100}%;background:${catColor("sleep")}"></div></div>
-        <div class="bar-track"><div class="bar-fill" style="width:${(r.prod/maxH)*100}%;background:${catColor("work")}"></div></div>
-      </div>
-      <div class="trend-val">${fmtH(r.sleep)}<br>${fmtH(r.prod)}</div>
-    </div>`;
-  }).join("");
-  return `<div class="stats-h"><span style="color:${catColor("sleep")}">■</span> Sleep (0.9×) &nbsp; <span style="color:${catColor("work")}">■</span> Intentional</div>${body}`;
-}
 
 // ---- 4. Consistency / streak ----
 function renderInsightStreak(map) {
