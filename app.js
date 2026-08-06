@@ -1701,6 +1701,7 @@ function renderInsightGoals(map) {
     let completedCount = 0;
     let subListHtml = "";
     
+    let subItemIndex = 0;
     lines.forEach((line) => {
       let isChecked = false;
       let cleanText = line;
@@ -1726,10 +1727,11 @@ function renderInsightGoals(map) {
       
       const itemClass = isChecked ? "goal-sub-item completed" : "goal-sub-item";
       subListHtml += `
-        <div class="${itemClass}">
+        <div class="${itemClass}" data-date="${d}" data-idx="${subItemIndex}">
           <span class="goal-sub-dot ${isChecked ? 'met' : 'unmet'}"></span>
           <span class="goal-sub-text">${escapeHtml(cleanText)}</span>
         </div>`;
+      subItemIndex++;
     });
 
     // Colour the day badge: green if all met, amber if partial, red if none
@@ -1769,6 +1771,55 @@ function renderInsightGoals(map) {
     </div>
     <div class="stats-h">Objectives History</div>
     ${list}`;
+}
+
+function toggleInsightObjective(dateStr, idx) {
+  const day = loadLocal(dateStr);
+  const todaysPlan = day[PLAN_KEY] && day[PLAN_KEY].note;
+  if (!todaysPlan) return;
+
+  let lines = todaysPlan.split(/\r?\n/);
+  let nonElLineIndices = [];
+  lines.forEach((line, index) => {
+    if (line.trim() !== "") {
+      nonElLineIndices.push(index);
+    }
+  });
+
+  const targetOriginalIndex = nonElLineIndices[idx];
+  if (targetOriginalIndex === undefined) return;
+
+  const line = lines[targetOriginalIndex];
+  let cleanLine = line.trim();
+
+  let bulletMatch = cleanLine.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+  let prefix = bulletMatch ? bulletMatch[1] : "";
+  let remainder = bulletMatch ? bulletMatch[2] : cleanLine;
+
+  let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+  let newLine;
+  if (checkMatch) {
+    const isChecked = checkMatch[1].toLowerCase() === "x";
+    const text = checkMatch[2];
+    const newCheck = isChecked ? "[ ]" : "[x]";
+    newLine = `${prefix}${newCheck} ${text}`;
+  } else {
+    newLine = `${prefix}[x] ${remainder}`;
+  }
+
+  lines[targetOriginalIndex] = newLine;
+  const newNote = lines.join("\n");
+  const block = { category: "plan", note: newNote };
+  day[PLAN_KEY] = block;
+  saveLocal(dateStr, day);
+  pushBlocks(dateStr, [PLAN_KEY], block);
+
+  if (ymd(current) === dateStr) {
+    data[PLAN_KEY] = block;
+    render();
+  }
+
+  renderInsight();
 }
 
 // ====================================================================
@@ -2080,6 +2131,13 @@ document.getElementById("insightRangeSeg").addEventListener("click", (e) => {
   document.querySelectorAll("#insightRangeSeg button").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
   renderInsight();
+});
+document.getElementById("insightBody").addEventListener("click", (e) => {
+  const item = e.target.closest(".goal-sub-item[data-date][data-idx]");
+  if (!item) return;
+  const dateStr = item.dataset.date;
+  const idx = parseInt(item.dataset.idx, 10);
+  toggleInsightObjective(dateStr, idx);
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
 document.getElementById("activitySearch").addEventListener("input", (e) => {
