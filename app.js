@@ -33,6 +33,9 @@ let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
 let activityAreas = {};              // { normalized activity label: builtin category id }
 let categoryMigrationVersion = 0;    // last completed historical recategorisation
+let shortTermObjectives = "";
+let longTermObjectives = "";
+let activeObjectiveHorizon = "today";
 let gymExercises = DEFAULT_GYM_EXERCISES.slice();
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
@@ -119,8 +122,10 @@ function loadSettingsLocal() {
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
     activityAreas = (s.activityAreas && typeof s.activityAreas === "object") ? s.activityAreas : {};
     categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
+    shortTermObjectives = typeof s.shortTermObjectives === "string" ? s.shortTermObjectives : "";
+    longTermObjectives = typeof s.longTermObjectives === "string" ? s.longTermObjectives : "";
     gymExercises = mergeGymExercises(s.gymExercises);
-  } catch { customCats = []; customSubs = {}; activityAreas = {}; categoryMigrationVersion = 0; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
+  } catch { customCats = []; customSubs = {}; activityAreas = {}; categoryMigrationVersion = 0; shortTermObjectives = ""; longTermObjectives = ""; gymExercises = DEFAULT_GYM_EXERCISES.slice(); }
   rebuildCats();
 }
 async function pullSettings() {
@@ -136,19 +141,21 @@ async function pullSettings() {
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
       if (s.activityAreas && typeof s.activityAreas === "object") activityAreas = s.activityAreas;
       if (s.categoryMigrationVersion != null) categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
+      if (typeof s.shortTermObjectives === "string") shortTermObjectives = s.shortTermObjectives;
+      if (typeof s.longTermObjectives === "string") longTermObjectives = s.longTermObjectives;
       gymExercises = mergeGymExercises(s.gymExercises);
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }));
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, gymExercises }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
@@ -379,7 +386,7 @@ function carryForward(text) {
   syncSlots(dateStr, [PLAN_KEY], block);
   // Keep planInput in sync if visible
   const pi = document.getElementById("planInput");
-  if (pi && document.activeElement !== pi) pi.value = newNote;
+  if (activeObjectiveHorizon === "today" && pi && document.activeElement !== pi) pi.value = newNote;
   setStatus("ok", "Carried to tomorrow ✓");
   setTimeout(() => setStatus("", ""), 2000);
 }
@@ -527,13 +534,7 @@ function render() {
     pb.innerHTML = "";
   }
 
-  // "Objectives for tomorrow" box reflects next day's plan
-  const pi = document.getElementById("planInput");
-  if (document.activeElement !== pi) {
-    const next = new Date(current); next.setDate(next.getDate() + 1);
-    const nd = loadLocal(ymd(next));
-    pi.value = (nd[PLAN_KEY] && nd[PLAN_KEY].note) || "";
-  }
+  renderObjectiveEditor();
 }
 
 function formatHour(h) {
@@ -1062,6 +1063,63 @@ function savePlan() {
   if (dateStr === ymd(current)) { if (note) data[PLAN_KEY] = block; else delete data[PLAN_KEY]; }
 }
 
+const OBJECTIVE_HORIZONS = {
+  today: {
+    hint: "Daily actions · planned for tomorrow",
+    placeholder: "What do you want tomorrow to look like?",
+  },
+  short: {
+    hint: "Outcomes for the next 1–4 weeks",
+    placeholder: "What should move forward over the next few weeks?",
+  },
+  long: {
+    hint: "Direction for the next few months",
+    placeholder: "What longer-term direction matters to you?",
+  },
+};
+
+function currentObjectiveEditorValue() {
+  if (activeObjectiveHorizon === "short") return shortTermObjectives;
+  if (activeObjectiveHorizon === "long") return longTermObjectives;
+  const next = new Date(current); next.setDate(next.getDate() + 1);
+  const nextDay = loadLocal(ymd(next));
+  return (nextDay[PLAN_KEY] && nextDay[PLAN_KEY].note) || "";
+}
+
+function renderObjectiveEditor() {
+  const input = document.getElementById("planInput");
+  const meta = OBJECTIVE_HORIZONS[activeObjectiveHorizon] || OBJECTIVE_HORIZONS.today;
+  document.querySelectorAll("[data-objective-horizon]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.objectiveHorizon === activeObjectiveHorizon);
+  });
+  document.getElementById("objectiveHint").textContent = meta.hint;
+  input.placeholder = meta.placeholder;
+  if (document.activeElement !== input) input.value = currentObjectiveEditorValue();
+}
+
+function saveObjectiveInput() {
+  const note = document.getElementById("planInput").value.trim();
+  if (activeObjectiveHorizon === "today") {
+    savePlan();
+    return;
+  }
+  if (activeObjectiveHorizon === "short") {
+    if (note === shortTermObjectives) return;
+    shortTermObjectives = note;
+  } else {
+    if (note === longTermObjectives) return;
+    longTermObjectives = note;
+  }
+  saveSettings();
+}
+
+function selectObjectiveHorizon(horizon) {
+  if (!OBJECTIVE_HORIZONS[horizon] || horizon === activeObjectiveHorizon) return;
+  saveObjectiveInput();
+  activeObjectiveHorizon = horizon;
+  renderObjectiveEditor();
+}
+
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
@@ -1122,7 +1180,12 @@ function exportData() {
       };
     }
   }
-  const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), user_id: USER_ID, days: all }, null, 2)],
+  const blob = new Blob([JSON.stringify({
+    exported_at: new Date().toISOString(),
+    user_id: USER_ID,
+    targets: { short_term: shortTermObjectives, long_term: longTermObjectives },
+    days: all,
+  }, null, 2)],
     { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1496,7 +1559,7 @@ let currentInsight = null;
 const INSIGHTS = [
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
-  { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Completion & logging follow-through", fn: renderInsightGoals },
+  { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Daily actions & longer-term direction", fn: renderInsightGoals },
   { id: "gym",      title: "Gym Tracker",      icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym, menu: false },
 ];
 
@@ -1688,9 +1751,40 @@ function renderInsightWeekday(map) {
 }
 
 // ---- 6. Objective follow-through ----
+function parseObjectiveLine(line) {
+  let remainder = (line || "").trim().replace(/^[•\-*\d+.\s]*/, "");
+  const check = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+  return {
+    completed: !!check && check[1].toLowerCase() === "x",
+    text: check ? check[2] : remainder,
+  };
+}
+
+function renderTargetCard(type, note) {
+  const lines = (note || "").split(/\r?\n/).map(parseObjectiveLine).filter((item) => item.text);
+  if (!lines.length) return "";
+  const isShort = type === "short";
+  const title = isShort ? "Short-term" : "Long-term";
+  const range = isShort ? "Next 1–4 weeks" : "Next few months";
+  const items = lines.map((item) => `
+    <div class="target-item${item.completed ? " completed" : ""}">
+      <span class="target-dot"></span><span>${escapeHtml(item.text)}</span>
+    </div>`).join("");
+  return `<div class="target-card ${type}">
+    <div class="target-card-head"><span class="target-card-title">${title}</span><span class="target-card-range">${range}</span></div>
+    <div class="target-list">${items}</div>
+  </div>`;
+}
+
 function renderInsightGoals(map) {
   const planned = Object.keys(map).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && map[d][PLAN_KEY] && map[d][PLAN_KEY].note).sort().reverse();
-  if (!planned.length) return emptyMsg("Set “Objectives for tomorrow” to track follow-through.");
+  const targetCards = renderTargetCard("short", shortTermObjectives) + renderTargetCard("long", longTermObjectives);
+  const targetsHtml = targetCards
+    ? `<div class="stats-h">Current targets</div><div class="target-cards">${targetCards}</div>`
+    : "";
+  if (!planned.length) {
+    return targetsHtml || emptyMsg("Add a Today, Short-term, or Long-term objective to begin.");
+  }
   
   let loggedDays = 0;
   let totalTasks = 0;
@@ -1767,7 +1861,7 @@ function renderInsightGoals(map) {
   const consistencyRate = Math.round((loggedDays / planned.length) * 100);
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
   
-  return `
+  return targetsHtml + `
     <div class="stat-cards">
       <div class="stat-card">
         <div class="num">${completionRate}%</div>
@@ -2224,9 +2318,13 @@ const handleListInput = (e) => {
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
 document.getElementById("reflectInput").addEventListener("keydown", handleListKeydown);
 document.getElementById("reflectInput").addEventListener("input", handleListInput);
-document.getElementById("planInput").addEventListener("blur", savePlan);
+document.getElementById("planInput").addEventListener("blur", saveObjectiveInput);
 document.getElementById("planInput").addEventListener("keydown", handleListKeydown);
 document.getElementById("planInput").addEventListener("input", handleListInput);
+document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-objective-horizon]");
+  if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
+});
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
@@ -2325,5 +2423,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=31").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=32").catch(() => {});
 }

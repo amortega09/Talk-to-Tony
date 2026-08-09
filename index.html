@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=31" />
+  <link rel="stylesheet" href="styles.css?v=32" />
 </head>
 <body>
   <!-- Login screen -->
@@ -49,8 +49,16 @@
       <div class="reflect">
         <div class="reflect-label">How was today?</div>
         <textarea class="reflect-input" id="reflectInput" rows="2" placeholder="A line about your day — what went well, what didn't…"></textarea>
-        <div class="reflect-label" style="margin-top:18px">Objectives for tomorrow</div>
-        <textarea class="reflect-input" id="planInput" rows="2" placeholder="What do you want tomorrow to look like?"></textarea>
+        <div class="objective-editor">
+          <div class="reflect-label objective-editor-label">Objectives</div>
+          <div class="objective-horizon-seg" id="objectiveHorizonSeg" aria-label="Objective timeframe">
+            <button type="button" class="active" data-objective-horizon="today">Today</button>
+            <button type="button" data-objective-horizon="short">Short-term</button>
+            <button type="button" data-objective-horizon="long">Long-term</button>
+          </div>
+          <div class="objective-hint" id="objectiveHint">Daily actions · planned for tomorrow</div>
+          <textarea class="reflect-input" id="planInput" rows="3" placeholder="What do you want tomorrow to look like?"></textarea>
+        </div>
       </div>
     </main>
 
@@ -159,6 +167,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=32"></script>
 </body>
 </html>

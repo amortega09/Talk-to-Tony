@@ -342,6 +342,33 @@ html, body {
 }
 .reflect-input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 20%, transparent); }
 .reflect-input::placeholder { color: var(--text-faint); }
+.objective-editor { margin-top: 18px; }
+.objective-editor-label { margin-bottom: 7px; }
+.objective-horizon-seg {
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px;
+  margin-bottom: 7px;
+}
+.objective-horizon-seg button {
+  flex: 1;
+  border: none;
+  background: none;
+  color: var(--text-soft);
+  border-radius: 4px;
+  padding: 6px 5px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background .1s, color .1s;
+}
+.objective-horizon-seg button:hover { background: var(--hover); }
+.objective-horizon-seg button.active { background: var(--active); color: var(--text); font-weight: 600; }
+.objective-hint { color: var(--text-faint); font-size: 11.5px; margin: 0 2px 7px; }
 
 /* ── Status bar ──────────────────────────── */
 .statusbar {
@@ -662,6 +689,19 @@ html, body {
 .trend-val { flex: 0 0 40px; text-align: right; font-size: 10.5px; line-height: 1.3; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 
 /* ── Objectives Insight Page ──────────────── */
+.target-cards { display: grid; gap: 8px; margin-bottom: 22px; }
+.target-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 14px; }
+.target-card.short { border-left: 3px solid #5aa0a8; }
+.target-card.long { border-left: 3px solid #a86bb0; }
+.target-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.target-card-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.target-card-range { font-size: 11px; color: var(--text-faint); }
+.target-list { display: flex; flex-direction: column; gap: 6px; }
+.target-item { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; }
+.target-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; flex: 0 0 auto; background: var(--text-faint); }
+.target-card.short .target-dot { background: #5aa0a8; }
+.target-card.long .target-dot { background: #a86bb0; }
+.target-item.completed { color: var(--text-soft); text-decoration: line-through; opacity: .7; }
 .goal-row {
   display: flex;
   flex-direction: column;
