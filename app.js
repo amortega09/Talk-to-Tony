@@ -13,6 +13,7 @@ const BUILTIN_CATEGORIES = [
   { id: "learn",    label: "Learn",    color: "#5aa0a8" },
   { id: "social",   label: "Social",   color: "#c76b98" },
   { id: "chores",   label: "Chores",   color: "#9a8c7a" },
+  { id: "travel",   label: "Travel",   color: "#6a7fd0" },
   { id: "relax",    label: "Relax",    color: "#6aa86a" },
   { id: "other",    label: "Other",    color: "#9b9793" },
 ];
@@ -777,8 +778,13 @@ function activityOptions() {
   }
   // Existing custom categories were effectively activities. Surface them as
   // activities without rewriting historical records.
-  for (const c of customCats) add({ label: c.label, catId: "other", sub: c.label, note: "", legacyCat: c });
-  ["sleep", "gym", "food"].forEach((id) => {
+  for (const c of customCats) {
+    const builtin = BUILTIN_CATEGORIES.find((item) => item.label.toLowerCase() === c.label.toLowerCase());
+    add(builtin
+      ? { label: builtin.label, catId: builtin.id, sub: "", note: "" }
+      : { label: c.label, catId: "other", sub: c.label, note: "", legacyCat: c });
+  }
+  ["sleep", "gym", "food", "travel"].forEach((id) => {
     const c = CAT[id];
     if (c) add({ label: c.label, catId: id, sub: "", note: "" });
   });
@@ -1143,6 +1149,7 @@ const DEFAULT_ACTIVITY_AREAS = Object.freeze({
   "job interview": "work",
   "learning about companies": "work",
   "meeting": "work",
+  "metro": "travel",
   "moeve": "work",
   "monthly report": "work",
   "party": "social",
@@ -1153,6 +1160,8 @@ const DEFAULT_ACTIVITY_AREAS = Object.freeze({
   "procrastinating": "relax",
   "shopping": "chores",
   "shower": "chores",
+  "train": "travel",
+  "travel": "travel",
   "watch film": "relax",
   "weekday morning routine": "chores",
 });
@@ -1210,7 +1219,7 @@ function reportingCategoryForBlock(block) {
   return BUILTIN_CATEGORIES.some((c) => c.id === storedArea) ? storedArea : "other";
 }
 
-const CATEGORY_MIGRATION_TARGET = 1;
+const CATEGORY_MIGRATION_TARGET = 2;
 
 function canonicalStoredBlock(block) {
   const category = isGymBlock(block)
@@ -2316,5 +2325,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=30").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=31").catch(() => {});
 }
