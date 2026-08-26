@@ -209,6 +209,32 @@ html, body {
   color: var(--text-soft);
   opacity: 0.65;
 }
+.plan-banner-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #d1a13a 20%, var(--surface));
+  color: color-mix(in srgb, #d1a13a 90%, var(--text));
+  margin-left: 6px;
+}
+.plan-banner-progress-track {
+  width: 100%;
+  height: 3px;
+  background: color-mix(in srgb, #d1a13a 20%, var(--surface));
+  border-radius: 2px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.plan-banner-progress-fill {
+  height: 100%;
+  background: #d1a13a;
+  border-radius: 2px;
+  transition: width 0.25s ease;
+}
+.plan-banner.collapsed .plan-banner-progress-track {
+  margin-bottom: 0;
+}
 .carry-btn {
   border: none;
   background: none;
@@ -231,6 +257,46 @@ html, body {
 }
 .carry-btn:active {
   background: color-mix(in srgb, #d1a13a 28%, var(--surface));
+}
+
+/* Active Targets Showcase */
+.objective-targets-showcase {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--hover) 40%, var(--surface));
+  font-size: 12px;
+}
+.objective-targets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.objective-targets-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+}
+.objective-target-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.objective-target-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--link) 15%, var(--surface));
+  color: var(--link);
 }
 
 /* ── "+ New" category tile ───────────────── */

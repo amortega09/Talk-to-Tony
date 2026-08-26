@@ -315,6 +315,109 @@ function togglePlanBannerCollapse(e) {
   }
 }
 
+function renderPlanBanner() {
+  const pb = document.getElementById("planBanner");
+  if (!pb) return;
+  const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
+  if (todaysPlan && todaysPlan.trim()) {
+    const lines = todaysPlan.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      pb.hidden = false;
+      let totalCount = 0;
+      let completedCount = 0;
+
+      const items = lines.map((line, idx) => {
+        totalCount++;
+        let isChecked = false;
+        let cleanText = line;
+        
+        let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+        let prefix = bulletMatch ? bulletMatch[1] : "";
+        let remainder = bulletMatch ? bulletMatch[2] : line;
+        
+        let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+        if (checkMatch) {
+          isChecked = checkMatch[1].toLowerCase() === "x";
+          cleanText = checkMatch[2];
+        } else {
+          cleanText = remainder;
+        }
+        
+        if (isChecked) completedCount++;
+
+        return { idx, isChecked, cleanText };
+      });
+
+      const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+      pb.innerHTML = `
+        <div class="plan-banner-title" id="planBannerTitle">
+          <div class="plan-banner-title-left">
+            <span class="plan-banner-icon">🎯</span>
+            <span>Today's Objectives</span>
+            <span class="plan-banner-badge">${completedCount}/${totalCount}</span>
+          </div>
+          <button class="plan-banner-toggle" id="planBannerToggle" aria-label="Toggle objectives view">
+            <svg class="plan-banner-chevron" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+        </div>
+        <div class="plan-banner-progress-track">
+          <div class="plan-banner-progress-fill" style="width: ${pct}%"></div>
+        </div>
+        <div class="plan-banner-list" id="planBannerList"></div>
+      `;
+      
+      const isCollapsed = localStorage.getItem("day_plan_banner_collapsed") === "true";
+      if (isCollapsed) pb.classList.add("collapsed");
+      else pb.classList.remove("collapsed");
+
+      document.getElementById("planBannerToggle").addEventListener("click", togglePlanBannerCollapse);
+      document.getElementById("planBannerTitle").addEventListener("click", togglePlanBannerCollapse);
+
+      const listEl = document.getElementById("planBannerList");
+      items.forEach(({ idx, isChecked, cleanText }) => {
+        const itemEl = document.createElement("div");
+        itemEl.className = isChecked ? "plan-banner-item completed" : "plan-banner-item";
+        
+        const checkBox = document.createElement("span");
+        checkBox.className = "plan-banner-check-box";
+        
+        const textSpan = document.createElement("span");
+        textSpan.className = "plan-banner-text";
+        textSpan.textContent = cleanText;
+        
+        itemEl.appendChild(checkBox);
+        itemEl.appendChild(textSpan);
+
+        if (!isChecked) {
+          const carryBtn = document.createElement("button");
+          carryBtn.className = "carry-btn";
+          carryBtn.title = "Carry forward to tomorrow";
+          carryBtn.setAttribute("aria-label", "Carry to tomorrow");
+          carryBtn.textContent = "→";
+          carryBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            carryForward(cleanText);
+          });
+          itemEl.appendChild(carryBtn);
+        }
+        
+        itemEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleObjective(idx);
+        });
+        
+        listEl.appendChild(itemEl);
+      });
+      return;
+    }
+  }
+  pb.hidden = true;
+  pb.innerHTML = "";
+}
+
 function toggleObjective(idx) {
   const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
   if (!todaysPlan) return;
@@ -354,15 +457,12 @@ function toggleObjective(idx) {
   const dateStr = ymd(current);
   pushBlocks(dateStr, [PLAN_KEY], data[PLAN_KEY]);
   
-  const next = new Date(current); next.setDate(next.getDate() + 1);
-  if (dateStr === ymd(next)) {
-    const pi = document.getElementById("planInput");
-    if (pi && document.activeElement !== pi) {
-      pi.value = newNote;
-    }
+  const pi = document.getElementById("planInput");
+  if (pi && activeObjectiveHorizon === "today" && document.activeElement !== pi) {
+    pi.value = newNote;
   }
   
-  render();
+  renderPlanBanner();
 }
 
 // Carry an unchecked objective forward into the next day's plan.
@@ -373,7 +473,6 @@ function carryForward(text) {
   const existing = (day[PLAN_KEY] && day[PLAN_KEY].note) || "";
   const clean = text.trim();
   if (!clean) return;
-  // Don't duplicate if already there
   if (existing.split(/\r?\n/).some((l) => l.replace(/^[•\-\*\d+\.\s]*(\[[ xX]\])?\s*/i, "").trim() === clean)) {
     setStatus("", "Already in tomorrow's plan");
     setTimeout(() => setStatus("", ""), 2000);
@@ -384,9 +483,8 @@ function carryForward(text) {
   day[PLAN_KEY] = block;
   saveLocal(dateStr, day);
   syncSlots(dateStr, [PLAN_KEY], block);
-  // Keep planInput in sync if visible
   const pi = document.getElementById("planInput");
-  if (activeObjectiveHorizon === "today" && pi && document.activeElement !== pi) pi.value = newNote;
+  if (activeObjectiveHorizon === "tomorrow" && pi && document.activeElement !== pi) pi.value = newNote;
   setStatus("ok", "Carried to tomorrow ✓");
   setTimeout(() => setStatus("", ""), 2000);
 }
@@ -423,7 +521,6 @@ function render() {
       </div>`;
     el.dataset.slot = slot;
     attachPress(el, slot);
-    // Red "now" marker just above the current half-hour (today only)
     if (ymd(current) === ymd(new Date())) {
       const now = new Date();
       const nowSlot = String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30");
@@ -443,97 +540,7 @@ function render() {
     ri.value = (data[REFLECT_KEY] && data[REFLECT_KEY].note) || "";
   }
 
-  // Today's objectives banner (whatever was planned the day before)
-  const pb = document.getElementById("planBanner");
-  const todaysPlan = data[PLAN_KEY] && data[PLAN_KEY].note;
-  if (todaysPlan && todaysPlan.trim()) {
-    pb.hidden = false;
-    const lines = todaysPlan.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length > 0) {
-      pb.innerHTML = `
-        <div class="plan-banner-title" id="planBannerTitle">
-          <div class="plan-banner-title-left">
-            <span class="plan-banner-icon">🎯</span>
-            <span>Today's Objectives</span>
-          </div>
-          <button class="plan-banner-toggle" id="planBannerToggle" aria-label="Toggle objectives view">
-            <svg class="plan-banner-chevron" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="18 15 12 9 6 15"></polyline>
-            </svg>
-          </button>
-        </div>
-        <div class="plan-banner-list" id="planBannerList"></div>
-      `;
-      
-      const isCollapsed = localStorage.getItem("day_plan_banner_collapsed") === "true";
-      if (isCollapsed) {
-        pb.classList.add("collapsed");
-      } else {
-        pb.classList.remove("collapsed");
-      }
-
-      document.getElementById("planBannerToggle").addEventListener("click", togglePlanBannerCollapse);
-      document.getElementById("planBannerTitle").addEventListener("click", togglePlanBannerCollapse);
-
-      const listEl = document.getElementById("planBannerList");
-      lines.forEach((line, idx) => {
-        let isChecked = false;
-        let cleanText = line;
-        
-        let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
-        let prefix = bulletMatch ? bulletMatch[1] : "";
-        let remainder = bulletMatch ? bulletMatch[2] : line;
-        
-        let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
-        if (checkMatch) {
-          isChecked = checkMatch[1].toLowerCase() === "x";
-          cleanText = checkMatch[2];
-        } else {
-          cleanText = remainder;
-        }
-        
-        const itemEl = document.createElement("div");
-        itemEl.className = isChecked ? "plan-banner-item completed" : "plan-banner-item";
-        
-        const checkBox = document.createElement("span");
-        checkBox.className = "plan-banner-check-box";
-        
-        const textSpan = document.createElement("span");
-        textSpan.className = "plan-banner-text";
-        textSpan.textContent = cleanText;
-        
-        itemEl.appendChild(checkBox);
-        itemEl.appendChild(textSpan);
-
-        // Carry-forward button — only on unmet objectives
-        if (!isChecked) {
-          const carryBtn = document.createElement("button");
-          carryBtn.className = "carry-btn";
-          carryBtn.title = "Carry forward to tomorrow";
-          carryBtn.setAttribute("aria-label", "Carry to tomorrow");
-          carryBtn.textContent = "→";
-          carryBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            carryForward(cleanText);
-          });
-          itemEl.appendChild(carryBtn);
-        }
-        
-        itemEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-          toggleObjective(idx);
-        });
-        
-        listEl.appendChild(itemEl);
-      });
-    } else {
-      pb.hidden = true;
-    }
-  } else {
-    pb.hidden = true;
-    pb.innerHTML = "";
-  }
-
+  renderPlanBanner();
   renderObjectiveEditor();
 }
 
@@ -1048,8 +1055,24 @@ async function syncSlots(dateStr, slotList, block) {
   } catch (e) { console.warn(e); }
 }
 
-function savePlan() {
-  const note = document.getElementById("planInput").value.trim();
+function saveTodayPlan() {
+  const input = document.getElementById("planInput");
+  if (!input) return;
+  const note = input.value.trim();
+  const dateStr = ymd(current);
+  const cur = (data[PLAN_KEY] && data[PLAN_KEY].note) || "";
+  if (note === cur) return;
+  const block = note ? { category: "plan", note } : null;
+  if (note) data[PLAN_KEY] = block; else delete data[PLAN_KEY];
+  saveLocal(dateStr, data);
+  syncSlots(dateStr, [PLAN_KEY], block);
+  renderPlanBanner();
+}
+
+function saveTomorrowPlan() {
+  const input = document.getElementById("planInput");
+  if (!input) return;
+  const note = input.value.trim();
   const next = new Date(current); next.setDate(next.getDate() + 1);
   const dateStr = ymd(next);
   const day = loadLocal(dateStr);
@@ -1059,12 +1082,18 @@ function savePlan() {
   if (note) day[PLAN_KEY] = block; else delete day[PLAN_KEY];
   saveLocal(dateStr, day);
   syncSlots(dateStr, [PLAN_KEY], block);
-  // If we're viewing that day right now, keep it in sync.
-  if (dateStr === ymd(current)) { if (note) data[PLAN_KEY] = block; else delete data[PLAN_KEY]; }
+  if (dateStr === ymd(current)) {
+    if (note) data[PLAN_KEY] = block; else delete data[PLAN_KEY];
+    renderPlanBanner();
+  }
 }
 
 const OBJECTIVE_HORIZONS = {
   today: {
+    hint: "Focus items for today · synced live with banner",
+    placeholder: "What are your main focus items for today?",
+  },
+  tomorrow: {
     hint: "Daily actions · planned for tomorrow",
     placeholder: "What do you want tomorrow to look like?",
   },
@@ -1081,13 +1110,20 @@ const OBJECTIVE_HORIZONS = {
 function currentObjectiveEditorValue() {
   if (activeObjectiveHorizon === "short") return shortTermObjectives;
   if (activeObjectiveHorizon === "long") return longTermObjectives;
-  const next = new Date(current); next.setDate(next.getDate() + 1);
-  const nextDay = loadLocal(ymd(next));
-  return (nextDay[PLAN_KEY] && nextDay[PLAN_KEY].note) || "";
+  if (activeObjectiveHorizon === "today") {
+    return (data[PLAN_KEY] && data[PLAN_KEY].note) || "";
+  }
+  if (activeObjectiveHorizon === "tomorrow") {
+    const next = new Date(current); next.setDate(next.getDate() + 1);
+    const nextDay = loadLocal(ymd(next));
+    return (nextDay[PLAN_KEY] && nextDay[PLAN_KEY].note) || "";
+  }
+  return "";
 }
 
 function renderObjectiveEditor() {
   const input = document.getElementById("planInput");
+  if (!input) return;
   const meta = OBJECTIVE_HORIZONS[activeObjectiveHorizon] || OBJECTIVE_HORIZONS.today;
   document.querySelectorAll("[data-objective-horizon]").forEach((button) => {
     button.classList.toggle("active", button.dataset.objectiveHorizon === activeObjectiveHorizon);
@@ -1095,22 +1131,65 @@ function renderObjectiveEditor() {
   document.getElementById("objectiveHint").textContent = meta.hint;
   input.placeholder = meta.placeholder;
   if (document.activeElement !== input) input.value = currentObjectiveEditorValue();
+  renderActiveTargetsShowcase();
+}
+
+function renderActiveTargetsShowcase() {
+  let showcase = document.getElementById("objectiveTargetsShowcase");
+  if (!showcase) {
+    showcase = document.createElement("div");
+    showcase.id = "objectiveTargetsShowcase";
+    showcase.className = "objective-targets-showcase";
+    const editor = document.querySelector(".objective-editor");
+    if (editor) editor.appendChild(showcase);
+  }
+  const shortLines = (shortTermObjectives || "").split(/\r?\n/).map(parseObjectiveLine).filter((i) => i.text);
+  const longLines = (longTermObjectives || "").split(/\r?\n/).map(parseObjectiveLine).filter((i) => i.text);
+  
+  if (!shortLines.length && !longLines.length) {
+    showcase.style.display = "none";
+    return;
+  }
+  
+  showcase.style.display = "block";
+  let itemsHtml = "";
+  shortLines.forEach((i) => {
+    itemsHtml += `<div class="objective-target-pill"><span class="objective-target-tag">Short</span> <span>${escapeHtml(i.text)}</span></div>`;
+  });
+  longLines.forEach((i) => {
+    itemsHtml += `<div class="objective-target-pill"><span class="objective-target-tag" style="background:color-mix(in srgb, var(--accent) 12%, var(--surface));color:var(--text)">Long</span> <span>${escapeHtml(i.text)}</span></div>`;
+  });
+  
+  showcase.innerHTML = `
+    <div class="objective-targets-head">
+      <span>🎯 Key Targets</span>
+      <span style="font-size:10.5px;opacity:0.7">Guiding priorities</span>
+    </div>
+    <div class="objective-targets-list">${itemsHtml}</div>
+  `;
 }
 
 function saveObjectiveInput() {
-  const note = document.getElementById("planInput").value.trim();
+  const input = document.getElementById("planInput");
+  if (!input) return;
+  const note = input.value.trim();
   if (activeObjectiveHorizon === "today") {
-    savePlan();
+    saveTodayPlan();
+    return;
+  }
+  if (activeObjectiveHorizon === "tomorrow") {
+    saveTomorrowPlan();
     return;
   }
   if (activeObjectiveHorizon === "short") {
     if (note === shortTermObjectives) return;
     shortTermObjectives = note;
-  } else {
+    saveSettings();
+  } else if (activeObjectiveHorizon === "long") {
     if (note === longTermObjectives) return;
     longTermObjectives = note;
+    saveSettings();
   }
-  saveSettings();
 }
 
 function selectObjectiveHorizon(horizon) {
@@ -2187,6 +2266,8 @@ async function renderInsight() {
 
 // ---- Navigation ----
 function goto(d) {
+  saveObjectiveInput();
+  saveReflection();
   current = d;
   data = loadLocal(ymd(current));
   render();
@@ -2195,6 +2276,11 @@ function goto(d) {
   const nowBlock = document.getElementById("nowBlock");
   if (nowBlock) nowBlock.scrollIntoView({ block: "center" });
 }
+
+window.addEventListener("beforeunload", () => {
+  saveObjectiveInput();
+  saveReflection();
+});
 
 // ---- Wire up ----
 document.getElementById("prevDay").addEventListener("click", () => {
@@ -2315,12 +2401,21 @@ const handleListInput = (e) => {
   }
 };
 
+let planDebounceTimer = null;
+const handleObjectiveInputDebounced = (e) => {
+  handleListInput(e);
+  clearTimeout(planDebounceTimer);
+  planDebounceTimer = setTimeout(() => {
+    saveObjectiveInput();
+  }, 350);
+};
+
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
 document.getElementById("reflectInput").addEventListener("keydown", handleListKeydown);
 document.getElementById("reflectInput").addEventListener("input", handleListInput);
 document.getElementById("planInput").addEventListener("blur", saveObjectiveInput);
 document.getElementById("planInput").addEventListener("keydown", handleListKeydown);
-document.getElementById("planInput").addEventListener("input", handleListInput);
+document.getElementById("planInput").addEventListener("input", handleObjectiveInputDebounced);
 document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => {
   const button = e.target.closest("button[data-objective-horizon]");
   if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
