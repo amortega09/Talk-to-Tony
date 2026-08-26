@@ -463,6 +463,7 @@ function toggleObjective(idx) {
   }
   
   renderPlanBanner();
+  if (activeObjectiveHorizon === "today") renderObjectiveChecklist();
 }
 
 // Carry an unchecked objective forward into the next day's plan.
@@ -487,6 +488,7 @@ function carryForward(text) {
   if (activeObjectiveHorizon === "tomorrow" && pi && document.activeElement !== pi) pi.value = newNote;
   setStatus("ok", "Carried to tomorrow ✓");
   setTimeout(() => setStatus("", ""), 2000);
+  if (activeObjectiveHorizon === "tomorrow") renderObjectiveChecklist();
 }
 
 function render() {
@@ -1121,6 +1123,156 @@ function currentObjectiveEditorValue() {
   return "";
 }
 
+let isObjectiveRawMode = false;
+
+function toggleObjectiveEditorMode() {
+  isObjectiveRawMode = !isObjectiveRawMode;
+  const card = document.getElementById("objectiveChecklistCard");
+  const input = document.getElementById("planInput");
+  const toggleBtn = document.getElementById("objectiveModeToggle");
+  if (!card || !input || !toggleBtn) return;
+  if (isObjectiveRawMode) {
+    card.hidden = true;
+    input.hidden = false;
+    toggleBtn.textContent = "Switch to interactive checklist";
+  } else {
+    card.hidden = false;
+    input.hidden = true;
+    toggleBtn.textContent = "Edit as raw text";
+    renderObjectiveChecklist();
+  }
+}
+
+function parseObjectiveTextToItems(text) {
+  if (!text) return [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines.map((line) => {
+    let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
+    let prefix = bulletMatch ? bulletMatch[1] : "";
+    let remainder = bulletMatch ? bulletMatch[2] : line;
+    let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
+    let completed = false;
+    let textContent = remainder;
+    if (checkMatch) {
+      completed = checkMatch[1].toLowerCase() === "x";
+      textContent = checkMatch[2];
+    }
+    return { prefix, completed, text: textContent };
+  });
+}
+
+function serializeItemsToObjectiveText(items) {
+  return items
+    .filter((item) => item.text.trim() !== "")
+    .map((item) => {
+      const check = item.completed ? "[x]" : "[ ]";
+      return `• ${check} ${item.text.trim()}`;
+    })
+    .join("\n");
+}
+
+function renderObjectiveChecklist() {
+  const container = document.getElementById("objectiveItemList");
+  if (!container) return;
+  const noteText = currentObjectiveEditorValue();
+  const items = parseObjectiveTextToItems(noteText);
+  container.innerHTML = "";
+
+  items.forEach((item, idx) => {
+    const row = document.createElement("div");
+    row.className = "objective-item-row" + (item.completed ? " completed" : "");
+
+    const check = document.createElement("div");
+    check.className = "objective-item-check";
+    check.title = item.completed ? "Mark incomplete" : "Mark complete";
+    check.addEventListener("click", () => {
+      items[idx].completed = !items[idx].completed;
+      updateObjectiveFromItems(items);
+    });
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "objective-item-input";
+    input.value = item.text;
+    input.placeholder = "Objective text…";
+    input.addEventListener("input", (e) => {
+      items[idx].text = e.target.value;
+      debouncedUpdateObjectiveFromItems(items);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.getElementById("objectiveAddInput").focus();
+      }
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "objective-item-actions";
+
+    if (!item.completed && (activeObjectiveHorizon === "today" || activeObjectiveHorizon === "tomorrow")) {
+      const carryBtn = document.createElement("button");
+      carryBtn.type = "button";
+      carryBtn.className = "objective-item-btn";
+      carryBtn.title = "Carry forward to tomorrow";
+      carryBtn.textContent = "→";
+      carryBtn.addEventListener("click", () => {
+        carryForward(item.text);
+      });
+      actions.appendChild(carryBtn);
+    }
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "objective-item-btn del-btn";
+    delBtn.title = "Delete objective";
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", () => {
+      items.splice(idx, 1);
+      updateObjectiveFromItems(items);
+    });
+    actions.appendChild(delBtn);
+
+    row.appendChild(check);
+    row.appendChild(input);
+    row.appendChild(actions);
+    container.appendChild(row);
+  });
+}
+
+function updateObjectiveFromItems(items) {
+  const newText = serializeItemsToObjectiveText(items);
+  const input = document.getElementById("planInput");
+  if (input) input.value = newText;
+  saveObjectiveInput();
+  renderPlanBanner();
+  renderObjectiveChecklist();
+}
+
+let itemsDebounceTimer = null;
+function debouncedUpdateObjectiveFromItems(items) {
+  clearTimeout(itemsDebounceTimer);
+  itemsDebounceTimer = setTimeout(() => {
+    const newText = serializeItemsToObjectiveText(items);
+    const input = document.getElementById("planInput");
+    if (input) input.value = newText;
+    saveObjectiveInput();
+    renderPlanBanner();
+  }, 350);
+}
+
+function addObjectiveFromInput() {
+  const addInput = document.getElementById("objectiveAddInput");
+  if (!addInput) return;
+  const val = addInput.value.trim();
+  if (!val) return;
+  const currentText = currentObjectiveEditorValue();
+  const items = parseObjectiveTextToItems(currentText);
+  items.push({ prefix: "• ", completed: false, text: val });
+  addInput.value = "";
+  updateObjectiveFromItems(items);
+  addInput.focus();
+}
+
 function renderObjectiveEditor() {
   const input = document.getElementById("planInput");
   if (!input) return;
@@ -1132,6 +1284,7 @@ function renderObjectiveEditor() {
   input.placeholder = meta.placeholder;
   if (document.activeElement !== input) input.value = currentObjectiveEditorValue();
   renderActiveTargetsShowcase();
+  if (!isObjectiveRawMode) renderObjectiveChecklist();
 }
 
 function renderActiveTargetsShowcase() {
@@ -2420,6 +2573,14 @@ document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => 
   const button = e.target.closest("button[data-objective-horizon]");
   if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
 });
+document.getElementById("objectiveAddBtn").addEventListener("click", addObjectiveFromInput);
+document.getElementById("objectiveAddInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addObjectiveFromInput();
+  }
+});
+document.getElementById("objectiveModeToggle").addEventListener("click", toggleObjectiveEditorMode);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
