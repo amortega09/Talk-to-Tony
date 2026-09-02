@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="styles.css?v=38" />
 </head>
 <body>
   <!-- Login screen -->
@@ -41,6 +41,11 @@
       </div>
       <button class="nav-btn" id="nextDay" aria-label="Next day">›</button>
     </header>
+
+    <div class="recovery-banner" id="recoveryBanner" hidden>
+      <div><strong>Local recovery mode</strong><span>Supabase is disabled. Download this browser’s cached data now.</span></div>
+      <button class="primary-btn" id="recoveryExport" type="button">Download backup</button>
+    </div>
 
     <div class="plan-banner" id="planBanner" hidden></div>
 
@@ -224,6 +229,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=37"></script>
+  <script src="app.js?v=38"></script>
 </body>
 </html>

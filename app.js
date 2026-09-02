@@ -65,6 +65,7 @@ let USER_ID = null;
 
 // ---- Supabase (optional) ----
 let sb = null;
+const RECOVERY_MODE = new URLSearchParams(window.location.search).get("recovery") === "1";
 function loadSavedSupabaseConfig() {
   try { return JSON.parse(localStorage.getItem("day_supabase_config")) || {}; }
   catch { return {}; }
@@ -1363,7 +1364,9 @@ function exportData() {
     { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "day-export.json"; a.click();
+  a.href = url;
+  a.download = RECOVERY_MODE ? `day-recovery-${ymd(new Date())}.json` : "day-export.json";
+  a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -2713,6 +2716,7 @@ document.getElementById("insightBody").addEventListener("click", (e) => {
   toggleInsightObjective(dateStr, idx);
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
+document.getElementById("recoveryExport").addEventListener("click", exportData);
 document.getElementById("activitySearch").addEventListener("input", (e) => {
   if (!selectedActivityLabel || e.target.value.trim().toLowerCase() !== selectedActivityLabel.toLowerCase()) {
     selectedActivityLabel = null;
@@ -2891,6 +2895,20 @@ function wireAuthControls() {
 
 async function initAuth() {
   wireAuthControls();
+  if (RECOVERY_MODE) {
+    sb = null;
+    USER_ID = "local-recovery";
+    document.body.classList.add("recovery-mode");
+    document.getElementById("authScreen").hidden = true;
+    document.getElementById("app").hidden = false;
+    document.getElementById("recoveryBanner").hidden = false;
+    loadSettingsLocal();
+    current = new Date();
+    data = loadLocal(ymd(current));
+    render();
+    setStatus("err", "Recovery mode");
+    return;
+  }
   if (!sb) {
     document.getElementById("app").hidden = true;
     document.getElementById("authScreen").hidden = false;
@@ -2901,8 +2919,8 @@ async function initAuth() {
   }
   document.getElementById("signOut").addEventListener("click", () => sb.auth.signOut());
   sb.auth.onAuthStateChange((_e, session) => applySession(session));
-  const { data } = await sb.auth.getSession();
-  applySession(data.session);
+  const { data: authData } = await sb.auth.getSession();
+  applySession(authData.session);
 }
 
 // ---- Boot ----
@@ -2910,5 +2928,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=37").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=38").catch(() => {});
 }
