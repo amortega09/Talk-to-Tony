@@ -749,6 +749,44 @@ html, body {
 .bar-val { flex: 0 0 44px; text-align: right; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .stats-empty { text-align: center; color: var(--text-faint); font-size: 14px; padding: 48px 20px; }
 
+/* ── Calendar ────────────────────────────── */
+.calendar-month-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 17px; }
+.calendar-month-label { font-size: 17px; font-weight: 650; letter-spacing: -.2px; }
+.calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.calendar-weekdays { margin-bottom: 5px; }
+.calendar-weekdays span { text-align: center; color: var(--text-faint); font-size: 10px; font-weight: 650; text-transform: uppercase; }
+.calendar-grid { gap: 4px; }
+.calendar-day {
+  position: relative;
+  min-height: 50px;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.calendar-day:hover { background: var(--hover); }
+.calendar-day.outside { color: var(--text-faint); }
+.calendar-day.today { border-color: color-mix(in srgb, var(--link) 55%, var(--line)); color: var(--link); font-weight: 700; }
+.calendar-day.selected { background: var(--link); border-color: var(--link); color: #fff; font-weight: 700; }
+.calendar-day.has-data::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: 5px;
+  width: 4px; height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: #d1a13a;
+}
+.calendar-day.selected::after { background: #fff; }
+.calendar-actions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 15px; }
+.calendar-selected-date { font-size: 14px; font-weight: 650; margin-bottom: 11px; }
+.calendar-action-buttons { display: flex; gap: 8px; }
+.calendar-action-buttons .ghost-btn, .calendar-action-buttons .primary-btn { flex: 1; }
+
 /* ── Insights menu ───────────────────────── */
 .menu-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .menu-item {
@@ -967,6 +1005,12 @@ html, body {
 .gym-remove-btn:hover { color: #d44c47; }
 
 @media (max-width: 460px) {
+  .statusbar { gap: 0; }
+  .statusbar .text-btn { padding: 5px 5px; font-size: 12px; }
+  .statusbar .sync-status { flex: 0 0 9px; width: 9px; overflow: hidden; font-size: 0; }
+  .statusbar .sync-status::before { content: "•"; font-size: 12px; }
+  .calendar-grid { gap: 2px; }
+  .calendar-day { min-height: 44px; }
   .gym-inline-row {
     grid-template-columns: 1fr 48px 48px 56px 24px;
   }

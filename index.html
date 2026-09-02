@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=34" />
+  <link rel="stylesheet" href="styles.css?v=35" />
 </head>
 <body>
   <!-- Login screen -->
@@ -70,6 +70,7 @@
     <footer class="statusbar">
       <span id="syncStatus" class="sync-status">·</span>
       <button class="text-btn" id="statsBtn">Stats</button>
+      <button class="text-btn" id="calendarBtn">Calendar</button>
       <button class="text-btn" id="insightsBtn">Insights</button>
       <button class="text-btn" id="gymBtn">🏋️ Gym</button>
       <button class="text-btn" id="todayBtn">Today</button>
@@ -114,6 +115,31 @@
       <button data-range="0">All</button>
     </div>
     <div class="stats-body" id="statsBody"></div>
+  </section>
+
+  <!-- Calendar screen -->
+  <section class="stats-screen calendar-screen" id="calendarScreen" hidden>
+    <header class="topbar">
+      <button class="nav-btn" id="calendarBack" aria-label="Back">‹</button>
+      <div class="date-block"><div class="date-main">Calendar</div></div>
+      <button class="text-btn" id="calendarToday">Today</button>
+    </header>
+    <div class="calendar-month-nav">
+      <button class="nav-btn" id="calendarPrev" aria-label="Previous month">‹</button>
+      <div class="calendar-month-label" id="calendarMonthLabel"></div>
+      <button class="nav-btn" id="calendarNext" aria-label="Next month">›</button>
+    </div>
+    <div class="calendar-weekdays" aria-hidden="true">
+      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="calendar-actions" id="calendarActions" hidden>
+      <div class="calendar-selected-date" id="calendarSelectedDate"></div>
+      <div class="calendar-action-buttons">
+        <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
+        <button class="primary-btn" id="calendarPlanEvent" type="button">Plan event</button>
+      </div>
+    </div>
   </section>
 
   <!-- Edit sheet -->
@@ -184,6 +210,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=34"></script>
+  <script src="app.js?v=35"></script>
 </body>
 </html>

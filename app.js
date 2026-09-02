@@ -100,6 +100,8 @@ let eventMode = false;  // true when the sheet was opened through Plan event
 let activeEventPreset = "all";
 let customEventStart = "09:00";
 let customEventEnd = "10:00";
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let selectedCalendarDate = null;
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
@@ -1710,6 +1712,109 @@ function closeStats() {
   document.getElementById("statsScreen").hidden = true;
 }
 
+// ---- Calendar ----
+function dateFromYmd(dateStr) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function dayHasCalendarContent(dateStr) {
+  const day = loadLocal(dateStr);
+  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY);
+}
+
+function renderCalendar() {
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  document.getElementById("calendarMonthLabel").textContent = calendarMonth.toLocaleDateString(undefined, {
+    month: "long", year: "numeric",
+  });
+
+  const grid = document.getElementById("calendarGrid");
+  grid.innerHTML = "";
+  const first = new Date(year, month, 1, 12);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - mondayOffset, 12);
+  const today = ymd(new Date());
+
+  for (let i = 0; i < 42; i++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    const dateStr = ymd(date);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "calendar-day";
+    if (date.getMonth() !== month) button.classList.add("outside");
+    if (dateStr === today) button.classList.add("today");
+    if (dateStr === selectedCalendarDate) button.classList.add("selected");
+    if (dayHasCalendarContent(dateStr)) button.classList.add("has-data");
+    button.textContent = date.getDate();
+    button.dataset.date = dateStr;
+    button.setAttribute("aria-label", date.toLocaleDateString(undefined, {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    }));
+    grid.appendChild(button);
+  }
+
+  const actions = document.getElementById("calendarActions");
+  actions.hidden = !selectedCalendarDate;
+  if (selectedCalendarDate) {
+    document.getElementById("calendarSelectedDate").textContent = dateFromYmd(selectedCalendarDate).toLocaleDateString(undefined, {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    });
+  }
+}
+
+async function pullCalendarMonth() {
+  if (!sb || !USER_ID) return;
+  const requestedMonth = `${calendarMonth.getFullYear()}-${calendarMonth.getMonth()}`;
+  const start = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1, 12);
+  const end = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0, 12);
+  try {
+    const { data: rows, error } = await sb.from("blocks")
+      .select("date,start_time,category,note,subcategory")
+      .eq("user_id", USER_ID).gte("date", ymd(start)).lte("date", ymd(end));
+    if (error) throw error;
+    for (const row of rows || []) {
+      const day = loadLocal(row.date);
+      day[row.start_time] = {
+        category: row.category,
+        note: row.note || "",
+        sub: row.subcategory || "",
+      };
+      saveLocal(row.date, day);
+    }
+    if (requestedMonth === `${calendarMonth.getFullYear()}-${calendarMonth.getMonth()}`) renderCalendar();
+  } catch (e) { console.warn(e); }
+}
+
+function openCalendar() {
+  calendarMonth = new Date(current.getFullYear(), current.getMonth(), 1, 12);
+  selectedCalendarDate = ymd(current);
+  document.getElementById("calendarScreen").hidden = false;
+  renderCalendar();
+  pullCalendarMonth();
+}
+
+function closeCalendar() {
+  document.getElementById("calendarScreen").hidden = true;
+}
+
+function moveCalendarMonth(amount) {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + amount, 1, 12);
+  selectedCalendarDate = null;
+  renderCalendar();
+  pullCalendarMonth();
+}
+
+async function openSelectedCalendarDate(planEvent) {
+  if (!selectedCalendarDate) return;
+  const target = dateFromYmd(selectedCalendarDate);
+  closeCalendar();
+  await goto(target);
+  if (planEvent) openEventSheet();
+}
+
 // ===========================================================
 //  Insights — each opens its own page from the bottom popup
 // ===========================================================
@@ -2352,10 +2457,11 @@ function goto(d) {
   current = d;
   data = loadLocal(ymd(current));
   render();
-  pullDay(ymd(current));
+  const pull = pullDay(ymd(current));
   // On today, start the view at the current time.
   const nowBlock = document.getElementById("nowBlock");
   if (nowBlock) nowBlock.scrollIntoView({ block: "center" });
+  return pull;
 }
 
 window.addEventListener("beforeunload", () => {
@@ -2372,6 +2478,25 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
+document.getElementById("calendarBtn").addEventListener("click", openCalendar);
+document.getElementById("calendarBack").addEventListener("click", closeCalendar);
+document.getElementById("calendarPrev").addEventListener("click", () => moveCalendarMonth(-1));
+document.getElementById("calendarNext").addEventListener("click", () => moveCalendarMonth(1));
+document.getElementById("calendarToday").addEventListener("click", () => {
+  const today = new Date();
+  calendarMonth = new Date(today.getFullYear(), today.getMonth(), 1, 12);
+  selectedCalendarDate = ymd(today);
+  renderCalendar();
+  pullCalendarMonth();
+});
+document.getElementById("calendarGrid").addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-date]");
+  if (!button) return;
+  selectedCalendarDate = button.dataset.date;
+  renderCalendar();
+});
+document.getElementById("calendarOpenDay").addEventListener("click", () => openSelectedCalendarDate(false));
+document.getElementById("calendarPlanEvent").addEventListener("click", () => openSelectedCalendarDate(true));
 document.getElementById("gymBtn").addEventListener("click", () => openInsight("gym"));
 document.getElementById("gymBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "gymBackdrop") closeGymLogger();
@@ -2529,6 +2654,7 @@ function applySession(session) {
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
+    document.getElementById("calendarScreen").hidden = true;
     document.getElementById("insightScreen").hidden = true;
     document.getElementById("insightsMenu").hidden = true;
     document.getElementById("authScreen").hidden = false;
@@ -2606,5 +2732,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=34").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=35").catch(() => {});
 }
