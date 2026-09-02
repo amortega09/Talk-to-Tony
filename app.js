@@ -97,6 +97,9 @@ let current = new Date();
 let data = {};          // { "08:30": {category, note}, ... } for current day
 let editing = null;     // array of slot strings being edited
 let eventMode = false;  // true when the sheet was opened through Plan event
+let activeEventPreset = "all";
+let customEventStart = "09:00";
+let customEventEnd = "10:00";
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
@@ -699,6 +702,7 @@ function highlightSlots(slotList) {
 // ---- Edit sheet ----
 function openSheet(slotList, preferredCat) {
   eventMode = false;
+  document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
   document.getElementById("activityPickerLabel").textContent = "What did you do?";
   document.getElementById("activitySearch").placeholder = "Search or add an activity…";
@@ -755,10 +759,36 @@ function updateEventRange() {
     endIndex = Math.min(startIndex + 1, SLOTS.length);
     endSelect.value = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
   }
+  if (activeEventPreset === "custom") {
+    customEventStart = startSelect.value;
+    customEventEnd = endSelect.value;
+  }
   editing = SLOTS.slice(startIndex, endIndex);
   const hours = editing.length / 2;
-  document.getElementById("sheetTime").textContent = `Plan event · ${hours % 1 ? hours.toFixed(1) : hours}h`;
+  const presetNames = { all: "All day", morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
+  const duration = presetNames[activeEventPreset] || `${hours % 1 ? hours.toFixed(1) : hours}h`;
+  document.getElementById("sheetTime").textContent = `Plan event · ${duration}`;
   highlightSlots(editing);
+}
+
+function selectEventPreset(preset) {
+  const ranges = {
+    all: ["00:00", "24:00"],
+    morning: ["09:00", "12:00"],
+    afternoon: ["12:00", "17:00"],
+    evening: ["18:00", "23:00"],
+  };
+  if (!ranges[preset] && preset !== "custom") return;
+  activeEventPreset = preset;
+  document.querySelectorAll("[data-event-preset]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.eventPreset === preset);
+  });
+  const picker = document.getElementById("eventTimePicker");
+  picker.hidden = preset !== "custom";
+  const range = preset === "custom" ? [customEventStart, customEventEnd] : ranges[preset];
+  document.getElementById("eventStart").value = range[0];
+  document.getElementById("eventEnd").value = range[1];
+  updateEventRange();
 }
 
 function openEventSheet() {
@@ -772,9 +802,9 @@ function openEventSheet() {
     : "09:00";
   const startIndex = Math.max(0, SLOTS.indexOf(defaultStart));
   const endIndex = Math.min(startIndex + 2, SLOTS.length);
-  document.getElementById("eventStart").value = SLOTS[startIndex];
-  document.getElementById("eventEnd").value = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
-  document.getElementById("eventTimePicker").hidden = false;
+  customEventStart = SLOTS[startIndex];
+  customEventEnd = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
+  document.getElementById("eventTimePresets").hidden = false;
   document.getElementById("activityPickerLabel").textContent = "What is happening?";
   document.getElementById("activitySearch").placeholder = "e.g. Birthday celebration";
   document.getElementById("activitySearch").value = "";
@@ -788,7 +818,7 @@ function openEventSheet() {
   renderNoteSuggest();
   updateNotePlaceholder();
   renderGymInline(null);
-  updateEventRange();
+  selectEventPreset("all");
   document.getElementById("sheetBackdrop").hidden = false;
   setTimeout(() => document.getElementById("activitySearch").focus(), 80);
 }
@@ -1232,6 +1262,7 @@ function selectObjectiveHorizon(horizon) {
 
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
+  document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
   eventMode = false;
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
@@ -2471,6 +2502,10 @@ document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => 
   if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
 });
 document.getElementById("addEventBtn").addEventListener("click", openEventSheet);
+document.getElementById("eventTimePresets").addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-event-preset]");
+  if (button) selectEventPreset(button.dataset.eventPreset);
+});
 document.getElementById("eventStart").addEventListener("change", updateEventRange);
 document.getElementById("eventEnd").addEventListener("change", updateEventRange);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
@@ -2571,5 +2606,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=33").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=34").catch(() => {});
 }

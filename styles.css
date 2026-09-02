@@ -463,6 +463,30 @@ html, body {
 @keyframes slideup { from { transform: translateY(100%); } }
 .sheet-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
 .sheet-time { text-align: center; font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+.event-time-presets {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 2px 17px;
+  padding-bottom: 1px;
+}
+.event-time-presets::-webkit-scrollbar { display: none; }
+.event-time-presets[hidden] { display: none; }
+.event-time-presets button {
+  flex: 1 0 auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.event-time-presets button:hover { background: var(--hover); color: var(--text); }
+.event-time-presets button.active { border-color: var(--link); background: color-mix(in srgb, var(--link) 12%, var(--surface)); color: var(--link); font-weight: 650; }
 .event-time-picker {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
