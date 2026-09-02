@@ -1370,6 +1370,109 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+function recoveryRowsFromBackup(backup) {
+  if (!backup || typeof backup !== "object" || !backup.days || typeof backup.days !== "object") {
+    throw new Error("This is not a Day backup file.");
+  }
+  const rows = [];
+  const restoredDays = [];
+  for (const [dateStr, savedDay] of Object.entries(backup.days)) {
+    if (dateStr === SETTINGS_DATE || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !savedDay || typeof savedDay !== "object") continue;
+    const day = loadLocal(dateStr);
+    const blocks = Array.isArray(savedDay.blocks) ? savedDay.blocks : [];
+    for (const saved of blocks) {
+      if (!saved || !SLOTS.includes(saved.start_time) || typeof saved.category !== "string") continue;
+      const block = {
+        category: saved.category,
+        note: typeof saved.note === "string" ? saved.note : "",
+        sub: typeof saved.subcategory === "string" ? saved.subcategory : "",
+      };
+      day[saved.start_time] = block;
+      rows.push({ date: dateStr, start_time: saved.start_time, ...block });
+      if (block.sub) {
+        const subs = customSubs[block.category] || (customSubs[block.category] = []);
+        if (!subs.some((item) => item.toLowerCase() === block.sub.toLowerCase())) subs.push(block.sub);
+      }
+      if (block.note.startsWith(GYM_NOTE_PREFIX)) {
+        try {
+          const workout = JSON.parse(block.note.slice(GYM_NOTE_PREFIX.length));
+          for (const exercise of workout.exercises || []) {
+            const label = (exercise.exercise || "").trim();
+            if (label && !gymExercises.some((item) => item.toLowerCase() === label.toLowerCase())) gymExercises.push(label);
+          }
+        } catch { /* Preserve malformed legacy notes without blocking recovery. */ }
+      }
+    }
+    if (typeof savedDay.reflection === "string" && savedDay.reflection) {
+      day[REFLECT_KEY] = { category: "reflection", note: savedDay.reflection, sub: "" };
+      rows.push({ date: dateStr, start_time: REFLECT_KEY, ...day[REFLECT_KEY] });
+    }
+    if (typeof savedDay.objectives === "string" && savedDay.objectives) {
+      day[PLAN_KEY] = { category: "plan", note: savedDay.objectives, sub: "" };
+      rows.push({ date: dateStr, start_time: PLAN_KEY, ...day[PLAN_KEY] });
+    }
+    if (savedDay.day_status && DAY_STATUS_TYPES[savedDay.day_status.type]) {
+      const type = savedDay.day_status.type;
+      const label = savedDay.day_status.label || DAY_STATUS_TYPES[type].label;
+      day[DAY_STATUS_KEY] = { category: "calendar_status", note: label, sub: type };
+      rows.push({ date: dateStr, start_time: DAY_STATUS_KEY, ...day[DAY_STATUS_KEY] });
+    }
+    saveLocal(dateStr, day);
+    restoredDays.push(dateStr);
+  }
+  return { rows, restoredDays };
+}
+
+async function restoreData(file) {
+  if (!file) return;
+  if (!sb || !USER_ID || USER_ID === "local-recovery") {
+    window.alert("Connect and sign in to the new Supabase project before restoring this backup.");
+    return;
+  }
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+    if (!backup.days || typeof backup.days !== "object") throw new Error("Missing days");
+  } catch {
+    window.alert("That file is not a valid Day recovery backup.");
+    return;
+  }
+  const realDays = Object.keys(backup.days).filter((date) => date !== SETTINGS_DATE && /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const blockCount = realDays.reduce((count, date) => count + (Array.isArray(backup.days[date].blocks) ? backup.days[date].blocks.length : 0), 0);
+  if (!window.confirm(`Restore ${blockCount} blocks across ${realDays.length} dates? Existing entries at the same times will be replaced.`)) return;
+
+  setStatus("syncing", "Restoring…");
+  try {
+    const { rows, restoredDays } = recoveryRowsFromBackup(backup);
+    const remoteRows = rows.map((row) => ({
+      user_id: USER_ID,
+      date: row.date,
+      start_time: row.start_time,
+      category: row.category,
+      note: row.note || "",
+      subcategory: row.sub || "",
+      updated_at: new Date().toISOString(),
+    }));
+    for (let i = 0; i < remoteRows.length; i += 400) {
+      const { error } = await sb.from("blocks").upsert(remoteRows.slice(i, i + 400), { onConflict: "user_id,date,start_time" });
+      if (error) throw error;
+    }
+    if (backup.targets && typeof backup.targets === "object") {
+      if (typeof backup.targets.short_term === "string") shortTermObjectives = backup.targets.short_term;
+      if (typeof backup.targets.long_term === "string") longTermObjectives = backup.targets.long_term;
+    }
+    await saveSettings();
+    data = loadLocal(ymd(current));
+    render();
+    setStatus("ok", "Restored");
+    window.alert(`Recovery complete: ${remoteRows.length} records restored across ${restoredDays.length} dates.`);
+  } catch (error) {
+    console.error(error);
+    setStatus("err", "Restore incomplete");
+    window.alert(`The restore did not finish: ${error.message || error}`);
+  }
+}
+
 // ---- Statistics ----
 let statsRange = 7; // days; 0 = all
 const SLEEP_EFFICIENCY = 0.9;
@@ -2717,6 +2820,12 @@ document.getElementById("insightBody").addEventListener("click", (e) => {
 });
 document.getElementById("exportBtn").addEventListener("click", exportData);
 document.getElementById("recoveryExport").addEventListener("click", exportData);
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  await restoreData(file);
+});
 document.getElementById("activitySearch").addEventListener("input", (e) => {
   if (!selectedActivityLabel || e.target.value.trim().toLowerCase() !== selectedActivityLabel.toLowerCase()) {
     selectedActivityLabel = null;
@@ -2928,5 +3037,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=38").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=39").catch(() => {});
 }
