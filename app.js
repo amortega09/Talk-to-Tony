@@ -1723,6 +1723,63 @@ function dayHasCalendarContent(dateStr) {
   return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY);
 }
 
+function calendarPreviewItems(day) {
+  const items = [];
+  let active = null;
+  for (let index = 0; index <= SLOTS.length; index++) {
+    const block = index < SLOTS.length ? day[SLOTS[index]] : null;
+    const key = block ? JSON.stringify([block.category || "other", block.sub || "", block.note || ""]) : null;
+    if (active && key !== active.key) {
+      active.endIndex = index;
+      items.push(active);
+      active = null;
+    }
+    if (!active && block) active = { key, startIndex: index, endIndex: index + 1, block };
+  }
+  return items;
+}
+
+function calendarPreviewTime(item) {
+  if (item.startIndex === 0 && item.endIndex === SLOTS.length) return "All day";
+  const compact = (slot) => {
+    const [hour, minute] = slot.split(":").map(Number);
+    const period = hour < 12 || hour === 24 ? "AM" : "PM";
+    const displayHour = hour % 12 || 12;
+    return { clock: `${displayHour}${minute ? `:${String(minute).padStart(2, "0")}` : ""}`, period };
+  };
+  const start = compact(SLOTS[item.startIndex]);
+  const end = compact(item.endIndex === SLOTS.length ? "24:00" : SLOTS[item.endIndex]);
+  return start.period === end.period
+    ? `${start.clock}–${end.clock} ${end.period}`
+    : `${start.clock} ${start.period}–${end.clock} ${end.period}`;
+}
+
+function renderCalendarDayPreview(dateStr) {
+  const preview = document.getElementById("calendarDayPreview");
+  if (!dateStr) { preview.innerHTML = ""; return; }
+  const day = loadLocal(dateStr);
+  const items = calendarPreviewItems(day);
+  let html = items.map((item) => {
+    const category = CAT[item.block.category] || CAT.other;
+    const note = displayBlockNote(item.block);
+    const title = item.block.sub || note || category.label;
+    const detail = item.block.sub
+      ? [category.label, note].filter(Boolean).join(" · ")
+      : (note ? category.label : "");
+    return `<button type="button" class="calendar-preview-item" data-preview-start="${item.startIndex}" data-preview-end="${item.endIndex}" style="--preview-color:${category.color}" aria-label="Edit ${escapeHtml(title)} at ${calendarPreviewTime(item)}">
+      <span class="calendar-preview-time">${calendarPreviewTime(item)}</span>
+      <span class="calendar-preview-bar"></span>
+      <span class="calendar-preview-copy"><span class="calendar-preview-title">${escapeHtml(title)}</span>${detail ? `<span class="calendar-preview-detail">${escapeHtml(detail)}</span>` : ""}</span>
+    </button>`;
+  }).join("");
+
+  const objectives = day[PLAN_KEY] && day[PLAN_KEY].note;
+  if (objectives && objectives.trim()) {
+    html += `<div class="calendar-preview-objectives"><div class="calendar-preview-objectives-title">Objectives</div><div class="calendar-preview-objectives-text">${escapeHtml(objectives.trim())}</div></div>`;
+  }
+  preview.innerHTML = html || `<div class="calendar-preview-empty">Nothing planned or logged for this day yet.</div>`;
+}
+
 function renderCalendar() {
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
@@ -1763,6 +1820,7 @@ function renderCalendar() {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
     });
   }
+  renderCalendarDayPreview(selectedCalendarDate);
 }
 
 async function pullCalendarMonth() {
@@ -1813,6 +1871,14 @@ async function openSelectedCalendarDate(planEvent) {
   closeCalendar();
   await goto(target);
   if (planEvent) openEventSheet();
+}
+
+async function editCalendarPreviewItem(startIndex, endIndex) {
+  if (!selectedCalendarDate) return;
+  const target = dateFromYmd(selectedCalendarDate);
+  closeCalendar();
+  await goto(target);
+  openSheet(SLOTS.slice(startIndex, endIndex));
 }
 
 // ===========================================================
@@ -2495,6 +2561,11 @@ document.getElementById("calendarGrid").addEventListener("click", (e) => {
   selectedCalendarDate = button.dataset.date;
   renderCalendar();
 });
+document.getElementById("calendarDayPreview").addEventListener("click", (e) => {
+  const item = e.target.closest("button[data-preview-start][data-preview-end]");
+  if (!item) return;
+  editCalendarPreviewItem(parseInt(item.dataset.previewStart, 10), parseInt(item.dataset.previewEnd, 10));
+});
 document.getElementById("calendarOpenDay").addEventListener("click", () => openSelectedCalendarDate(false));
 document.getElementById("calendarPlanEvent").addEventListener("click", () => openSelectedCalendarDate(true));
 document.getElementById("gymBtn").addEventListener("click", () => openInsight("gym"));
@@ -2732,5 +2803,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=35").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=36").catch(() => {});
 }
