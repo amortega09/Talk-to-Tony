@@ -51,7 +51,14 @@ rebuildCats();
 const REFLECT_KEY = "__reflect__";
 const PLAN_KEY = "__plan__";
 const GYM_KEY = "__gym__";
+const DAY_STATUS_KEY = "__day_status__";
 const SETTINGS_DATE = "2000-01-01";  // sentinel row for synced settings
+const DAY_STATUS_TYPES = {
+  holiday: { label: "Holiday", emoji: "🏖" },
+  travel: { label: "Travel day", emoji: "✈️" },
+  sick: { label: "Sick day", emoji: "🤒" },
+  off: { label: "Day off", emoji: "🌿" },
+};
 
 // ---- Authenticated user id (set after Supabase magic-link login) ----
 let USER_ID = null;
@@ -102,6 +109,8 @@ let customEventStart = "09:00";
 let customEventEnd = "10:00";
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = null;
+let calendarMultiMode = false;
+let selectedCalendarDates = new Set();
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
@@ -1332,6 +1341,9 @@ function exportData() {
       all[date] = {
         reflection: (day[REFLECT_KEY] && day[REFLECT_KEY].note) || "",
         objectives: (day[PLAN_KEY] && day[PLAN_KEY].note) || "",
+        day_status: day[DAY_STATUS_KEY]
+          ? { type: day[DAY_STATUS_KEY].sub || "", label: day[DAY_STATUS_KEY].note || "" }
+          : null,
         blocks: SLOTS.filter((s) => day[s]).map((s) => ({
           start_time: s,
           category: day[s].category,
@@ -1720,7 +1732,14 @@ function dateFromYmd(dateStr) {
 
 function dayHasCalendarContent(dateStr) {
   const day = loadLocal(dateStr);
-  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY);
+  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY || key === DAY_STATUS_KEY);
+}
+
+function calendarDayStatus(day) {
+  const block = day && day[DAY_STATUS_KEY];
+  if (!block) return null;
+  const type = block.sub || "";
+  return { type, ...(DAY_STATUS_TYPES[type] || { label: block.note || "Day label", emoji: "•" }) };
 }
 
 function calendarPreviewItems(day) {
@@ -1759,7 +1778,11 @@ function renderCalendarDayPreview(dateStr) {
   if (!dateStr) { preview.innerHTML = ""; return; }
   const day = loadLocal(dateStr);
   const items = calendarPreviewItems(day);
-  let html = items.map((item) => {
+  const status = calendarDayStatus(day);
+  let html = status
+    ? `<div class="calendar-preview-status"><span>${status.emoji}</span><span>${escapeHtml(status.label)}</span></div>`
+    : "";
+  html += items.map((item) => {
     const category = CAT[item.block.category] || CAT.other;
     const note = displayBlockNote(item.block);
     const title = item.block.sub || note || category.label;
@@ -1803,8 +1826,10 @@ function renderCalendar() {
     button.className = "calendar-day";
     if (date.getMonth() !== month) button.classList.add("outside");
     if (dateStr === today) button.classList.add("today");
-    if (dateStr === selectedCalendarDate) button.classList.add("selected");
+    if (!calendarMultiMode && dateStr === selectedCalendarDate) button.classList.add("selected");
+    if (calendarMultiMode && selectedCalendarDates.has(dateStr)) button.classList.add("multi-selected");
     if (dayHasCalendarContent(dateStr)) button.classList.add("has-data");
+    if (calendarDayStatus(loadLocal(dateStr))) button.classList.add("has-status");
     button.textContent = date.getDate();
     button.dataset.date = dateStr;
     button.setAttribute("aria-label", date.toLocaleDateString(undefined, {
@@ -1814,13 +1839,33 @@ function renderCalendar() {
   }
 
   const actions = document.getElementById("calendarActions");
-  actions.hidden = !selectedCalendarDate;
+  actions.hidden = calendarMultiMode || !selectedCalendarDate;
   if (selectedCalendarDate) {
     document.getElementById("calendarSelectedDate").textContent = dateFromYmd(selectedCalendarDate).toLocaleDateString(undefined, {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
     });
   }
-  renderCalendarDayPreview(selectedCalendarDate);
+  renderCalendarDayPreview(calendarMultiMode ? null : selectedCalendarDate);
+
+  document.getElementById("calendarMultiSelect").textContent = calendarMultiMode ? "Done" : "Select days";
+  const multiActions = document.getElementById("calendarMultiActions");
+  multiActions.hidden = !calendarMultiMode;
+  if (calendarMultiMode) {
+    const count = selectedCalendarDates.size;
+    document.getElementById("calendarSelectionCount").textContent = count
+      ? `${count} day${count === 1 ? "" : "s"} selected`
+      : "Select dates to label";
+    const selectedStatusTypes = Array.from(selectedCalendarDates).map((date) => {
+      const status = calendarDayStatus(loadLocal(date));
+      return status ? status.type : null;
+    });
+    const selectedTypes = new Set(selectedStatusTypes.filter(Boolean));
+    document.querySelectorAll("[data-day-status]").forEach((button) => {
+      button.disabled = count === 0;
+      button.classList.toggle("active", count > 0 && selectedStatusTypes.every((type) => type === button.dataset.dayStatus) && selectedTypes.size === 1);
+    });
+    document.getElementById("calendarClearStatus").disabled = count === 0;
+  }
 }
 
 async function pullCalendarMonth() {
@@ -1849,6 +1894,8 @@ async function pullCalendarMonth() {
 function openCalendar() {
   calendarMonth = new Date(current.getFullYear(), current.getMonth(), 1, 12);
   selectedCalendarDate = ymd(current);
+  calendarMultiMode = false;
+  selectedCalendarDates.clear();
   document.getElementById("calendarScreen").hidden = false;
   renderCalendar();
   pullCalendarMonth();
@@ -1856,6 +1903,54 @@ function openCalendar() {
 
 function closeCalendar() {
   document.getElementById("calendarScreen").hidden = true;
+  calendarMultiMode = false;
+  selectedCalendarDates.clear();
+}
+
+function toggleCalendarMultiMode() {
+  calendarMultiMode = !calendarMultiMode;
+  selectedCalendarDates.clear();
+  renderCalendar();
+}
+
+async function applyCalendarDayStatus(type) {
+  const dates = Array.from(selectedCalendarDates).sort();
+  if (!dates.length) return;
+  const meta = type ? DAY_STATUS_TYPES[type] : null;
+  if (type && !meta) return;
+  for (const dateStr of dates) {
+    const day = loadLocal(dateStr);
+    if (meta) day[DAY_STATUS_KEY] = { category: "calendar_status", note: meta.label, sub: type };
+    else delete day[DAY_STATUS_KEY];
+    saveLocal(dateStr, day);
+    if (dateStr === ymd(current)) data = day;
+  }
+  renderCalendar();
+  if (!sb) return;
+  setStatus("syncing", "Saving…");
+  try {
+    if (meta) {
+      const rows = dates.map((dateStr) => ({
+        user_id: USER_ID,
+        date: dateStr,
+        start_time: DAY_STATUS_KEY,
+        category: "calendar_status",
+        note: meta.label,
+        subcategory: type,
+        updated_at: new Date().toISOString(),
+      }));
+      const { error } = await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
+      if (error) throw error;
+    } else {
+      const { error } = await sb.from("blocks").delete()
+        .eq("user_id", USER_ID).eq("start_time", DAY_STATUS_KEY).in("date", dates);
+      if (error) throw error;
+    }
+    setStatus("ok", "Synced");
+  } catch (e) {
+    console.warn(e);
+    setStatus("err", "Saved offline");
+  }
 }
 
 function moveCalendarMonth(amount) {
@@ -2546,6 +2641,7 @@ document.getElementById("todayBtn").addEventListener("click", () => goto(new Dat
 document.getElementById("statsBtn").addEventListener("click", openStats);
 document.getElementById("calendarBtn").addEventListener("click", openCalendar);
 document.getElementById("calendarBack").addEventListener("click", closeCalendar);
+document.getElementById("calendarMultiSelect").addEventListener("click", toggleCalendarMultiMode);
 document.getElementById("calendarPrev").addEventListener("click", () => moveCalendarMonth(-1));
 document.getElementById("calendarNext").addEventListener("click", () => moveCalendarMonth(1));
 document.getElementById("calendarToday").addEventListener("click", () => {
@@ -2558,9 +2654,20 @@ document.getElementById("calendarToday").addEventListener("click", () => {
 document.getElementById("calendarGrid").addEventListener("click", (e) => {
   const button = e.target.closest("button[data-date]");
   if (!button) return;
-  selectedCalendarDate = button.dataset.date;
+  const dateStr = button.dataset.date;
+  if (calendarMultiMode) {
+    if (selectedCalendarDates.has(dateStr)) selectedCalendarDates.delete(dateStr);
+    else selectedCalendarDates.add(dateStr);
+  } else {
+    selectedCalendarDate = dateStr;
+  }
   renderCalendar();
 });
+document.getElementById("calendarMultiActions").addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-day-status]");
+  if (button) applyCalendarDayStatus(button.dataset.dayStatus);
+});
+document.getElementById("calendarClearStatus").addEventListener("click", () => applyCalendarDayStatus(null));
 document.getElementById("calendarDayPreview").addEventListener("click", (e) => {
   const item = e.target.closest("button[data-preview-start][data-preview-end]");
   if (!item) return;
@@ -2803,5 +2910,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=36").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=37").catch(() => {});
 }

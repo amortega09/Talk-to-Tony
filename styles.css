@@ -751,6 +751,7 @@ html, body {
 
 /* ── Calendar ────────────────────────────── */
 .calendar-screen { overflow-y: auto; padding-bottom: calc(var(--safe-bottom) + 20px); }
+.calendar-header-actions { display: flex; align-items: center; gap: 2px; }
 .calendar-month-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 17px; }
 .calendar-month-label { font-size: 17px; font-weight: 650; letter-spacing: -.2px; }
 .calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
@@ -773,6 +774,7 @@ html, body {
 .calendar-day.outside { color: var(--text-faint); }
 .calendar-day.today { border-color: color-mix(in srgb, var(--link) 55%, var(--line)); color: var(--link); font-weight: 700; }
 .calendar-day.selected { background: var(--link); border-color: var(--link); color: #fff; font-weight: 700; }
+.calendar-day.multi-selected { background: color-mix(in srgb, var(--link) 16%, var(--surface)); border-color: var(--link); color: var(--link); font-weight: 700; }
 .calendar-day.has-data::after {
   content: "";
   position: absolute;
@@ -783,6 +785,8 @@ html, body {
   background: #d1a13a;
 }
 .calendar-day.selected::after { background: #fff; }
+.calendar-day.has-status::after { background: #6a7fd0; }
+.calendar-day.selected.has-status::after { background: #fff; }
 .calendar-actions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 15px; }
 .calendar-selected-date { font-size: 14px; font-weight: 650; margin-bottom: 11px; }
 .calendar-day-preview { display: flex; flex-direction: column; gap: 6px; margin-bottom: 13px; }
@@ -811,8 +815,30 @@ html, body {
 .calendar-preview-objectives-title { margin-bottom: 4px; color: color-mix(in srgb, #d1a13a 80%, var(--text)); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
 .calendar-preview-objectives-text { color: var(--text-soft); font-size: 12px; line-height: 1.4; white-space: pre-line; }
 .calendar-preview-empty { padding: 13px 10px; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--text-faint); font-size: 12.5px; text-align: center; }
+.calendar-preview-status { display: flex; align-items: center; gap: 8px; border: 1px solid color-mix(in srgb, #6a7fd0 28%, var(--line)); background: color-mix(in srgb, #6a7fd0 9%, var(--surface)); border-radius: var(--radius); padding: 9px 11px; color: color-mix(in srgb, #6a7fd0 70%, var(--text)); font-size: 13px; font-weight: 650; }
 .calendar-action-buttons { display: flex; gap: 8px; }
 .calendar-action-buttons .ghost-btn, .calendar-action-buttons .primary-btn { flex: 1; }
+.calendar-multi-actions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 15px; }
+.calendar-selection-count { margin-bottom: 11px; font-size: 14px; font-weight: 650; }
+.calendar-status-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.calendar-status-options button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.calendar-status-options button:hover { background: var(--hover); }
+.calendar-status-options button.active { border-color: #6a7fd0; background: color-mix(in srgb, #6a7fd0 12%, var(--surface)); color: color-mix(in srgb, #6a7fd0 75%, var(--text)); }
+.calendar-status-options button:disabled { opacity: .4; cursor: default; }
+.calendar-status-options button span { margin-right: 4px; }
+.calendar-clear-status { width: 100%; margin-top: 8px; border: none; background: none; color: var(--text-soft); padding: 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.calendar-clear-status:hover { color: var(--text); }
+.calendar-clear-status:disabled { opacity: .4; cursor: default; }
 
 /* ── Insights menu ───────────────────────── */
 .menu-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
@@ -1038,6 +1064,7 @@ html, body {
   .statusbar .sync-status::before { content: "•"; font-size: 12px; }
   .calendar-grid { gap: 2px; }
   .calendar-day { min-height: 44px; }
+  .calendar-header-actions .text-btn { padding: 5px; font-size: 12px; }
   .calendar-preview-item { grid-template-columns: 76px 4px minmax(0, 1fr); padding: 8px; gap: 8px; }
   .gym-inline-row {
     grid-template-columns: 1fr 48px 48px 56px 24px;

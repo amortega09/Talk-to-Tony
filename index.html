@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=36" />
+  <link rel="stylesheet" href="styles.css?v=37" />
 </head>
 <body>
   <!-- Login screen -->
@@ -122,7 +122,10 @@
     <header class="topbar">
       <button class="nav-btn" id="calendarBack" aria-label="Back">‹</button>
       <div class="date-block"><div class="date-main">Calendar</div></div>
-      <button class="text-btn" id="calendarToday">Today</button>
+      <div class="calendar-header-actions">
+        <button class="text-btn" id="calendarToday">Today</button>
+        <button class="text-btn" id="calendarMultiSelect">Select days</button>
+      </div>
     </header>
     <div class="calendar-month-nav">
       <button class="nav-btn" id="calendarPrev" aria-label="Previous month">‹</button>
@@ -140,6 +143,16 @@
         <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
         <button class="primary-btn" id="calendarPlanEvent" type="button">Plan event</button>
       </div>
+    </div>
+    <div class="calendar-multi-actions" id="calendarMultiActions" hidden>
+      <div class="calendar-selection-count" id="calendarSelectionCount">Select dates to label</div>
+      <div class="calendar-status-options">
+        <button type="button" data-day-status="holiday"><span>🏖</span> Holiday</button>
+        <button type="button" data-day-status="travel"><span>✈️</span> Travel day</button>
+        <button type="button" data-day-status="sick"><span>🤒</span> Sick day</button>
+        <button type="button" data-day-status="off"><span>🌿</span> Day off</button>
+      </div>
+      <button class="calendar-clear-status" id="calendarClearStatus" type="button">Clear day label</button>
     </div>
   </section>
 
@@ -211,6 +224,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=36"></script>
+  <script src="app.js?v=37"></script>
 </body>
 </html>
