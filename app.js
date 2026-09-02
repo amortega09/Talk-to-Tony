@@ -96,6 +96,7 @@ const SLOTS = slots();
 let current = new Date();
 let data = {};          // { "08:30": {category, note}, ... } for current day
 let editing = null;     // array of slot strings being edited
+let eventMode = false;  // true when the sheet was opened through Plan event
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
@@ -697,6 +698,10 @@ function highlightSlots(slotList) {
 
 // ---- Edit sheet ----
 function openSheet(slotList, preferredCat) {
+  eventMode = false;
+  document.getElementById("eventTimePicker").hidden = true;
+  document.getElementById("activityPickerLabel").textContent = "What did you do?";
+  document.getElementById("activitySearch").placeholder = "Search or add an activity…";
   editing = slotList;
   highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
@@ -724,6 +729,68 @@ function openSheet(slotList, preferredCat) {
   document.getElementById("noteInput").value = existing ? (isGymBlock(existing) ? "" : (existing.note || "")) : "";
   renderGymInline(existing);
   document.getElementById("sheetBackdrop").hidden = false;
+}
+
+function eventTimeLabel(value) {
+  return value === "24:00" ? "12:00 AM" : to12(value);
+}
+
+function fillEventTimeOptions() {
+  const start = document.getElementById("eventStart");
+  const end = document.getElementById("eventEnd");
+  if (start.options.length) return;
+  for (const slot of SLOTS) start.add(new Option(eventTimeLabel(slot), slot));
+  for (const slot of SLOTS.slice(1).concat("24:00")) {
+    end.add(new Option(slot === "24:00" ? "12:00 AM (next day)" : eventTimeLabel(slot), slot));
+  }
+}
+
+function updateEventRange() {
+  if (!eventMode) return;
+  const startSelect = document.getElementById("eventStart");
+  const endSelect = document.getElementById("eventEnd");
+  const startIndex = SLOTS.indexOf(startSelect.value);
+  let endIndex = endSelect.value === "24:00" ? SLOTS.length : SLOTS.indexOf(endSelect.value);
+  if (endIndex <= startIndex) {
+    endIndex = Math.min(startIndex + 1, SLOTS.length);
+    endSelect.value = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
+  }
+  editing = SLOTS.slice(startIndex, endIndex);
+  const hours = editing.length / 2;
+  document.getElementById("sheetTime").textContent = `Plan event · ${hours % 1 ? hours.toFixed(1) : hours}h`;
+  highlightSlots(editing);
+}
+
+function openEventSheet() {
+  closeSheet();
+  eventMode = true;
+  fillEventTimeOptions();
+  const isToday = ymd(current) === ymd(new Date());
+  const now = new Date();
+  const defaultStart = isToday
+    ? String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30")
+    : "09:00";
+  const startIndex = Math.max(0, SLOTS.indexOf(defaultStart));
+  const endIndex = Math.min(startIndex + 2, SLOTS.length);
+  document.getElementById("eventStart").value = SLOTS[startIndex];
+  document.getElementById("eventEnd").value = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
+  document.getElementById("eventTimePicker").hidden = false;
+  document.getElementById("activityPickerLabel").textContent = "What is happening?";
+  document.getElementById("activitySearch").placeholder = "e.g. Birthday celebration";
+  document.getElementById("activitySearch").value = "";
+  document.getElementById("noteInput").value = "";
+  selectedCat = "social";
+  selectedSub = null;
+  selectedActivityLabel = null;
+  renderCatGrid();
+  renderSubRow();
+  document.getElementById("areaPicker").hidden = true;
+  renderNoteSuggest();
+  updateNotePlaceholder();
+  renderGymInline(null);
+  updateEventRange();
+  document.getElementById("sheetBackdrop").hidden = false;
+  setTimeout(() => document.getElementById("activitySearch").focus(), 80);
 }
 
 // Activity-first picker. Broad categories remain the stable reporting layer,
@@ -1165,6 +1232,8 @@ function selectObjectiveHorizon(horizon) {
 
 function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
+  document.getElementById("eventTimePicker").hidden = true;
+  eventMode = false;
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
   highlightSlots(null);
 }
@@ -1172,6 +1241,19 @@ function saveSheet() {
   if (!editing) return;
   let note = document.getElementById("noteInput").value.trim();
   const dateStr = ymd(current);
+  if (eventMode) {
+    const eventName = document.getElementById("activitySearch").value.trim();
+    if (!eventName) {
+      setStatus("err", "Add an event name");
+      document.getElementById("activitySearch").focus();
+      return;
+    }
+    if (!selectedActivityLabel || selectedActivityLabel.toLowerCase() !== eventName.toLowerCase()) {
+      createActivityFromSearch();
+    }
+    const conflicts = editing.filter((slot) => data[slot]).length;
+    if (conflicts && !window.confirm(`This will replace ${conflicts} already logged half-hour block${conflicts === 1 ? "" : "s"}. Continue?`)) return;
+  }
   if (!selectedCat) { closeSheet(); return; }
   const sub = selectedSub || "";
   if (isGymCategoryId(selectedCat)) {
@@ -1195,6 +1277,10 @@ function saveSheet() {
 }
 function clearSheet() {
   if (!editing) return;
+  if (eventMode) {
+    closeSheet();
+    return;
+  }
   const dateStr = ymd(current);
   for (const s of editing) delete data[s];
   pushBlocks(dateStr, editing, null);
@@ -2384,6 +2470,9 @@ document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => 
   const button = e.target.closest("button[data-objective-horizon]");
   if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
 });
+document.getElementById("addEventBtn").addEventListener("click", openEventSheet);
+document.getElementById("eventStart").addEventListener("change", updateEventRange);
+document.getElementById("eventEnd").addEventListener("change", updateEventRange);
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
@@ -2482,5 +2571,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=32").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=33").catch(() => {});
 }
