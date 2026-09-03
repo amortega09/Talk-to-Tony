@@ -3037,5 +3037,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=39").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=40").catch(() => {});
 }

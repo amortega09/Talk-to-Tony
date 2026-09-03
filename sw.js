@@ -1,7 +1,7 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v39";
+const CACHE = "day-v40";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=38", "./app.js?v=39", "./config.js",
+  "./", "./index.html", "./styles.css?v=38", "./app.js?v=40", "./config.js?v=40",
   "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
