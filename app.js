@@ -2024,7 +2024,7 @@ function movePlannerTaskToNextDay(index) {
 
 function handlePlannerKeyboard(event) {
   const screen = document.getElementById("plannerScreen");
-  if (screen.hidden || event.defaultPrevented) return;
+  if (screen.hidden || !document.getElementById("helpDialog").hidden || event.defaultPrevented) return;
 
   if (event.key === "Escape") {
     event.preventDefault();
@@ -2070,6 +2070,31 @@ function openPlannerDay() {
   const target = new Date(plannerDate);
   closePlanner();
   goto(target);
+}
+
+function openKeyboardHelp() {
+  const dialog = document.getElementById("helpDialog");
+  dialog.hidden = false;
+  document.getElementById("helpClose").focus();
+}
+
+function closeKeyboardHelp() {
+  document.getElementById("helpDialog").hidden = true;
+}
+
+function handleKeyboardHelp(event) {
+  const dialog = document.getElementById("helpDialog");
+  if (!dialog.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closeKeyboardHelp();
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : document.body;
+  const isTyping = target.matches("input, textarea, select") || target.isContentEditable;
+  if (dialog.hidden && event.key === "?" && !isTyping && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    openKeyboardHelp();
+  }
 }
 
 // ---- Calendar ----
@@ -3014,6 +3039,12 @@ document.getElementById("plannerTaskList").addEventListener("click", (event) => 
 });
 document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
 document.addEventListener("keydown", handlePlannerKeyboard);
+document.getElementById("helpBtn").addEventListener("click", openKeyboardHelp);
+document.getElementById("helpClose").addEventListener("click", closeKeyboardHelp);
+document.getElementById("helpDialog").addEventListener("click", (event) => {
+  if (event.target.id === "helpDialog") closeKeyboardHelp();
+});
+document.addEventListener("keydown", handleKeyboardHelp);
 document.getElementById("calendarBtn").addEventListener("click", openCalendar);
 document.getElementById("calendarBack").addEventListener("click", closeCalendar);
 document.getElementById("calendarMultiSelect").addEventListener("click", toggleCalendarMultiMode);
@@ -3218,6 +3249,7 @@ function applySession(session) {
     document.getElementById("calendarScreen").hidden = true;
     document.getElementById("insightScreen").hidden = true;
     document.getElementById("insightsMenu").hidden = true;
+    document.getElementById("helpDialog").hidden = true;
     document.getElementById("authScreen").hidden = false;
   }
 }
@@ -3307,5 +3339,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=43").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=44").catch(() => {});
 }
