@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=38" />
+  <link rel="stylesheet" href="styles.css?v=41" />
 </head>
 <body>
   <!-- Login screen -->
@@ -76,10 +76,10 @@
       <span id="syncStatus" class="sync-status">·</span>
       <button class="text-btn" id="statsBtn">Stats</button>
       <button class="text-btn" id="calendarBtn">Calendar</button>
+      <button class="text-btn" id="plannerBtn">Planner</button>
       <button class="text-btn" id="insightsBtn">Insights</button>
       <button class="text-btn" id="gymBtn">🏋️ Gym</button>
       <button class="text-btn" id="todayBtn">Today</button>
-      <button class="text-btn" id="importBtn">Restore</button>
       <button class="text-btn" id="exportBtn">Export</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden />
     </footer>
@@ -114,7 +114,10 @@
     <header class="topbar">
       <button class="nav-btn" id="statsBack" aria-label="Back">‹</button>
       <div class="date-block"><div class="date-main">Statistics</div></div>
-      <button class="text-btn" id="signOut">Sign out</button>
+      <div class="stats-header-actions">
+        <button class="text-btn" id="importBtn">Restore</button>
+        <button class="text-btn" id="signOut">Sign out</button>
+      </div>
     </header>
     <div class="range-seg" id="rangeSeg">
       <button data-range="7" class="active">7 days</button>
@@ -122,6 +125,57 @@
       <button data-range="0">All</button>
     </div>
     <div class="stats-body" id="statsBody"></div>
+  </section>
+
+  <!-- Daily work planner -->
+  <section class="stats-screen planner-screen" id="plannerScreen" hidden>
+    <header class="topbar">
+      <button class="nav-btn" id="plannerBack" aria-label="Back">‹</button>
+      <div class="date-block"><div class="date-main">Work planner</div></div>
+      <button class="text-btn" id="plannerToday" type="button">Today</button>
+    </header>
+    <div class="planner-date-nav">
+      <button class="nav-btn" id="plannerPrev" aria-label="Previous day">‹</button>
+      <div>
+        <div class="planner-date-main" id="plannerDateMain"></div>
+        <div class="planner-date-sub" id="plannerDateSub"></div>
+      </div>
+      <button class="nav-btn" id="plannerNext" aria-label="Next day">›</button>
+    </div>
+    <div class="planner-body">
+      <section class="planner-day-card">
+        <div class="planner-summary">
+          <div>
+            <div class="planner-summary-value" id="plannerDayScore">0%</div>
+            <div class="planner-summary-label" id="plannerDayScoreLabel">No tasks planned</div>
+          </div>
+          <div class="planner-work-time">
+            <span id="plannerWorkHours">0h</span>
+            <small>work logged</small>
+          </div>
+        </div>
+        <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerDayProgress"></div></div>
+        <div class="planner-task-list" id="plannerTaskList"></div>
+        <div class="planner-add-row">
+          <input id="plannerTaskInput" type="text" autocomplete="off" placeholder="Add a concrete task…" />
+          <button class="primary-btn" id="plannerAddTask" type="button">Add</button>
+        </div>
+      </section>
+
+      <section class="planner-week-card">
+        <div class="planner-section-head">
+          <div>
+            <div class="planner-section-title">Seven-day follow-through</div>
+            <div class="planner-section-sub" id="plannerWeekDates"></div>
+          </div>
+          <div class="planner-week-score" id="plannerWeekScore">—</div>
+        </div>
+        <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerWeekProgress"></div></div>
+        <div class="planner-week-detail" id="plannerWeekDetail">Plan a task to start measuring follow-through.</div>
+      </section>
+
+      <button class="planner-open-day" id="plannerOpenDay" type="button">Open this day’s timeline</button>
+    </div>
   </section>
 
   <!-- Calendar screen -->
@@ -231,6 +285,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=40"></script>
+  <script src="app.js?v=41"></script>
 </body>
 </html>

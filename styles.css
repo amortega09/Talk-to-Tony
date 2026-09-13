@@ -758,6 +758,95 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .bar-fill { height: 100%; border-radius: 3px; opacity: .75; transition: width .4s cubic-bezier(.2,.8,.2,1); }
 .bar-val { flex: 0 0 44px; text-align: right; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .stats-empty { text-align: center; color: var(--text-faint); font-size: 14px; padding: 48px 20px; }
+.stats-header-actions { display: flex; align-items: center; gap: 2px; }
+
+/* ── Work planner ───────────────────────── */
+.planner-screen { overflow-y: auto; padding-bottom: calc(var(--safe-bottom) + 20px); }
+.planner-date-nav {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0 16px;
+  text-align: center;
+}
+.planner-date-main { font-size: 18px; font-weight: 700; letter-spacing: -.2px; }
+.planner-date-sub { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
+.planner-body { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; }
+.planner-day-card, .planner-week-card {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 16px;
+}
+.planner-summary, .planner-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.planner-summary-value { font-size: 28px; font-weight: 750; letter-spacing: -.7px; }
+.planner-summary-label { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
+.planner-work-time { display: flex; flex-direction: column; align-items: flex-end; padding-top: 3px; }
+.planner-work-time span { font-size: 18px; font-weight: 700; }
+.planner-work-time small { margin-top: 2px; color: var(--text-faint); font-size: 10.5px; }
+.planner-progress-track { height: 6px; overflow: hidden; margin: 14px 0; border-radius: 10px; background: var(--hover); }
+.planner-progress-fill { width: 0; height: 100%; border-radius: inherit; background: #4f8a68; transition: width .25s ease; }
+.planner-task-list { display: flex; flex-direction: column; }
+.planner-task {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+}
+.planner-task-toggle, .planner-task-remove {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.planner-task-toggle {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 5px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 17px;
+}
+.planner-task.completed .planner-task-toggle { border-color: #4f8a68; background: #4f8a68; }
+.planner-task-text { min-width: 0; font-size: 14px; line-height: 1.35; word-break: break-word; }
+.planner-task.completed .planner-task-text { color: var(--text-soft); text-decoration: line-through; }
+.planner-task-remove { color: var(--text-faint); padding: 5px; font-size: 18px; }
+.planner-task-remove:hover { color: #c84f49; }
+.planner-empty { padding: 20px 4px 8px; color: var(--text-faint); font-size: 13px; text-align: center; }
+.planner-add-row { display: grid; grid-template-columns: minmax(0, 1fr) 68px; gap: 8px; margin-top: 14px; }
+.planner-add-row input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.planner-add-row input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 16%, transparent); }
+.planner-add-row .primary-btn { padding: 10px; }
+.planner-section-title { font-size: 14px; font-weight: 700; }
+.planner-section-sub { margin-top: 3px; color: var(--text-faint); font-size: 11px; }
+.planner-week-score { font-size: 22px; font-weight: 750; letter-spacing: -.4px; }
+.planner-week-detail { color: var(--text-soft); font-size: 12.5px; line-height: 1.45; }
+.planner-open-day {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.planner-open-day:hover { background: var(--hover); color: var(--text); }
 
 /* ── Calendar ────────────────────────────── */
 .calendar-screen { overflow-y: auto; padding-bottom: calc(var(--safe-bottom) + 20px); }

@@ -108,6 +108,7 @@ let eventMode = false;  // true when the sheet was opened through Plan event
 let activeEventPreset = "all";
 let customEventStart = "09:00";
 let customEventEnd = "10:00";
+let plannerDate = new Date();
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = null;
 let calendarMultiMode = false;
@@ -1830,6 +1831,165 @@ function closeStats() {
   document.getElementById("statsScreen").hidden = true;
 }
 
+// ---- Work planner ----
+function plannerItemsForDay(day) {
+  const note = (day && day[PLAN_KEY] && day[PLAN_KEY].note) || "";
+  return note.split(/\r?\n/).map(parseObjectiveLine).filter((item) => item.text);
+}
+
+function savePlannerItems(dateStr, items) {
+  const day = loadLocal(dateStr);
+  const note = items.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.text.trim()}`).join("\n");
+  const block = note ? { category: "plan", note } : null;
+  if (block) day[PLAN_KEY] = block;
+  else delete day[PLAN_KEY];
+  saveLocal(dateStr, day);
+  syncSlots(dateStr, [PLAN_KEY], block);
+  if (dateStr === ymd(current)) {
+    data = day;
+    renderPlanBanner();
+    renderObjectiveEditor();
+  }
+  renderPlanner();
+}
+
+function plannerWorkHours(day) {
+  return SLOTS.reduce((hours, slot) => {
+    const block = day && day[slot];
+    return hours + (block && reportingCategoryForBlock(block) === "work" ? 0.5 : 0);
+  }, 0);
+}
+
+function formatPlannerHours(hours) {
+  return `${hours % 1 ? hours.toFixed(1) : hours}h`;
+}
+
+function renderPlanner() {
+  const dateStr = ymd(plannerDate);
+  const todayStr = ymd(new Date());
+  const day = loadLocal(dateStr);
+  const items = plannerItemsForDay(day);
+  const completed = items.filter((item) => item.completed).length;
+  const score = items.length ? Math.round((completed / items.length) * 100) : 0;
+
+  document.getElementById("plannerDateMain").textContent = dateStr === todayStr
+    ? "Today"
+    : plannerDate.toLocaleDateString(undefined, { weekday: "long" });
+  document.getElementById("plannerDateSub").textContent = plannerDate.toLocaleDateString(undefined, {
+    day: "numeric", month: "long", year: "numeric",
+  });
+  document.getElementById("plannerDayScore").textContent = items.length ? `${score}%` : "—";
+  document.getElementById("plannerDayScoreLabel").textContent = items.length
+    ? `${completed} of ${items.length} completed`
+    : "No tasks planned";
+  document.getElementById("plannerDayProgress").style.width = `${score}%`;
+  document.getElementById("plannerWorkHours").textContent = formatPlannerHours(plannerWorkHours(day));
+
+  const list = document.getElementById("plannerTaskList");
+  list.innerHTML = items.length ? items.map((item, index) => `
+    <div class="planner-task${item.completed ? " completed" : ""}">
+      <button class="planner-task-toggle" type="button" data-planner-toggle="${index}" aria-label="${item.completed ? "Mark incomplete" : "Mark complete"}">${item.completed ? "✓" : ""}</button>
+      <span class="planner-task-text">${escapeHtml(item.text)}</span>
+      <button class="planner-task-remove" type="button" data-planner-remove="${index}" aria-label="Remove ${escapeHtml(item.text)}">×</button>
+    </div>`).join("") : `<div class="planner-empty">Keep it realistic—add the few things that would make this a good workday.</div>`;
+
+  const periodEnd = new Date();
+  periodEnd.setHours(12, 0, 0, 0);
+  const periodStart = new Date(periodEnd);
+  periodStart.setDate(periodStart.getDate() - 6);
+  let weekTasks = 0;
+  let weekCompleted = 0;
+  let plannedDays = 0;
+  let achievedDays = 0;
+  for (let cursor = new Date(periodStart); cursor <= periodEnd; cursor.setDate(cursor.getDate() + 1)) {
+    const dayItems = plannerItemsForDay(loadLocal(ymd(cursor)));
+    if (!dayItems.length) continue;
+    const done = dayItems.filter((item) => item.completed).length;
+    plannedDays++;
+    weekTasks += dayItems.length;
+    weekCompleted += done;
+    if (done === dayItems.length) achievedDays++;
+  }
+  const weekScore = weekTasks ? Math.round((weekCompleted / weekTasks) * 100) : 0;
+  document.getElementById("plannerWeekDates").textContent = `${periodStart.toLocaleDateString(undefined, { day: "numeric", month: "short" })}–${periodEnd.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  document.getElementById("plannerWeekScore").textContent = weekTasks ? `${weekScore}%` : "—";
+  document.getElementById("plannerWeekProgress").style.width = `${weekScore}%`;
+  document.getElementById("plannerWeekDetail").textContent = weekTasks
+    ? `${weekCompleted} of ${weekTasks} tasks completed · ${achievedDays} of ${plannedDays} planned days fully achieved.`
+    : "Plan a task to start measuring follow-through.";
+}
+
+async function refreshPlannerData() {
+  renderPlanner();
+  if (!sb || !USER_ID) return;
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const weekStart = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
+  const selected = new Date(plannerDate); selected.setHours(12, 0, 0, 0);
+  const rangeStart = selected < weekStart ? selected : weekStart;
+  const rangeEnd = selected > today ? selected : today;
+  try {
+    const { data: rows, error } = await sb.from("blocks")
+      .select("date,start_time,category,note,subcategory")
+      .eq("user_id", USER_ID).gte("date", ymd(rangeStart)).lte("date", ymd(rangeEnd));
+    if (error) throw error;
+    for (const row of rows || []) {
+      const remoteDay = loadLocal(row.date);
+      remoteDay[row.start_time] = {
+        category: row.category,
+        note: row.note || "",
+        sub: row.subcategory || "",
+      };
+      saveLocal(row.date, remoteDay);
+      if (row.date === ymd(current)) data = remoteDay;
+    }
+    renderPlanner();
+  } catch (error) { console.warn(error); }
+}
+
+function openPlanner() {
+  saveObjectiveInput();
+  plannerDate = new Date(current);
+  plannerDate.setHours(12, 0, 0, 0);
+  document.getElementById("plannerScreen").hidden = false;
+  refreshPlannerData();
+}
+
+function closePlanner() {
+  document.getElementById("plannerScreen").hidden = true;
+}
+
+function movePlannerDate(days) {
+  plannerDate.setDate(plannerDate.getDate() + days);
+  refreshPlannerData();
+}
+
+function addPlannerTask() {
+  const input = document.getElementById("plannerTaskInput");
+  const text = input.value.trim();
+  if (!text) return;
+  const dateStr = ymd(plannerDate);
+  const items = plannerItemsForDay(loadLocal(dateStr));
+  items.push({ text, completed: false });
+  input.value = "";
+  savePlannerItems(dateStr, items);
+  input.focus();
+}
+
+function updatePlannerTask(index, action) {
+  const dateStr = ymd(plannerDate);
+  const items = plannerItemsForDay(loadLocal(dateStr));
+  if (!items[index]) return;
+  if (action === "toggle") items[index].completed = !items[index].completed;
+  else if (action === "remove") items.splice(index, 1);
+  savePlannerItems(dateStr, items);
+}
+
+function openPlannerDay() {
+  const target = new Date(plannerDate);
+  closePlanner();
+  goto(target);
+}
+
 // ---- Calendar ----
 function dateFromYmd(dateStr) {
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -2745,6 +2905,26 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
+document.getElementById("plannerBtn").addEventListener("click", openPlanner);
+document.getElementById("plannerBack").addEventListener("click", closePlanner);
+document.getElementById("plannerToday").addEventListener("click", () => {
+  plannerDate = new Date();
+  plannerDate.setHours(12, 0, 0, 0);
+  refreshPlannerData();
+});
+document.getElementById("plannerPrev").addEventListener("click", () => movePlannerDate(-1));
+document.getElementById("plannerNext").addEventListener("click", () => movePlannerDate(1));
+document.getElementById("plannerAddTask").addEventListener("click", addPlannerTask);
+document.getElementById("plannerTaskInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); addPlannerTask(); }
+});
+document.getElementById("plannerTaskList").addEventListener("click", (event) => {
+  const toggle = event.target.closest("button[data-planner-toggle]");
+  const remove = event.target.closest("button[data-planner-remove]");
+  if (toggle) updatePlannerTask(parseInt(toggle.dataset.plannerToggle, 10), "toggle");
+  else if (remove) updatePlannerTask(parseInt(remove.dataset.plannerRemove, 10), "remove");
+});
+document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
 document.getElementById("calendarBtn").addEventListener("click", openCalendar);
 document.getElementById("calendarBack").addEventListener("click", closeCalendar);
 document.getElementById("calendarMultiSelect").addEventListener("click", toggleCalendarMultiMode);
@@ -2945,6 +3125,7 @@ function applySession(session) {
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
+    document.getElementById("plannerScreen").hidden = true;
     document.getElementById("calendarScreen").hidden = true;
     document.getElementById("insightScreen").hidden = true;
     document.getElementById("insightsMenu").hidden = true;
@@ -3037,5 +3218,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=40").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=41").catch(() => {});
 }
