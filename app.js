@@ -1890,6 +1890,7 @@ function renderPlanner() {
     <div class="planner-task${item.completed ? " completed" : ""}">
       <button class="planner-task-toggle" type="button" data-planner-toggle="${index}" aria-label="${item.completed ? "Mark incomplete" : "Mark complete"}">${item.completed ? "✓" : ""}</button>
       <span class="planner-task-text">${escapeHtml(item.text)}</span>
+      <button class="planner-task-move" type="button" data-planner-move="${index}" aria-label="Move ${escapeHtml(item.text)} to next day" title="Move to next day">→</button>
       <button class="planner-task-remove" type="button" data-planner-remove="${index}" aria-label="Remove ${escapeHtml(item.text)}">×</button>
     </div>`).join("") : `<div class="planner-empty">Keep it realistic—add the few things that would make this a good workday.</div>`;
 
@@ -1982,6 +1983,24 @@ function updatePlannerTask(index, action) {
   if (action === "toggle") items[index].completed = !items[index].completed;
   else if (action === "remove") items.splice(index, 1);
   savePlannerItems(dateStr, items);
+}
+
+function movePlannerTaskToNextDay(index) {
+  const sourceDateStr = ymd(plannerDate);
+  const sourceItems = plannerItemsForDay(loadLocal(sourceDateStr));
+  const item = sourceItems[index];
+  if (!item) return;
+
+  const nextDate = new Date(plannerDate);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const nextDateStr = ymd(nextDate);
+  const nextItems = plannerItemsForDay(loadLocal(nextDateStr));
+  const alreadyThere = nextItems.some((candidate) => candidate.text.trim().toLowerCase() === item.text.trim().toLowerCase());
+  if (!alreadyThere) nextItems.push({ text: item.text, completed: false });
+
+  sourceItems.splice(index, 1);
+  savePlannerItems(nextDateStr, nextItems);
+  savePlannerItems(sourceDateStr, sourceItems);
 }
 
 function openPlannerDay() {
@@ -2920,8 +2939,10 @@ document.getElementById("plannerTaskInput").addEventListener("keydown", (event) 
 });
 document.getElementById("plannerTaskList").addEventListener("click", (event) => {
   const toggle = event.target.closest("button[data-planner-toggle]");
+  const move = event.target.closest("button[data-planner-move]");
   const remove = event.target.closest("button[data-planner-remove]");
   if (toggle) updatePlannerTask(parseInt(toggle.dataset.plannerToggle, 10), "toggle");
+  else if (move) movePlannerTaskToNextDay(parseInt(move.dataset.plannerMove, 10));
   else if (remove) updatePlannerTask(parseInt(remove.dataset.plannerRemove, 10), "remove");
 });
 document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
@@ -3218,5 +3239,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=41").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=42").catch(() => {});
 }
