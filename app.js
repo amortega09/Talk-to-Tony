@@ -109,6 +109,7 @@ let activeEventPreset = "all";
 let customEventStart = "09:00";
 let customEventEnd = "10:00";
 let plannerDate = new Date();
+let plannerSelectedTask = -1;
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = null;
 let calendarMultiMode = false;
@@ -1871,6 +1872,8 @@ function renderPlanner() {
   const items = plannerItemsForDay(day);
   const completed = items.filter((item) => item.completed).length;
   const score = items.length ? Math.round((completed / items.length) * 100) : 0;
+  if (!items.length) plannerSelectedTask = -1;
+  else plannerSelectedTask = Math.max(0, Math.min(plannerSelectedTask, items.length - 1));
 
   document.getElementById("plannerDateMain").textContent = dateStr === todayStr
     ? "Today"
@@ -1887,7 +1890,7 @@ function renderPlanner() {
 
   const list = document.getElementById("plannerTaskList");
   list.innerHTML = items.length ? items.map((item, index) => `
-    <div class="planner-task${item.completed ? " completed" : ""}">
+    <div class="planner-task${item.completed ? " completed" : ""}${index === plannerSelectedTask ? " selected" : ""}" data-planner-index="${index}" tabindex="${index === plannerSelectedTask ? "0" : "-1"}" aria-selected="${index === plannerSelectedTask}">
       <button class="planner-task-toggle" type="button" data-planner-toggle="${index}" aria-label="${item.completed ? "Mark incomplete" : "Mark complete"}">${item.completed ? "✓" : ""}</button>
       <span class="planner-task-text">${escapeHtml(item.text)}</span>
       <button class="planner-task-move" type="button" data-planner-move="${index}" aria-label="Move ${escapeHtml(item.text)} to next day" title="Move to next day">→</button>
@@ -1918,6 +1921,13 @@ function renderPlanner() {
   document.getElementById("plannerWeekDetail").textContent = weekTasks
     ? `${weekCompleted} of ${weekTasks} tasks completed · ${achievedDays} of ${plannedDays} planned days fully achieved.`
     : "Plan a task to start measuring follow-through.";
+}
+
+function focusPlannerSelectedTask() {
+  if (plannerSelectedTask < 0) return;
+  const selectedRow = document.querySelector(`.planner-task[data-planner-index="${plannerSelectedTask}"]`);
+  selectedRow?.focus({ preventScroll: true });
+  selectedRow?.scrollIntoView({ block: "nearest" });
 }
 
 async function refreshPlannerData() {
@@ -1951,6 +1961,7 @@ function openPlanner() {
   saveObjectiveInput();
   plannerDate = new Date(current);
   plannerDate.setHours(12, 0, 0, 0);
+  plannerSelectedTask = -1;
   document.getElementById("plannerScreen").hidden = false;
   refreshPlannerData();
 }
@@ -1961,6 +1972,7 @@ function closePlanner() {
 
 function movePlannerDate(days) {
   plannerDate.setDate(plannerDate.getDate() + days);
+  plannerSelectedTask = -1;
   refreshPlannerData();
 }
 
@@ -1971,6 +1983,7 @@ function addPlannerTask() {
   const dateStr = ymd(plannerDate);
   const items = plannerItemsForDay(loadLocal(dateStr));
   items.push({ text, completed: false });
+  plannerSelectedTask = items.length - 1;
   input.value = "";
   savePlannerItems(dateStr, items);
   input.focus();
@@ -1981,8 +1994,12 @@ function updatePlannerTask(index, action) {
   const items = plannerItemsForDay(loadLocal(dateStr));
   if (!items[index]) return;
   if (action === "toggle") items[index].completed = !items[index].completed;
-  else if (action === "remove") items.splice(index, 1);
+  else if (action === "remove") {
+    items.splice(index, 1);
+    plannerSelectedTask = items.length ? Math.min(index, items.length - 1) : -1;
+  }
   savePlannerItems(dateStr, items);
+  focusPlannerSelectedTask();
 }
 
 function movePlannerTaskToNextDay(index) {
@@ -1999,8 +2016,54 @@ function movePlannerTaskToNextDay(index) {
   if (!alreadyThere) nextItems.push({ text: item.text, completed: false });
 
   sourceItems.splice(index, 1);
+  plannerSelectedTask = sourceItems.length ? Math.min(index, sourceItems.length - 1) : -1;
   savePlannerItems(nextDateStr, nextItems);
   savePlannerItems(sourceDateStr, sourceItems);
+  focusPlannerSelectedTask();
+}
+
+function handlePlannerKeyboard(event) {
+  const screen = document.getElementById("plannerScreen");
+  if (screen.hidden || event.defaultPrevented) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closePlanner();
+    return;
+  }
+
+  const target = event.target instanceof Element ? event.target : document.body;
+  const isTyping = target.matches("input, textarea, select") || target.isContentEditable;
+  if (isTyping || event.ctrlKey || event.metaKey || event.altKey) return;
+
+  const items = plannerItemsForDay(loadLocal(ymd(plannerDate)));
+  if (event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    document.getElementById("plannerTaskInput").focus();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!items.length) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    plannerSelectedTask = plannerSelectedTask < 0
+      ? (direction > 0 ? 0 : items.length - 1)
+      : (plannerSelectedTask + direction + items.length) % items.length;
+    renderPlanner();
+    focusPlannerSelectedTask();
+    return;
+  }
+  if (plannerSelectedTask < 0 || !items[plannerSelectedTask]) return;
+  if (event.key === " " && !target.closest("button, a")) {
+    event.preventDefault();
+    updatePlannerTask(plannerSelectedTask, "toggle");
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    movePlannerTaskToNextDay(plannerSelectedTask);
+  } else if (event.key === "Delete" || event.key === "Backspace") {
+    event.preventDefault();
+    updatePlannerTask(plannerSelectedTask, "remove");
+  }
 }
 
 function openPlannerDay() {
@@ -2929,6 +2992,7 @@ document.getElementById("plannerBack").addEventListener("click", closePlanner);
 document.getElementById("plannerToday").addEventListener("click", () => {
   plannerDate = new Date();
   plannerDate.setHours(12, 0, 0, 0);
+  plannerSelectedTask = -1;
   refreshPlannerData();
 });
 document.getElementById("plannerPrev").addEventListener("click", () => movePlannerDate(-1));
@@ -2938,14 +3002,18 @@ document.getElementById("plannerTaskInput").addEventListener("keydown", (event) 
   if (event.key === "Enter") { event.preventDefault(); addPlannerTask(); }
 });
 document.getElementById("plannerTaskList").addEventListener("click", (event) => {
+  const row = event.target.closest(".planner-task[data-planner-index]");
   const toggle = event.target.closest("button[data-planner-toggle]");
   const move = event.target.closest("button[data-planner-move]");
   const remove = event.target.closest("button[data-planner-remove]");
+  if (row) plannerSelectedTask = parseInt(row.dataset.plannerIndex, 10);
   if (toggle) updatePlannerTask(parseInt(toggle.dataset.plannerToggle, 10), "toggle");
   else if (move) movePlannerTaskToNextDay(parseInt(move.dataset.plannerMove, 10));
   else if (remove) updatePlannerTask(parseInt(remove.dataset.plannerRemove, 10), "remove");
+  else if (row) renderPlanner();
 });
 document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
+document.addEventListener("keydown", handlePlannerKeyboard);
 document.getElementById("calendarBtn").addEventListener("click", openCalendar);
 document.getElementById("calendarBack").addEventListener("click", closeCalendar);
 document.getElementById("calendarMultiSelect").addEventListener("click", toggleCalendarMultiMode);
@@ -3239,5 +3307,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=42").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=43").catch(() => {});
 }

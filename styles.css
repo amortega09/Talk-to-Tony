@@ -795,7 +795,11 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   gap: 8px;
   min-height: 44px;
   border-bottom: 1px solid var(--line);
+  border-radius: 5px;
+  transition: background .1s, box-shadow .1s;
 }
+.planner-task.selected { background: color-mix(in srgb, var(--link) 8%, transparent); box-shadow: inset 3px 0 0 var(--link); }
+.planner-task:focus { outline: 2px solid color-mix(in srgb, var(--link) 45%, transparent); outline-offset: 1px; }
 .planner-task-toggle, .planner-task-move, .planner-task-remove {
   border: none;
   background: none;
@@ -833,6 +837,8 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 }
 .planner-add-row input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 16%, transparent); }
 .planner-add-row .primary-btn { padding: 10px; }
+.planner-shortcuts { margin-top: 10px; color: var(--text-faint); font-size: 10.5px; line-height: 1.7; }
+.planner-shortcuts kbd { border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; background: var(--hover); color: var(--text-soft); font: inherit; white-space: nowrap; }
 .planner-section-title { font-size: 14px; font-weight: 700; }
 .planner-section-sub { margin-top: 3px; color: var(--text-faint); font-size: 11px; }
 .planner-week-score { font-size: 22px; font-weight: 750; letter-spacing: -.4px; }
