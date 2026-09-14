@@ -1125,11 +1125,10 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 
   #app {
     position: relative;
-    max-width: 1240px;
-    padding: 0 32px;
+    width: 100%;
+    max-width: none;
+    padding: 0 clamp(28px, 3vw, 56px);
     background: var(--surface);
-    border-right: 1px solid var(--line);
-    border-left: 1px solid var(--line);
   }
   #app > .topbar {
     display: grid;
@@ -1144,7 +1143,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
     position: absolute;
     z-index: 2;
     top: 31px;
-    right: 32px;
+    right: clamp(28px, 3vw, 56px);
     padding: 0;
   }
   .day-event-btn { padding: 9px 13px; font-size: 13px; }
@@ -1153,7 +1152,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 
   .timeline {
     display: grid;
-    grid-template-columns: minmax(0, 1.65fr) minmax(340px, .8fr);
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
     gap: 30px;
     min-height: 0;
     overflow: hidden;
@@ -1182,10 +1181,9 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .statusbar .text-btn { padding: 7px 10px; }
 
   .stats-screen {
-    max-width: 1240px;
-    padding: 0 36px;
-    border-right: 1px solid var(--line);
-    border-left: 1px solid var(--line);
+    width: 100%;
+    max-width: none;
+    padding: 0 clamp(28px, 3vw, 56px);
   }
   .stats-screen .topbar { min-height: 92px; padding-top: 24px; }
   .stats-screen .date-main { font-size: 30px; }
@@ -1195,7 +1193,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .planner-date-nav { margin: 0 0 20px; }
   .planner-body {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(390px, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(390px, 500px);
     align-items: stretch;
     gap: 16px 20px;
     flex: 1;
