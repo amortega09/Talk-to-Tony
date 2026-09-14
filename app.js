@@ -110,6 +110,7 @@ let customEventStart = "09:00";
 let customEventEnd = "10:00";
 let plannerDate = new Date();
 let plannerSelectedTask = -1;
+let plannerSlotMode = false;
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedCalendarDate = null;
 let calendarMultiMode = false;
@@ -715,6 +716,7 @@ function highlightSlots(slotList) {
 
 // ---- Edit sheet ----
 function openSheet(slotList, preferredCat) {
+  plannerSlotMode = false;
   eventMode = false;
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
@@ -943,7 +945,7 @@ function updateNotePlaceholder() {
   if (!input) return;
   input.placeholder = isGymCategoryId(selectedCat)
     ? "Optional note"
-    : "What are you doing? (optional)";
+    : (plannerSlotMode ? "Target for this block (optional)" : "What are you doing? (optional)");
   input.classList.toggle("gym-note-hidden", isGymCategoryId(selectedCat));
 }
 
@@ -1279,6 +1281,7 @@ function closeSheet() {
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
   eventMode = false;
+  plannerSlotMode = false;
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
   highlightSlots(null);
 }
@@ -1899,10 +1902,12 @@ function renderPlanner() {
     const detail = block ? displayBlockNote(block) : "";
     const title = block ? (block.sub || detail || category.label) : "—";
     const secondary = block && title !== category.label ? category.label : "";
+    const action = !block ? "Schedule" : (detail ? "Edit target" : "Set target");
     const isNow = dateStr === todayStr && slot === nowSlot;
-    return `<button class="planner-slot${block ? " filled" : " empty"}${isNow ? " now" : ""}" type="button" data-planner-slot="${slot}"${category ? ` style="--slot-color:${category.color}"` : ""} aria-label="${to12(slot)}${block ? `, ${escapeHtml(title)}` : ", empty"}">
+    return `<button class="planner-slot${block ? " filled" : " empty"}${isNow ? " now" : ""}" type="button" data-planner-slot="${slot}"${category ? ` style="--slot-color:${category.color}"` : ""} aria-label="${to12(slot)}${block ? `, ${escapeHtml(title)}` : ", empty"}, ${action}">
       <span class="planner-slot-time">${to12(slot)}</span>
       <span class="planner-slot-content"><span class="planner-slot-title">${escapeHtml(title)}</span>${secondary ? `<span class="planner-slot-detail">${escapeHtml(secondary)}</span>` : ""}</span>
+      <span class="planner-slot-action">${action}</span>
     </button>`;
   }).join("");
 
@@ -2051,6 +2056,15 @@ function handlePlannerKeyboard(event) {
   const screen = document.getElementById("plannerScreen");
   if (screen.hidden || !document.getElementById("helpDialog").hidden || event.defaultPrevented) return;
 
+  const editor = document.getElementById("sheetBackdrop");
+  if (!editor.hidden) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSheet();
+    }
+    return;
+  }
+
   if (event.key === "Escape") {
     event.preventDefault();
     closePlanner();
@@ -2102,6 +2116,10 @@ async function openPlannerSlot(slot) {
   if (ymd(target) !== ymd(current)) await goto(target);
   else data = loadLocal(ymd(current));
   openSheet([slot]);
+  plannerSlotMode = true;
+  document.getElementById("activityPickerLabel").textContent = "What are you scheduling?";
+  document.getElementById("activitySearch").placeholder = "e.g. Revision, project work, meeting…";
+  updateNotePlaceholder();
 }
 
 function openKeyboardHelp() {
@@ -3375,5 +3393,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=47").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=48").catch(() => {});
 }

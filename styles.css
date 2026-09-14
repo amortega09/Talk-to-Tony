@@ -794,7 +794,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .planner-schedule-list { min-height: 260px; max-height: 430px; overflow-y: auto; scrollbar-gutter: stable; }
 .planner-slot {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
+  grid-template-columns: 74px minmax(0, 1fr) auto;
   align-items: stretch;
   width: 100%;
   min-height: 42px;
@@ -815,6 +815,8 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .planner-slot-title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .planner-slot.empty .planner-slot-title { color: var(--text-faint); font-weight: 400; }
 .planner-slot-detail { margin-top: 2px; overflow: hidden; color: var(--text-soft); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.planner-slot-action { align-self: center; margin: 0 8px; border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; background: var(--surface); color: var(--link); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.planner-slot:hover .planner-slot-action, .planner-slot:focus-visible .planner-slot-action { border-color: color-mix(in srgb, var(--link) 35%, var(--line)); background: color-mix(in srgb, var(--link) 8%, var(--surface)); }
 .planner-summary, .planner-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .planner-summary-value { font-size: 28px; font-weight: 750; letter-spacing: -.7px; }
 .planner-summary-label { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
