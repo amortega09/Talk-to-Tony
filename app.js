@@ -1318,6 +1318,7 @@ function saveSheet() {
   for (const s of editing) data[s] = { category: selectedCat, note, sub };
   pushBlocks(dateStr, editing, block);
   render();
+  if (!document.getElementById("plannerScreen").hidden) renderPlanner();
   closeSheet();
 }
 function clearSheet() {
@@ -1330,6 +1331,7 @@ function clearSheet() {
   for (const s of editing) delete data[s];
   pushBlocks(dateStr, editing, null);
   render();
+  if (!document.getElementById("plannerScreen").hidden) renderPlanner();
   closeSheet();
 }
 
@@ -1884,9 +1886,25 @@ function renderPlanner() {
   document.getElementById("plannerDayScore").textContent = items.length ? `${score}%` : "—";
   document.getElementById("plannerDayScoreLabel").textContent = items.length
     ? `${completed} of ${items.length} completed`
-    : "No tasks planned";
+    : "No targets planned";
   document.getElementById("plannerDayProgress").style.width = `${score}%`;
   document.getElementById("plannerWorkHours").textContent = formatPlannerHours(plannerWorkHours(day));
+
+  const now = new Date();
+  const nowSlot = `${String(now.getHours()).padStart(2, "0")}:${now.getMinutes() < 30 ? "00" : "30"}`;
+  const schedule = document.getElementById("plannerScheduleList");
+  schedule.innerHTML = SLOTS.map((slot) => {
+    const block = day[slot];
+    const category = block ? (CAT[block.category] || CAT.other) : null;
+    const detail = block ? displayBlockNote(block) : "";
+    const title = block ? (block.sub || detail || category.label) : "—";
+    const secondary = block && title !== category.label ? category.label : "";
+    const isNow = dateStr === todayStr && slot === nowSlot;
+    return `<button class="planner-slot${block ? " filled" : " empty"}${isNow ? " now" : ""}" type="button" data-planner-slot="${slot}"${category ? ` style="--slot-color:${category.color}"` : ""} aria-label="${to12(slot)}${block ? `, ${escapeHtml(title)}` : ", empty"}">
+      <span class="planner-slot-time">${to12(slot)}</span>
+      <span class="planner-slot-content"><span class="planner-slot-title">${escapeHtml(title)}</span>${secondary ? `<span class="planner-slot-detail">${escapeHtml(secondary)}</span>` : ""}</span>
+    </button>`;
+  }).join("");
 
   const list = document.getElementById("plannerTaskList");
   list.innerHTML = items.length ? items.map((item, index) => `
@@ -1920,7 +1938,7 @@ function renderPlanner() {
   document.getElementById("plannerWeekProgress").style.width = `${weekScore}%`;
   document.getElementById("plannerWeekDetail").textContent = weekTasks
     ? `${weekCompleted} of ${weekTasks} tasks completed · ${achievedDays} of ${plannedDays} planned days fully achieved.`
-    : "Plan a task to start measuring follow-through.";
+    : "Plan a target to start measuring follow-through.";
 }
 
 function focusPlannerSelectedTask() {
@@ -1964,6 +1982,13 @@ function openPlanner() {
   plannerSelectedTask = -1;
   document.getElementById("plannerScreen").hidden = false;
   refreshPlannerData();
+  requestAnimationFrame(() => {
+    const schedule = document.getElementById("plannerScheduleList");
+    const target = schedule.querySelector(".planner-slot.now")
+      || schedule.querySelector(".planner-slot.filled")
+      || schedule.querySelector('[data-planner-slot="08:00"]');
+    if (target) schedule.scrollTop = Math.max(0, target.offsetTop - schedule.clientHeight / 3);
+  });
 }
 
 function closePlanner() {
@@ -2070,6 +2095,13 @@ function openPlannerDay() {
   const target = new Date(plannerDate);
   closePlanner();
   goto(target);
+}
+
+async function openPlannerSlot(slot) {
+  const target = new Date(plannerDate);
+  if (ymd(target) !== ymd(current)) await goto(target);
+  else data = loadLocal(ymd(current));
+  openSheet([slot]);
 }
 
 function openKeyboardHelp() {
@@ -3037,6 +3069,10 @@ document.getElementById("plannerTaskList").addEventListener("click", (event) => 
   else if (remove) updatePlannerTask(parseInt(remove.dataset.plannerRemove, 10), "remove");
   else if (row) renderPlanner();
 });
+document.getElementById("plannerScheduleList").addEventListener("click", (event) => {
+  const slot = event.target.closest("button[data-planner-slot]");
+  if (slot) openPlannerSlot(slot.dataset.plannerSlot);
+});
 document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
 document.addEventListener("keydown", handlePlannerKeyboard);
 document.getElementById("helpBtn").addEventListener("click", openKeyboardHelp);
@@ -3339,5 +3375,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=45").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=46").catch(() => {});
 }

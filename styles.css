@@ -781,12 +781,40 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .planner-date-main { font-size: 18px; font-weight: 700; letter-spacing: -.2px; }
 .planner-date-sub { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
 .planner-body { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; }
-.planner-day-card, .planner-week-card {
+.planner-day-card, .planner-week-card, .planner-schedule-card {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--surface);
   padding: 16px;
 }
+.planner-targets-column { display: flex; flex-direction: column; gap: 12px; }
+.planner-card-eyebrow { margin-bottom: 9px; color: var(--text-soft); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.planner-schedule-card { display: flex; min-height: 0; flex-direction: column; }
+.planner-schedule-head { flex: 0 0 auto; padding: 1px 2px 12px; border-bottom: 1px solid var(--line); }
+.planner-schedule-list { min-height: 260px; max-height: 430px; overflow-y: auto; scrollbar-gutter: stable; }
+.planner-slot {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.planner-slot:hover, .planner-slot:focus-visible { background: var(--hover); outline: none; }
+.planner-slot.now { box-shadow: inset 3px 0 0 #eb5757; }
+.planner-slot-time { padding: 13px 10px 9px 5px; color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.planner-slot-content { display: flex; min-width: 0; flex-direction: column; justify-content: center; margin: 4px 0; border-left: 3px solid transparent; padding: 5px 10px; }
+.planner-slot.filled .planner-slot-content { border-left-color: var(--slot-color, #999); background: color-mix(in srgb, var(--slot-color, #999) 12%, var(--surface)); }
+.planner-slot-title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.planner-slot.empty .planner-slot-title { color: var(--text-faint); font-weight: 400; }
+.planner-slot-detail { margin-top: 2px; overflow: hidden; color: var(--text-soft); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
 .planner-summary, .planner-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .planner-summary-value { font-size: 28px; font-weight: 750; letter-spacing: -.7px; }
 .planner-summary-label { margin-top: 2px; color: var(--text-soft); font-size: 12px; }
@@ -1167,12 +1195,17 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .planner-date-nav { margin: 0 0 20px; }
   .planner-body {
     display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(300px, .8fr);
-    grid-template-rows: auto auto 1fr;
-    align-items: start;
+    grid-template-columns: minmax(0, 1.25fr) minmax(390px, 1fr);
+    align-items: stretch;
     gap: 16px 20px;
+    flex: 1;
+    min-height: 0;
   }
-  .planner-day-card { grid-row: 1 / 4; padding: 20px; }
+  .planner-screen { overflow: hidden; }
+  .planner-schedule-card { height: 100%; padding: 18px; }
+  .planner-schedule-list { flex: 1; max-height: none; }
+  .planner-targets-column { min-height: 0; overflow-y: auto; padding-right: 2px; }
+  .planner-day-card { padding: 20px; }
   .planner-week-card { padding: 20px; }
   .planner-open-day { align-self: start; }
 

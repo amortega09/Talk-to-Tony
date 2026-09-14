@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=45" />
+  <link rel="stylesheet" href="styles.css?v=46" />
 </head>
 <body>
   <!-- Login screen -->
@@ -159,7 +159,7 @@
   <section class="stats-screen planner-screen" id="plannerScreen" hidden>
     <header class="topbar">
       <button class="nav-btn" id="plannerBack" aria-label="Back">‹</button>
-      <div class="date-block"><div class="date-main">Work planner</div></div>
+      <div class="date-block"><div class="date-main">Day planner</div></div>
       <button class="text-btn" id="plannerToday" type="button">Today</button>
     </header>
     <div class="planner-date-nav">
@@ -171,39 +171,50 @@
       <button class="nav-btn" id="plannerNext" aria-label="Next day">›</button>
     </div>
     <div class="planner-body">
-      <section class="planner-day-card">
-        <div class="planner-summary">
-          <div>
-            <div class="planner-summary-value" id="plannerDayScore">0%</div>
-            <div class="planner-summary-label" id="plannerDayScoreLabel">No tasks planned</div>
-          </div>
-          <div class="planner-work-time">
-            <span id="plannerWorkHours">0h</span>
-            <small>work logged</small>
-          </div>
+      <section class="planner-schedule-card">
+        <div class="planner-schedule-head">
+          <div class="planner-section-title">30-minute plan</div>
+          <div class="planner-section-sub">Select a slot to plan or edit it</div>
         </div>
-        <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerDayProgress"></div></div>
-        <div class="planner-task-list" id="plannerTaskList"></div>
-        <div class="planner-add-row">
-          <input id="plannerTaskInput" type="text" autocomplete="off" placeholder="Add a concrete task…" />
-          <button class="primary-btn" id="plannerAddTask" type="button">Add</button>
-        </div>
-        <div class="planner-shortcuts"><kbd>N</kbd> new · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Space</kbd> complete · <kbd>→</kbd> tomorrow · <kbd>Delete</kbd> remove · <kbd>Esc</kbd> close</div>
+        <div class="planner-schedule-list" id="plannerScheduleList"></div>
       </section>
 
-      <section class="planner-week-card">
-        <div class="planner-section-head">
-          <div>
-            <div class="planner-section-title">Seven-day follow-through</div>
-            <div class="planner-section-sub" id="plannerWeekDates"></div>
+      <div class="planner-targets-column">
+        <section class="planner-day-card">
+          <div class="planner-card-eyebrow">Daily targets</div>
+          <div class="planner-summary">
+            <div>
+              <div class="planner-summary-value" id="plannerDayScore">0%</div>
+              <div class="planner-summary-label" id="plannerDayScoreLabel">No targets planned</div>
+            </div>
+            <div class="planner-work-time">
+              <span id="plannerWorkHours">0h</span>
+              <small>work logged</small>
+            </div>
           </div>
-          <div class="planner-week-score" id="plannerWeekScore">—</div>
-        </div>
-        <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerWeekProgress"></div></div>
-        <div class="planner-week-detail" id="plannerWeekDetail">Plan a task to start measuring follow-through.</div>
-      </section>
+          <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerDayProgress"></div></div>
+          <div class="planner-task-list" id="plannerTaskList"></div>
+          <div class="planner-add-row">
+            <input id="plannerTaskInput" type="text" autocomplete="off" placeholder="Add a concrete target…" />
+            <button class="primary-btn" id="plannerAddTask" type="button">Add</button>
+          </div>
+          <div class="planner-shortcuts"><kbd>N</kbd> new · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Space</kbd> complete · <kbd>→</kbd> tomorrow · <kbd>Delete</kbd> remove · <kbd>Esc</kbd> close</div>
+        </section>
 
-      <button class="planner-open-day" id="plannerOpenDay" type="button">Open this day’s timeline</button>
+        <section class="planner-week-card">
+          <div class="planner-section-head">
+            <div>
+              <div class="planner-section-title">Seven-day follow-through</div>
+              <div class="planner-section-sub" id="plannerWeekDates"></div>
+            </div>
+            <div class="planner-week-score" id="plannerWeekScore">—</div>
+          </div>
+          <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerWeekProgress"></div></div>
+          <div class="planner-week-detail" id="plannerWeekDetail">Plan a target to start measuring follow-through.</div>
+        </section>
+
+        <button class="planner-open-day" id="plannerOpenDay" type="button">Open full day view</button>
+      </div>
     </div>
   </section>
 
@@ -314,6 +325,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=45"></script>
+  <script src="app.js?v=46"></script>
 </body>
 </html>
