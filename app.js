@@ -36,6 +36,9 @@ let categoryMigrationVersion = 0;    // last completed historical recategorisati
 let shortTermObjectives = "";
 let longTermObjectives = "";
 let activeObjectiveHorizon = "today";
+let diaryTargetSlot = null;
+let diaryTargetEditingIndex = -1;
+let diaryTargetSelected = -1;
 let gymExercises = DEFAULT_GYM_EXERCISES.slice();
 let CATEGORIES = BUILTIN_CATEGORIES.slice();
 let CAT = {};
@@ -527,6 +530,8 @@ function render() {
       lastHour = hour;
     }
     const b = data[slot];
+    const row = document.createElement("div");
+    row.className = "block-row";
     const el = document.createElement("div");
     el.className = "block " + (b ? "filled" : "empty") + (slot === rangeAnchor ? " anchor" : "");
     const c = b ? (CAT[b.category] || CAT.other) : null;
@@ -540,6 +545,15 @@ function render() {
       </div>`;
     el.dataset.slot = slot;
     attachPress(el, slot);
+    const targetButton = document.createElement("button");
+    targetButton.className = "block-target-btn";
+    targetButton.type = "button";
+    targetButton.dataset.targetSlot = slot;
+    targetButton.textContent = targetExistsForSlot(slot) ? "Target set" : "Set target";
+    targetButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      beginDiarySlotTarget(slot);
+    });
     if (ymd(current) === ymd(new Date())) {
       const now = new Date();
       const nowSlot = String(now.getHours()).padStart(2, "0") + ":" + (now.getMinutes() < 30 ? "00" : "30");
@@ -550,7 +564,9 @@ function render() {
         el.id = "nowBlock";
       }
     }
-    tl.appendChild(el);
+    row.appendChild(el);
+    row.appendChild(targetButton);
+    tl.appendChild(row);
   }
 
   // Reflection note (don't clobber while the user is typing)
@@ -633,6 +649,7 @@ function previewRange(a, b) {
 function attachPress(el, slot) {
   let timer = null, startY = 0;
   el.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".block-target-btn")) return;
     startY = e.clientY;
     timer = setTimeout(() => {
       timer = null;
@@ -645,6 +662,7 @@ function attachPress(el, slot) {
     }, 400);
   });
   el.addEventListener("pointermove", (e) => {
+    if (e.target.closest(".block-target-btn")) return;
     if (dragging && rangeAnchor) {
       const s = slotFromPoint(e.clientX, e.clientY);
       if (s && s !== dragEndSlot) {
@@ -655,7 +673,8 @@ function attachPress(el, slot) {
     }
     if (Math.abs(e.clientY - startY) > 10) { clearTimeout(timer); timer = null; }
   });
-  el.addEventListener("pointerup", () => {
+  el.addEventListener("pointerup", (e) => {
+    if (e.target.closest(".block-target-btn")) return;
     if (dragging) {
       dragging = false;
       suppressNextTap = false;
@@ -672,7 +691,10 @@ function attachPress(el, slot) {
     if (suppressNextTap) { suppressNextTap = false; return; }
     handleTap(slot);
   });
-  el.addEventListener("pointercancel", () => { clearTimeout(timer); timer = null; dragging = false; });
+  el.addEventListener("pointercancel", (e) => {
+    if (e.target.closest(".block-target-btn")) return;
+    clearTimeout(timer); timer = null; dragging = false;
+  });
 }
 
 function startAnchor(slot, el) {
@@ -1203,7 +1225,7 @@ function saveTomorrowPlan() {
 
 const OBJECTIVE_HORIZONS = {
   today: {
-    hint: "Focus items for today · synced live with banner",
+    hint: "Focus items for this diary day · synced live",
     placeholder: "What are your main focus items for today?",
   },
   tomorrow: {
@@ -1234,16 +1256,223 @@ function currentObjectiveEditorValue() {
   return "";
 }
 
-function renderObjectiveEditor() {
-  const input = document.getElementById("planInput");
-  if (!input) return;
+function objectiveItemsForHorizon(horizon = activeObjectiveHorizon) {
+  if (horizon === "short") return shortTermObjectives.split(/\r?\n/).map(parseObjectiveLine).filter((item) => item.text);
+  if (horizon === "long") return longTermObjectives.split(/\r?\n/).map(parseObjectiveLine).filter((item) => item.text);
+  if (horizon === "tomorrow") {
+    const next = new Date(current); next.setDate(next.getDate() + 1);
+    return plannerItemsForDay(loadLocal(ymd(next)));
+  }
+  return plannerItemsForDay(data);
+}
+
+function serializeObjectiveItems(items) {
+  return items.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.text.trim()}`).join("\n");
+}
+
+function saveObjectiveItemsForHorizon(items, horizon = activeObjectiveHorizon) {
+  if (horizon === "short" || horizon === "long") {
+    const note = serializeObjectiveItems(items);
+    if (horizon === "short") shortTermObjectives = note;
+    else longTermObjectives = note;
+    saveSettings();
+    renderObjectiveEditor();
+    return;
+  }
+  const targetDate = new Date(current);
+  if (horizon === "tomorrow") targetDate.setDate(targetDate.getDate() + 1);
+  savePlannerItems(ymd(targetDate), items);
+}
+
+function slotTargetPrefix(slot) {
+  return `${to12(slot)} · `;
+}
+
+function targetExistsForSlot(slot) {
+  const prefix = slotTargetPrefix(slot).toLowerCase();
+  return plannerItemsForDay(data).some((item) => item.text.toLowerCase().startsWith(prefix));
+}
+
+function splitTimedTarget(text) {
+  const match = text.match(/^(\d{1,2}:\d{2} [AP]M) · (.+)$/);
+  return match ? { time: match[1], text: match[2] } : { time: "", text };
+}
+
+function beginDiarySlotTarget(slot) {
+  activeObjectiveHorizon = "today";
+  diaryTargetSlot = slot;
+  const items = objectiveItemsForHorizon("today");
+  const prefix = slotTargetPrefix(slot).toLowerCase();
+  diaryTargetEditingIndex = items.findIndex((item) => item.text.toLowerCase().startsWith(prefix));
+  renderObjectiveEditor();
+  const input = document.getElementById("diaryTargetInput");
+  if (diaryTargetEditingIndex >= 0) {
+    input.value = splitTimedTarget(items[diaryTargetEditingIndex].text).text;
+    input.select();
+  } else {
+    const block = data[slot];
+    input.value = block ? (block.sub || displayBlockNote(block) || (CAT[block.category] || CAT.other).label) : "";
+    input.focus();
+    if (input.value) input.select();
+  }
+  document.querySelector(".diary-target-card")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function renderDiaryTargets() {
+  const list = document.getElementById("diaryTargetList");
+  if (!list) return;
   const meta = OBJECTIVE_HORIZONS[activeObjectiveHorizon] || OBJECTIVE_HORIZONS.today;
+  const items = objectiveItemsForHorizon();
+  const completed = items.filter((item) => item.completed).length;
+  const score = items.length ? Math.round((completed / items.length) * 100) : 0;
+  diaryTargetSelected = items.length ? Math.max(-1, Math.min(diaryTargetSelected, items.length - 1)) : -1;
+
   document.querySelectorAll("[data-objective-horizon]").forEach((button) => {
     button.classList.toggle("active", button.dataset.objectiveHorizon === activeObjectiveHorizon);
   });
   document.getElementById("objectiveHint").textContent = meta.hint;
-  input.placeholder = meta.placeholder;
-  if (document.activeElement !== input) input.value = currentObjectiveEditorValue();
+  document.getElementById("diaryTargetScore").textContent = items.length ? `${score}%` : "—";
+  document.getElementById("diaryTargetScoreLabel").textContent = items.length
+    ? `${completed} of ${items.length} completed`
+    : "No targets set";
+  document.getElementById("diaryTargetProgress").style.width = `${score}%`;
+
+  list.innerHTML = items.length ? items.map((item, index) => {
+    const parts = splitTimedTarget(item.text);
+    const move = activeObjectiveHorizon === "today" && !item.completed
+      ? `<button class="diary-target-move" type="button" data-diary-target-move="${index}" aria-label="Move to tomorrow" title="Move to tomorrow">→</button>`
+      : "";
+    return `<div class="diary-target-item${item.completed ? " completed" : ""}${index === diaryTargetSelected ? " selected" : ""}" data-diary-target-index="${index}" tabindex="${index === diaryTargetSelected ? "0" : "-1"}">
+      <button class="diary-target-toggle" type="button" data-diary-target-toggle="${index}" aria-label="${item.completed ? "Mark incomplete" : "Mark complete"}">${item.completed ? "✓" : ""}</button>
+      <span class="diary-target-copy">${parts.time ? `<span class="diary-target-time">${escapeHtml(parts.time)}</span>` : ""}<span>${escapeHtml(parts.text)}</span></span>
+      ${move}
+      <button class="diary-target-remove" type="button" data-diary-target-remove="${index}" aria-label="Remove target">×</button>
+    </div>`;
+  }).join("") : `<div class="diary-target-empty">Add only the few outcomes that would make this period worthwhile.</div>`;
+
+  const input = document.getElementById("diaryTargetInput");
+  const addButton = document.getElementById("diaryTargetAdd");
+  const context = document.getElementById("diaryTargetContext");
+  input.placeholder = diaryTargetSlot ? `Target for ${to12(diaryTargetSlot)}…` : meta.placeholder;
+  addButton.textContent = diaryTargetEditingIndex >= 0 ? "Save" : "Add";
+  context.hidden = !diaryTargetSlot;
+  context.innerHTML = diaryTargetSlot
+    ? `<span>Linked to ${to12(diaryTargetSlot)}</span><button type="button" id="clearDiaryTargetContext">×</button>`
+    : "";
+  document.getElementById("clearDiaryTargetContext")?.addEventListener("click", () => {
+    diaryTargetSlot = null;
+    diaryTargetEditingIndex = -1;
+    input.value = "";
+    renderDiaryTargets();
+    input.focus();
+  });
+}
+
+function addDiaryTarget() {
+  const input = document.getElementById("diaryTargetInput");
+  const text = input.value.trim();
+  if (!text) return;
+  const items = objectiveItemsForHorizon();
+  const storedText = diaryTargetSlot ? `${slotTargetPrefix(diaryTargetSlot)}${text}` : text;
+  if (diaryTargetEditingIndex >= 0 && items[diaryTargetEditingIndex]) {
+    items[diaryTargetEditingIndex].text = storedText;
+  } else {
+    items.push({ text: storedText, completed: false });
+  }
+  diaryTargetSlot = null;
+  diaryTargetEditingIndex = -1;
+  input.value = "";
+  saveObjectiveItemsForHorizon(items);
+  render();
+  input.focus();
+}
+
+function updateDiaryTarget(index, action) {
+  const items = objectiveItemsForHorizon();
+  if (!items[index]) return;
+  if (action === "toggle") items[index].completed = !items[index].completed;
+  else if (action === "remove") items.splice(index, 1);
+  saveObjectiveItemsForHorizon(items);
+  render();
+}
+
+function focusDiaryTargetSelected() {
+  if (diaryTargetSelected < 0) return;
+  const row = document.querySelector(`.diary-target-item[data-diary-target-index="${diaryTargetSelected}"]`);
+  row?.focus({ preventScroll: true });
+  row?.scrollIntoView({ block: "nearest" });
+}
+
+function handleDiaryTargetKeyboard(event) {
+  const app = document.getElementById("app");
+  if (app.hidden || event.defaultPrevented || !document.getElementById("helpDialog").hidden) return;
+  const overlayOpen = ["sheetBackdrop", "statsScreen", "plannerScreen", "calendarScreen", "insightScreen"]
+    .some((id) => !document.getElementById(id).hidden);
+  if (overlayOpen || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target instanceof Element ? event.target : document.body;
+  const isTyping = target.matches("input, textarea, select") || target.isContentEditable;
+  if (isTyping) {
+    if (event.key === "Escape" && target.id === "diaryTargetInput") {
+      event.preventDefault();
+      target.value = "";
+      diaryTargetSlot = null;
+      diaryTargetEditingIndex = -1;
+      renderDiaryTargets();
+      target.blur();
+    }
+    return;
+  }
+  const items = objectiveItemsForHorizon();
+  if (event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    document.getElementById("diaryTargetInput").focus();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!items.length) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    diaryTargetSelected = diaryTargetSelected < 0
+      ? (direction > 0 ? 0 : items.length - 1)
+      : (diaryTargetSelected + direction + items.length) % items.length;
+    renderDiaryTargets();
+    focusDiaryTargetSelected();
+    return;
+  }
+  if (diaryTargetSelected < 0 || !items[diaryTargetSelected]) return;
+  if (event.key === " ") {
+    event.preventDefault();
+    updateDiaryTarget(diaryTargetSelected, "toggle");
+    focusDiaryTargetSelected();
+  } else if (event.key === "ArrowRight" && activeObjectiveHorizon === "today") {
+    event.preventDefault();
+    moveDiaryTargetToTomorrow(diaryTargetSelected);
+    focusDiaryTargetSelected();
+  } else if (event.key === "Delete" || event.key === "Backspace") {
+    event.preventDefault();
+    updateDiaryTarget(diaryTargetSelected, "remove");
+    focusDiaryTargetSelected();
+  }
+}
+
+function moveDiaryTargetToTomorrow(index) {
+  if (activeObjectiveHorizon !== "today") return;
+  const items = objectiveItemsForHorizon("today");
+  const item = items[index];
+  if (!item) return;
+  const tomorrowItems = objectiveItemsForHorizon("tomorrow");
+  if (!tomorrowItems.some((candidate) => candidate.text.trim().toLowerCase() === item.text.trim().toLowerCase())) {
+    tomorrowItems.push({ text: item.text, completed: false });
+  }
+  items.splice(index, 1);
+  saveObjectiveItemsForHorizon(tomorrowItems, "tomorrow");
+  saveObjectiveItemsForHorizon(items, "today");
+  setStatus("ok", "Moved to tomorrow ✓");
+  render();
+}
+
+function renderObjectiveEditor() {
+  renderDiaryTargets();
 }
 
 function saveObjectiveInput() {
@@ -1271,8 +1500,10 @@ function saveObjectiveInput() {
 
 function selectObjectiveHorizon(horizon) {
   if (!OBJECTIVE_HORIZONS[horizon] || horizon === activeObjectiveHorizon) return;
-  saveObjectiveInput();
   activeObjectiveHorizon = horizon;
+  diaryTargetSlot = null;
+  diaryTargetEditingIndex = -1;
+  document.getElementById("diaryTargetInput").value = "";
   renderObjectiveEditor();
 }
 
@@ -3062,7 +3293,6 @@ document.getElementById("nextDay").addEventListener("click", () => {
 });
 document.getElementById("todayBtn").addEventListener("click", () => goto(new Date()));
 document.getElementById("statsBtn").addEventListener("click", openStats);
-document.getElementById("plannerBtn").addEventListener("click", openPlanner);
 document.getElementById("plannerBack").addEventListener("click", closePlanner);
 document.getElementById("plannerToday").addEventListener("click", () => {
   plannerDate = new Date();
@@ -3264,13 +3494,26 @@ const handleObjectiveInputDebounced = (e) => {
 document.getElementById("reflectInput").addEventListener("blur", saveReflection);
 document.getElementById("reflectInput").addEventListener("keydown", handleListKeydown);
 document.getElementById("reflectInput").addEventListener("input", handleListInput);
-document.getElementById("planInput").addEventListener("blur", saveObjectiveInput);
-document.getElementById("planInput").addEventListener("keydown", handleListKeydown);
-document.getElementById("planInput").addEventListener("input", handleObjectiveInputDebounced);
 document.getElementById("objectiveHorizonSeg").addEventListener("click", (e) => {
   const button = e.target.closest("button[data-objective-horizon]");
   if (button) selectObjectiveHorizon(button.dataset.objectiveHorizon);
 });
+document.getElementById("diaryTargetAdd").addEventListener("click", addDiaryTarget);
+document.getElementById("diaryTargetInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); addDiaryTarget(); }
+});
+document.getElementById("diaryTargetList").addEventListener("click", (event) => {
+  const row = event.target.closest(".diary-target-item[data-diary-target-index]");
+  const toggle = event.target.closest("button[data-diary-target-toggle]");
+  const move = event.target.closest("button[data-diary-target-move]");
+  const remove = event.target.closest("button[data-diary-target-remove]");
+  if (row) diaryTargetSelected = parseInt(row.dataset.diaryTargetIndex, 10);
+  if (toggle) updateDiaryTarget(parseInt(toggle.dataset.diaryTargetToggle, 10), "toggle");
+  else if (move) moveDiaryTargetToTomorrow(parseInt(move.dataset.diaryTargetMove, 10));
+  else if (remove) updateDiaryTarget(parseInt(remove.dataset.diaryTargetRemove, 10), "remove");
+  else if (row) { renderDiaryTargets(); focusDiaryTargetSelected(); }
+});
+document.addEventListener("keydown", handleDiaryTargetKeyboard);
 document.getElementById("addEventBtn").addEventListener("click", openEventSheet);
 document.getElementById("eventTimePresets").addEventListener("click", (e) => {
   const button = e.target.closest("button[data-event-preset]");
@@ -3393,5 +3636,5 @@ initAuth();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=48").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=53").catch(() => {});
 }

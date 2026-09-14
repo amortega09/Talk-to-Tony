@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=48" />
+  <link rel="stylesheet" href="styles.css?v=53" />
 </head>
 <body>
   <!-- Login screen -->
@@ -47,8 +47,6 @@
       <button class="primary-btn" id="recoveryExport" type="button">Download backup</button>
     </div>
 
-    <div class="plan-banner" id="planBanner" hidden></div>
-
     <div class="day-actions">
       <button class="day-event-btn" id="addEventBtn" type="button"><span aria-hidden="true">＋</span> Plan event</button>
     </div>
@@ -58,8 +56,14 @@
       <div class="reflect">
         <div class="reflect-label">How was today?</div>
         <textarea class="reflect-input" id="reflectInput" rows="2" placeholder="A line about your day — what went well, what didn't…"></textarea>
-        <div class="objective-editor">
-          <div class="reflect-label objective-editor-label">Objectives</div>
+        <div class="objective-editor diary-target-card">
+          <div class="diary-target-head">
+            <div>
+              <div class="diary-target-title">Targets</div>
+              <div class="diary-target-score-label" id="diaryTargetScoreLabel">No targets set</div>
+            </div>
+            <div class="diary-target-score" id="diaryTargetScore">—</div>
+          </div>
           <div class="objective-horizon-seg" id="objectiveHorizonSeg" aria-label="Objective timeframe">
             <button type="button" class="active" data-objective-horizon="today">Today</button>
             <button type="button" data-objective-horizon="tomorrow">Tomorrow</button>
@@ -67,7 +71,13 @@
             <button type="button" data-objective-horizon="long">Long-term</button>
           </div>
           <div class="objective-hint" id="objectiveHint">Focus items for today · synced live</div>
-          <textarea class="reflect-input objective-input" id="planInput" rows="3" placeholder="What are your focus items for today?"></textarea>
+          <div class="diary-target-progress"><div id="diaryTargetProgress"></div></div>
+          <div class="diary-target-list" id="diaryTargetList"></div>
+          <div class="diary-target-add">
+            <input id="diaryTargetInput" type="text" autocomplete="off" placeholder="Add a concrete target…" />
+            <button class="primary-btn" id="diaryTargetAdd" type="button">Add</button>
+          </div>
+          <div class="diary-target-context" id="diaryTargetContext" hidden></div>
         </div>
       </div>
     </main>
@@ -76,7 +86,6 @@
       <span id="syncStatus" class="sync-status">·</span>
       <button class="text-btn" id="statsBtn">Stats</button>
       <button class="text-btn" id="calendarBtn">Calendar</button>
-      <button class="text-btn" id="plannerBtn">Planner</button>
       <button class="text-btn" id="insightsBtn">Insights</button>
       <button class="text-btn" id="gymBtn">🏋️ Gym</button>
       <button class="text-btn" id="todayBtn">Today</button>
@@ -100,15 +109,15 @@
         <div><span><kbd>Enter</kbd> / <kbd>Space</kbd></span><span>Activate a focused button</span></div>
         <div><span><kbd>?</kbd></span><span>Open this help</span></div>
       </div>
-      <div class="help-section-title">Work planner</div>
+      <div class="help-section-title">Daily targets</div>
       <div class="help-shortcuts">
-        <div><span><kbd>N</kbd></span><span>New task</span></div>
-        <div><span><kbd>↑</kbd> / <kbd>↓</kbd></span><span>Select a task</span></div>
-        <div><span><kbd>Space</kbd></span><span>Complete or reopen selected task</span></div>
-        <div><span><kbd>→</kbd></span><span>Move selected task to tomorrow</span></div>
-        <div><span><kbd>Delete</kbd> / <kbd>Backspace</kbd></span><span>Remove selected task</span></div>
-        <div><span><kbd>Enter</kbd></span><span>Add task while typing</span></div>
-        <div><span><kbd>Esc</kbd></span><span>Close planner or help</span></div>
+        <div><span><kbd>N</kbd></span><span>New target</span></div>
+        <div><span><kbd>↑</kbd> / <kbd>↓</kbd></span><span>Select a target</span></div>
+        <div><span><kbd>Space</kbd></span><span>Complete or reopen selected target</span></div>
+        <div><span><kbd>→</kbd></span><span>Move selected target to tomorrow</span></div>
+        <div><span><kbd>Delete</kbd> / <kbd>Backspace</kbd></span><span>Remove selected target</span></div>
+        <div><span><kbd>Enter</kbd></span><span>Add target while typing</span></div>
+        <div><span><kbd>Esc</kbd></span><span>Close help or an editor</span></div>
       </div>
     </div>
   </div>
@@ -325,6 +334,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=48"></script>
+  <script src="app.js?v=53"></script>
 </body>
 </html>
