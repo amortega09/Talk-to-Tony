@@ -12,7 +12,9 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="styles.css?v=53" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
+
 <body>
   <!-- Login screen -->
   <section class="auth-screen" id="authScreen" hidden>
@@ -49,7 +51,9 @@
 
     <div class="day-actions">
       <button class="day-event-btn" id="addEventBtn" type="button"><span aria-hidden="true">＋</span> Plan event</button>
+      <button class="day-event-btn gcal-sync-btn" id="gcalSyncTopBtn" type="button"><span aria-hidden="true">📅</span> Sync GCal</button>
     </div>
+
 
     <main class="timeline" id="timeline">
       <div id="blockList"></div>
@@ -246,6 +250,18 @@
       <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
     </div>
     <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="gcal-card">
+      <div class="gcal-card-head">
+        <div class="gcal-card-title">📅 Google Calendar Sync</div>
+        <div class="gcal-card-status" id="gcalStatus">Not connected</div>
+      </div>
+      <div class="gcal-card-actions">
+        <button class="primary-btn gcal-btn" id="gcalConnectBtn" type="button">Connect Google Calendar</button>
+        <button class="ghost-btn gcal-btn" id="gcalFetchBtn" type="button" hidden>Import Today's Events</button>
+      </div>
+      <div class="gcal-msg" id="gcalMsg"></div>
+    </div>
+
     <div class="calendar-actions" id="calendarActions" hidden>
       <div class="calendar-selected-date" id="calendarSelectedDate"></div>
       <div class="calendar-day-preview" id="calendarDayPreview"></div>

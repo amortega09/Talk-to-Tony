@@ -1046,6 +1046,47 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .calendar-clear-status:hover { color: var(--text); }
 .calendar-clear-status:disabled { opacity: .4; cursor: default; }
 
+/* ── Google Calendar Card ───────────────── */
+.gcal-card {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.gcal-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.gcal-card-title {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+.gcal-card-status {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.gcal-card-status.connected {
+  color: #2e7d32;
+  font-weight: 600;
+}
+.gcal-card-actions {
+  display: flex;
+  gap: 8px;
+}
+.gcal-btn {
+  flex: 1;
+}
+.gcal-msg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-soft);
+  word-break: break-word;
+}
+
+
 /* ── Insights menu ───────────────────────── */
 .menu-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .menu-item {

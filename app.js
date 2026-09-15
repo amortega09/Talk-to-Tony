@@ -3634,7 +3634,183 @@ async function initAuth() {
 // ---- Boot ----
 initAuth();
 
+// ---- Google Calendar Sync Module ----
+
+let gcalToken = sessionStorage.getItem("gcal_access_token") || null;
+let tokenClient = null;
+
+function getGoogleClientId() {
+  return window.APP_CONFIG?.GOOGLE_CLIENT_ID || "";
+}
+
+function updateGCalUI() {
+  const statusEl = document.getElementById("gcalStatus");
+  const connectBtn = document.getElementById("gcalConnectBtn");
+  const fetchBtn = document.getElementById("gcalFetchBtn");
+  const msgEl = document.getElementById("gcalMsg");
+
+  if (gcalToken) {
+    if (statusEl) {
+      statusEl.textContent = "Connected";
+      statusEl.classList.add("connected");
+    }
+    if (connectBtn) connectBtn.textContent = "Reconnect GCal";
+    if (fetchBtn) fetchBtn.hidden = false;
+  } else {
+    if (statusEl) {
+      statusEl.textContent = "Not connected";
+      statusEl.classList.remove("connected");
+    }
+    if (connectBtn) connectBtn.textContent = "Connect Google Calendar";
+    if (fetchBtn) fetchBtn.hidden = true;
+  }
+}
+
+function initGCalAuth() {
+  const clientId = getGoogleClientId();
+  const msgEl = document.getElementById("gcalMsg");
+
+  if (!clientId) {
+    if (msgEl) msgEl.textContent = "Error: GOOGLE_CLIENT_ID missing in config.js";
+    window.alert("Please set your GOOGLE_CLIENT_ID in config.js first.");
+    return;
+  }
+
+  if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
+    if (msgEl) msgEl.textContent = "Google Identity script loading... Try again in a moment.";
+    return;
+  }
+
+  if (!tokenClient) {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: "https://www.googleapis.com/auth/calendar.events.readonly",
+      callback: (response) => {
+        if (response.error) {
+          console.error("GCal OAuth error:", response);
+          if (msgEl) msgEl.textContent = "Authentication failed: " + (response.error_description || response.error);
+          return;
+        }
+        gcalToken = response.access_token;
+        sessionStorage.setItem("gcal_access_token", gcalToken);
+        updateGCalUI();
+        if (msgEl) msgEl.textContent = "Connected to Google Calendar! Fetching today's events...";
+        fetchGCalEvents(ymd(current));
+      },
+    });
+  }
+
+  tokenClient.requestAccessToken({ prompt: "consent" });
+}
+
+async function fetchGCalEvents(dateStr) {
+  const msgEl = document.getElementById("gcalMsg");
+  if (!gcalToken) {
+    initGCalAuth();
+    return;
+  }
+
+  const dateObj = new Date(dateStr + "T00:00:00");
+  const timeMin = dateObj.toISOString();
+  const dateEndObj = new Date(dateStr + "T23:59:59");
+  const timeMax = dateEndObj.toISOString();
+
+  if (msgEl) msgEl.textContent = "Fetching events for " + dateStr + "...";
+
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`,
+      {
+        headers: {
+          Authorization: `Bearer ${gcalToken}`,
+        },
+      }
+    );
+
+    if (res.status === 401) {
+      gcalToken = null;
+      sessionStorage.removeItem("gcal_access_token");
+      updateGCalUI();
+      if (msgEl) msgEl.textContent = "Session expired. Please reconnect Google Calendar.";
+      return;
+    }
+
+    const json = await res.json();
+    if (!json.items) {
+      if (msgEl) msgEl.textContent = "No events returned: " + (json.error?.message || "Unknown response");
+      return;
+    }
+
+    const events = json.items;
+    if (events.length === 0) {
+      if (msgEl) msgEl.textContent = `No Google Calendar events found for ${dateStr}.`;
+      return;
+    }
+
+    let addedCount = 0;
+    const dateData = loadLocal(dateStr);
+
+    for (const ev of events) {
+      if (!ev.start || (!ev.start.dateTime && !ev.start.date)) continue;
+      const title = ev.summary || "Google Calendar Event";
+      
+      let startH = 0, startM = 0;
+      if (ev.start.dateTime) {
+        const evStart = new Date(ev.start.dateTime);
+        startH = evStart.getHours();
+        startM = evStart.getMinutes();
+      }
+      
+      const roundedM = startM < 30 ? "00" : "30";
+      const slotTime = `${String(startH).padStart(2, "0")}:${roundedM}`;
+
+      if (SLOTS.includes(slotTime)) {
+        if (!dateData[slotTime]) {
+          dateData[slotTime] = {
+            category: "Work",
+            note: `[GCal] ${title}`,
+            sub: "Google Calendar",
+          };
+          addedCount++;
+        }
+      }
+    }
+
+    saveLocal(dateStr, dateData);
+    if (ymd(current) === dateStr) {
+      data = dateData;
+      render();
+    }
+
+    if (msgEl) msgEl.textContent = `Synced ${addedCount} event(s) from Google Calendar for ${dateStr}!`;
+  } catch (err) {
+    console.error("Error fetching GCal events:", err);
+    if (msgEl) msgEl.textContent = "Failed to fetch events: " + err.message;
+  }
+}
+
+function wireGCalControls() {
+  const connectBtn = document.getElementById("gcalConnectBtn");
+  const fetchBtn = document.getElementById("gcalFetchBtn");
+  const topBtn = document.getElementById("gcalSyncTopBtn");
+
+  if (connectBtn) connectBtn.addEventListener("click", () => initGCalAuth());
+  if (fetchBtn) fetchBtn.addEventListener("click", () => fetchGCalEvents(ymd(current)));
+  if (topBtn) topBtn.addEventListener("click", () => {
+    if (!gcalToken) {
+      initGCalAuth();
+    } else {
+      fetchGCalEvents(ymd(current));
+    }
+  });
+
+  updateGCalUI();
+}
+
+wireGCalControls();
+
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js?v=53").catch(() => {});
 }
+
