@@ -1,10 +1,11 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v53";
+const CACHE = "day-v54";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=53", "./app.js?v=53", "./config.js?v=40",
+  "./", "./index.html", "./styles.css?v=54", "./app.js?v=54", "./config.js?v=40",
   "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
+
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

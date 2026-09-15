@@ -3671,37 +3671,45 @@ function initGCalAuth() {
   const msgEl = document.getElementById("gcalMsg");
 
   if (!clientId) {
+    window.alert("Error: GOOGLE_CLIENT_ID is missing in config.js.");
     if (msgEl) msgEl.textContent = "Error: GOOGLE_CLIENT_ID missing in config.js";
-    window.alert("Please set your GOOGLE_CLIENT_ID in config.js first.");
     return;
   }
 
   if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
+    window.alert("Google Identity script is still loading or blocked by an browser extension. Please refresh the page.");
     if (msgEl) msgEl.textContent = "Google Identity script loading... Try again in a moment.";
     return;
   }
 
-  if (!tokenClient) {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: "https://www.googleapis.com/auth/calendar.events.readonly",
-      callback: (response) => {
-        if (response.error) {
-          console.error("GCal OAuth error:", response);
-          if (msgEl) msgEl.textContent = "Authentication failed: " + (response.error_description || response.error);
-          return;
-        }
-        gcalToken = response.access_token;
-        sessionStorage.setItem("gcal_access_token", gcalToken);
-        updateGCalUI();
-        if (msgEl) msgEl.textContent = "Connected to Google Calendar! Fetching today's events...";
-        fetchGCalEvents(ymd(current));
-      },
-    });
-  }
+  try {
+    if (!tokenClient) {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: "https://www.googleapis.com/auth/calendar.events.readonly",
+        callback: (response) => {
+          if (response.error) {
+            console.error("GCal OAuth error:", response);
+            window.alert("Google authentication error: " + (response.error_description || response.error));
+            if (msgEl) msgEl.textContent = "Authentication failed: " + (response.error_description || response.error);
+            return;
+          }
+          gcalToken = response.access_token;
+          sessionStorage.setItem("gcal_access_token", gcalToken);
+          updateGCalUI();
+          window.alert("Successfully connected to Google Calendar! Syncing events...");
+          fetchGCalEvents(ymd(current));
+        },
+      });
+    }
 
-  tokenClient.requestAccessToken({ prompt: "consent" });
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  } catch (err) {
+    console.error("GCal Auth error:", err);
+    window.alert("Could not trigger Google Login popup: " + err.message);
+  }
 }
+
 
 async function fetchGCalEvents(dateStr) {
   const msgEl = document.getElementById("gcalMsg");
