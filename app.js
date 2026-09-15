@@ -3711,6 +3711,28 @@ function initGCalAuth() {
   }
 }
 
+function gcalSlotsForEvent(event, dateStr) {
+  if (!event?.start?.dateTime) return event?.start?.date === dateStr ? ["00:00"] : [];
+
+  const eventStart = new Date(event.start.dateTime);
+  const eventEnd = event?.end?.dateTime
+    ? new Date(event.end.dateTime)
+    : new Date(eventStart.getTime() + 30 * 60 * 1000);
+  if (!Number.isFinite(eventStart.getTime()) || !Number.isFinite(eventEnd.getTime()) || eventEnd <= eventStart) return [];
+
+  const dayStart = new Date(`${dateStr}T00:00:00`);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+
+  return SLOTS.filter((slot) => {
+    const [hours, minutes] = slot.split(":").map(Number);
+    const slotStart = new Date(dayStart);
+    slotStart.setHours(hours, minutes, 0, 0);
+    const slotEnd = new Date(slotStart.getTime() + 30 * 60 * 1000);
+    return eventStart < slotEnd && eventEnd > slotStart && slotStart < dayEnd;
+  });
+}
+
 async function fetchGCalEvents(dateStr) {
   const msgEl = document.getElementById("gcalMsg");
   if (!gcalToken) {
@@ -3757,32 +3779,34 @@ async function fetchGCalEvents(dateStr) {
     }
 
     let addedCount = 0;
+    let addedBlockCount = 0;
     const dateData = loadLocal(dateStr);
     const supabaseRows = [];
 
     for (const ev of events) {
       if (!ev.start || (!ev.start.dateTime && !ev.start.date)) continue;
       const title = ev.summary || "Google Calendar Event";
-      
-      let startH = 0, startM = 0;
-      if (ev.start.dateTime) {
-        const evStart = new Date(ev.start.dateTime);
-        startH = evStart.getHours();
-        startM = evStart.getMinutes();
-      }
-      
-      const roundedM = startM < 30 ? "00" : "30";
-      const slotTime = `${String(startH).padStart(2, "0")}:${roundedM}`;
+      const block = {
+        category: "work",
+        note: `[GCal] ${title}`,
+        sub: "Google Calendar",
+      };
+      let eventAdded = false;
 
-      if (SLOTS.includes(slotTime)) {
-        if (!dateData[slotTime]) {
-          const block = {
-            category: "Work",
-            note: `[GCal] ${title}`,
-            sub: "Google Calendar",
-          };
+      for (const slotTime of gcalSlotsForEvent(ev, dateStr)) {
+        const existing = dateData[slotTime];
+        const sameImportedEvent = existing
+          && existing.note === block.note
+          && existing.sub === block.sub;
+
+        // Keep manual entries and other events intact. Re-save matching GCal
+        // blocks so older imports also receive the corrected category value.
+        if (!existing || sameImportedEvent) {
           dateData[slotTime] = block;
-          addedCount++;
+          if (!existing) {
+            eventAdded = true;
+            addedBlockCount++;
+          }
 
           if (sb && USER_ID && USER_ID !== "local-recovery") {
             supabaseRows.push({
@@ -3797,6 +3821,7 @@ async function fetchGCalEvents(dateStr) {
           }
         }
       }
+      if (eventAdded) addedCount++;
     }
 
     saveLocal(dateStr, dateData);
@@ -3816,7 +3841,7 @@ async function fetchGCalEvents(dateStr) {
       render();
     }
 
-    if (msgEl) msgEl.textContent = `Synced ${addedCount} event(s) from Google Calendar for ${dateStr}!`;
+    if (msgEl) msgEl.textContent = `Synced ${addedCount} event(s) across ${addedBlockCount} half-hour block(s) for ${dateStr}.`;
   } catch (err) {
     console.error("Error fetching GCal events:", err);
     if (msgEl) msgEl.textContent = "Failed to fetch events: " + err.message;
@@ -3846,5 +3871,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=56").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=57").catch(() => {});
 }
