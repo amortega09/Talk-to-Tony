@@ -3636,7 +3636,7 @@ initAuth();
 
 // ---- Google Calendar Sync Module ----
 
-let gcalToken = sessionStorage.getItem("gcal_access_token") || null;
+let gcalToken = localStorage.getItem("gcal_access_token") || sessionStorage.getItem("gcal_access_token") || null;
 let tokenClient = null;
 
 function getGoogleClientId() {
@@ -3677,7 +3677,7 @@ function initGCalAuth() {
   }
 
   if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
-    window.alert("Google Identity script is still loading or blocked by an browser extension. Please refresh the page.");
+    window.alert("Google Identity script is still loading or blocked by a browser extension. Please refresh the page.");
     if (msgEl) msgEl.textContent = "Google Identity script loading... Try again in a moment.";
     return;
   }
@@ -3695,6 +3695,7 @@ function initGCalAuth() {
             return;
           }
           gcalToken = response.access_token;
+          localStorage.setItem("gcal_access_token", gcalToken);
           sessionStorage.setItem("gcal_access_token", gcalToken);
           updateGCalUI();
           window.alert("Successfully connected to Google Calendar! Syncing events...");
@@ -3709,7 +3710,6 @@ function initGCalAuth() {
     window.alert("Could not trigger Google Login popup: " + err.message);
   }
 }
-
 
 async function fetchGCalEvents(dateStr) {
   const msgEl = document.getElementById("gcalMsg");
@@ -3737,6 +3737,7 @@ async function fetchGCalEvents(dateStr) {
 
     if (res.status === 401) {
       gcalToken = null;
+      localStorage.removeItem("gcal_access_token");
       sessionStorage.removeItem("gcal_access_token");
       updateGCalUI();
       if (msgEl) msgEl.textContent = "Session expired. Please reconnect Google Calendar.";
@@ -3757,6 +3758,7 @@ async function fetchGCalEvents(dateStr) {
 
     let addedCount = 0;
     const dateData = loadLocal(dateStr);
+    const supabaseRows = [];
 
     for (const ev of events) {
       if (!ev.start || (!ev.start.dateTime && !ev.start.date)) continue;
@@ -3774,17 +3776,41 @@ async function fetchGCalEvents(dateStr) {
 
       if (SLOTS.includes(slotTime)) {
         if (!dateData[slotTime]) {
-          dateData[slotTime] = {
+          const block = {
             category: "Work",
             note: `[GCal] ${title}`,
             sub: "Google Calendar",
           };
+          dateData[slotTime] = block;
           addedCount++;
+
+          if (sb && USER_ID && USER_ID !== "local-recovery") {
+            supabaseRows.push({
+              user_id: USER_ID,
+              date: dateStr,
+              start_time: slotTime,
+              category: block.category,
+              note: block.note,
+              subcategory: block.sub,
+              updated_at: new Date().toISOString(),
+            });
+          }
         }
       }
     }
 
     saveLocal(dateStr, dateData);
+
+    if (supabaseRows.length > 0 && sb) {
+      setStatus("syncing", "Saving to database…");
+      const { error } = await sb.from("blocks").upsert(supabaseRows, { onConflict: "user_id,date,start_time" });
+      if (error) {
+        console.error("Error saving GCal blocks to Supabase:", error);
+      } else {
+        setStatus("ok", "Synced");
+      }
+    }
+
     if (ymd(current) === dateStr) {
       data = dateData;
       render();
@@ -3796,6 +3822,7 @@ async function fetchGCalEvents(dateStr) {
     if (msgEl) msgEl.textContent = "Failed to fetch events: " + err.message;
   }
 }
+
 
 function wireGCalControls() {
   const connectBtn = document.getElementById("gcalConnectBtn");
