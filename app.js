@@ -1266,8 +1266,21 @@ function objectiveItemsForHorizon(horizon = activeObjectiveHorizon) {
   return plannerItemsForDay(data);
 }
 
+function serializeObjectiveItem(item) {
+  const metadata = item.linkId
+    ? ` <!--day-link:${item.linkId}:${item.originDate || ""}:${item.transferredTo || ""}-->`
+    : "";
+  return `${item.completed ? "[x]" : "[ ]"} ${item.text.trim()}${metadata}`;
+}
+
 function serializeObjectiveItems(items) {
-  return items.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.text.trim()}`).join("\n");
+  return items.map(serializeObjectiveItem).join("\n");
+}
+
+function objectiveDateForHorizon(horizon = activeObjectiveHorizon) {
+  const targetDate = new Date(current);
+  if (horizon === "tomorrow") targetDate.setDate(targetDate.getDate() + 1);
+  return ymd(targetDate);
 }
 
 function saveObjectiveItemsForHorizon(items, horizon = activeObjectiveHorizon) {
@@ -1339,7 +1352,7 @@ function renderDiaryTargets() {
 
   list.innerHTML = items.length ? items.map((item, index) => {
     const parts = splitTimedTarget(item.text);
-    const move = activeObjectiveHorizon === "today" && !item.completed
+    const move = activeObjectiveHorizon === "today" && !item.completed && !item.transferredTo
       ? `<button class="diary-target-move" type="button" data-diary-target-move="${index}" aria-label="Move to tomorrow" title="Move to tomorrow">→</button>`
       : "";
     return `<div class="diary-target-item${item.completed ? " completed" : ""}${index === diaryTargetSelected ? " selected" : ""}" data-diary-target-index="${index}" tabindex="${index === diaryTargetSelected ? "0" : "-1"}">
@@ -1390,10 +1403,43 @@ function addDiaryTarget() {
 function updateDiaryTarget(index, action) {
   const items = objectiveItemsForHorizon();
   if (!items[index]) return;
-  if (action === "toggle") items[index].completed = !items[index].completed;
+  let linkedCompletion = null;
+  if (action === "toggle") {
+    items[index].completed = !items[index].completed;
+    if (items[index].linkId && (activeObjectiveHorizon === "today" || activeObjectiveHorizon === "tomorrow")) {
+      linkedCompletion = { item: { ...items[index] }, sourceDate: objectiveDateForHorizon() };
+    }
+  }
   else if (action === "remove") items.splice(index, 1);
   saveObjectiveItemsForHorizon(items);
+  if (linkedCompletion) syncLinkedObjectiveCompletion(linkedCompletion.item, linkedCompletion.sourceDate);
   render();
+}
+
+function linkedObjectiveDates(item, sourceDate) {
+  const dates = new Set([sourceDate]);
+  if (item.originDate) dates.add(item.originDate);
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("day_data_")) dates.add(key.slice("day_data_".length));
+  }
+  return [...dates];
+}
+
+function syncLinkedObjectiveCompletion(item, sourceDate) {
+  if (!item.linkId) return;
+  for (const dateStr of linkedObjectiveDates(item, sourceDate)) {
+    if (dateStr === sourceDate) continue;
+    const linkedItems = plannerItemsForDay(loadLocal(dateStr));
+    let changed = false;
+    for (const candidate of linkedItems) {
+      if (candidate.linkId === item.linkId && candidate.completed !== item.completed) {
+        candidate.completed = item.completed;
+        changed = true;
+      }
+    }
+    if (changed) savePlannerItems(dateStr, linkedItems);
+  }
 }
 
 function focusDiaryTargetSelected() {
@@ -1460,14 +1506,26 @@ function moveDiaryTargetToTomorrow(index) {
   const items = objectiveItemsForHorizon("today");
   const item = items[index];
   if (!item) return;
+  const sourceDateStr = ymd(current);
+  const nextDate = new Date(current);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const nextDateStr = ymd(nextDate);
+  const linkId = item.linkId || `${sourceDateStr}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const originDate = item.originDate || sourceDateStr;
   const tomorrowItems = objectiveItemsForHorizon("tomorrow");
-  if (!tomorrowItems.some((candidate) => candidate.text.trim().toLowerCase() === item.text.trim().toLowerCase())) {
-    tomorrowItems.push({ text: item.text, completed: false });
+  const existingIndex = tomorrowItems.findIndex((candidate) =>
+    candidate.linkId === linkId
+    || candidate.text.trim().toLowerCase() === item.text.trim().toLowerCase());
+  const futureItem = { text: item.text, completed: item.completed, linkId, originDate, transferredTo: "" };
+  if (existingIndex >= 0) {
+    tomorrowItems[existingIndex] = { ...tomorrowItems[existingIndex], ...futureItem };
+  } else {
+    tomorrowItems.push(futureItem);
   }
-  items.splice(index, 1);
+  items[index] = { ...item, linkId, originDate, transferredTo: nextDateStr };
   saveObjectiveItemsForHorizon(tomorrowItems, "tomorrow");
   saveObjectiveItemsForHorizon(items, "today");
-  setStatus("ok", "Moved to tomorrow ✓");
+  setStatus("ok", "Linked to tomorrow ✓");
   render();
 }
 
@@ -2076,7 +2134,7 @@ function plannerItemsForDay(day) {
 
 function savePlannerItems(dateStr, items) {
   const day = loadLocal(dateStr);
-  const note = items.map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.text.trim()}`).join("\n");
+  const note = items.map(serializeObjectiveItem).join("\n");
   const block = note ? { category: "plan", note } : null;
   if (block) day[PLAN_KEY] = block;
   else delete day[PLAN_KEY];
@@ -2452,7 +2510,12 @@ function renderCalendarDayPreview(dateStr) {
 
   const objectives = day[PLAN_KEY] && day[PLAN_KEY].note;
   if (objectives && objectives.trim()) {
-    html += `<div class="calendar-preview-objectives"><div class="calendar-preview-objectives-title">Objectives</div><div class="calendar-preview-objectives-text">${escapeHtml(objectives.trim())}</div></div>`;
+    const displayObjectives = objectives.split(/\r?\n/)
+      .map(parseObjectiveLine)
+      .filter((item) => item.text)
+      .map((item) => `${item.completed ? "[x]" : "[ ]"} ${item.text}`)
+      .join("\n");
+    html += `<div class="calendar-preview-objectives"><div class="calendar-preview-objectives-title">Objectives</div><div class="calendar-preview-objectives-text">${escapeHtml(displayObjectives)}</div></div>`;
   }
   preview.innerHTML = html || `<div class="calendar-preview-empty">Nothing planned or logged for this day yet.</div>`;
 }
@@ -2832,11 +2895,18 @@ function renderInsightWeekday(map) {
 
 // ---- 6. Objective follow-through ----
 function parseObjectiveLine(line) {
-  let remainder = (line || "").trim().replace(/^[•\-*\d+.\s]*/, "");
+  let raw = (line || "").trim();
+  const metadataMatch = raw.match(/\s*<!--day-link:([^:>]+):(\d{4}-\d{2}-\d{2})?:(\d{4}-\d{2}-\d{2})?-->\s*$/);
+  const metadata = metadataMatch
+    ? { linkId: metadataMatch[1], originDate: metadataMatch[2] || "", transferredTo: metadataMatch[3] || "" }
+    : { linkId: "", originDate: "", transferredTo: "" };
+  if (metadataMatch) raw = raw.slice(0, metadataMatch.index).trim();
+  let remainder = raw.replace(/^[•\-*\d+.\s]*/, "");
   const check = remainder.match(/^\[([ xX])\]\s*(.*)$/);
   return {
     completed: !!check && check[1].toLowerCase() === "x",
     text: check ? check[2] : remainder,
+    ...metadata,
   };
 }
 
@@ -3871,5 +3941,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=57").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=58").catch(() => {});
 }
