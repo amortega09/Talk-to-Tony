@@ -55,6 +55,7 @@ const REFLECT_KEY = "__reflect__";
 const PLAN_KEY = "__plan__";
 const GYM_KEY = "__gym__";
 const DAY_STATUS_KEY = "__day_status__";
+const ROUGH_PLAN_KEY = "__rough_plan__";
 const SETTINGS_DATE = "2000-01-01";  // sentinel row for synced settings
 const DAY_STATUS_TYPES = {
   holiday: { label: "Holiday", emoji: "🏖" },
@@ -118,6 +119,10 @@ let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
 let selectedCalendarDate = null;
 let calendarMultiMode = false;
 let selectedCalendarDates = new Set();
+let calendarDragAnchor = null;
+let calendarDragging = false;
+let calendarLongPressTimer = null;
+let suppressCalendarClick = false;
 let selectedCat = null;
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
@@ -1641,6 +1646,7 @@ function exportData() {
         day_status: day[DAY_STATUS_KEY]
           ? { type: day[DAY_STATUS_KEY].sub || "", label: day[DAY_STATUS_KEY].note || "" }
           : null,
+        rough_plans: roughPlansForDay(day),
         blocks: SLOTS.filter((s) => day[s]).map((s) => ({
           start_time: s,
           category: day[s].category,
@@ -1712,6 +1718,13 @@ function recoveryRowsFromBackup(backup) {
       const label = savedDay.day_status.label || DAY_STATUS_TYPES[type].label;
       day[DAY_STATUS_KEY] = { category: "calendar_status", note: label, sub: type };
       rows.push({ date: dateStr, start_time: DAY_STATUS_KEY, ...day[DAY_STATUS_KEY] });
+    }
+    if (Array.isArray(savedDay.rough_plans)) {
+      const plans = savedDay.rough_plans.map((item) => String(item).trim()).filter(Boolean);
+      if (plans.length) {
+        day[ROUGH_PLAN_KEY] = roughPlanBlock(plans);
+        rows.push({ date: dateStr, start_time: ROUGH_PLAN_KEY, ...day[ROUGH_PLAN_KEY] });
+      }
     }
     saveLocal(dateStr, day);
     restoredDays.push(dateStr);
@@ -2444,7 +2457,55 @@ function dateFromYmd(dateStr) {
 
 function dayHasCalendarContent(dateStr) {
   const day = loadLocal(dateStr);
-  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY || key === DAY_STATUS_KEY);
+  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY || key === DAY_STATUS_KEY || key === ROUGH_PLAN_KEY);
+}
+
+function roughPlansForDay(day) {
+  const note = day?.[ROUGH_PLAN_KEY]?.note || "";
+  if (!note) return [];
+  try {
+    const parsed = JSON.parse(note);
+    if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean);
+  } catch {}
+  return note.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+}
+
+function roughPlanBlock(plans) {
+  return plans.length
+    ? { category: "calendar_plan", note: JSON.stringify(plans), sub: "Rough plan" }
+    : null;
+}
+
+async function addRoughPlanToDates(dateStrings, text) {
+  const cleanText = text.trim();
+  const dates = [...new Set(dateStrings)].sort();
+  if (!cleanText || !dates.length) return false;
+  for (const dateStr of dates) {
+    const day = loadLocal(dateStr);
+    const plans = roughPlansForDay(day);
+    if (!plans.some((plan) => plan.toLowerCase() === cleanText.toLowerCase())) plans.push(cleanText);
+    day[ROUGH_PLAN_KEY] = roughPlanBlock(plans);
+    saveLocal(dateStr, day);
+    if (dateStr === ymd(current)) data = day;
+  }
+  renderCalendar();
+  await Promise.all(dates.map((dateStr) => syncSlots(dateStr, [ROUGH_PLAN_KEY], roughPlanBlock(roughPlansForDay(loadLocal(dateStr))))));
+  setStatus("ok", dates.length === 1 ? "Rough plan added ✓" : `Added across ${dates.length} days ✓`);
+  return true;
+}
+
+async function removeRoughPlan(dateStr, index) {
+  const day = loadLocal(dateStr);
+  const plans = roughPlansForDay(day);
+  if (!plans[index]) return;
+  plans.splice(index, 1);
+  const block = roughPlanBlock(plans);
+  if (block) day[ROUGH_PLAN_KEY] = block;
+  else delete day[ROUGH_PLAN_KEY];
+  saveLocal(dateStr, day);
+  if (dateStr === ymd(current)) data = day;
+  renderCalendar();
+  await syncSlots(dateStr, [ROUGH_PLAN_KEY], block);
 }
 
 function calendarDayStatus(day) {
@@ -2494,6 +2555,15 @@ function renderCalendarDayPreview(dateStr) {
   let html = status
     ? `<div class="calendar-preview-status"><span>${status.emoji}</span><span>${escapeHtml(status.label)}</span></div>`
     : "";
+  const roughPlans = roughPlansForDay(day);
+  if (roughPlans.length) {
+    html += `<div class="calendar-rough-list">${roughPlans.map((plan, index) => `
+      <div class="calendar-rough-item">
+        <span class="calendar-rough-dot" aria-hidden="true"></span>
+        <span>${escapeHtml(plan)}</span>
+        <button type="button" data-remove-rough-plan="${index}" aria-label="Remove ${escapeHtml(plan)}">×</button>
+      </div>`).join("")}</div>`;
+  }
   html += items.map((item) => {
     const category = CAT[item.block.category] || CAT.other;
     const note = displayBlockNote(item.block);
@@ -2547,7 +2617,10 @@ function renderCalendar() {
     if (calendarMultiMode && selectedCalendarDates.has(dateStr)) button.classList.add("multi-selected");
     if (dayHasCalendarContent(dateStr)) button.classList.add("has-data");
     if (calendarDayStatus(loadLocal(dateStr))) button.classList.add("has-status");
-    button.textContent = date.getDate();
+    const dayPlans = roughPlansForDay(loadLocal(dateStr));
+    button.innerHTML = `<span class="calendar-day-number">${date.getDate()}</span>${dayPlans.length
+      ? `<span class="calendar-day-plans">${dayPlans.slice(0, 2).map((plan) => `<span class="calendar-day-plan">${escapeHtml(plan)}</span>`).join("")}${dayPlans.length > 2 ? `<span class="calendar-day-more">+${dayPlans.length - 2} more</span>` : ""}</span>`
+      : ""}`;
     button.dataset.date = dateStr;
     button.setAttribute("aria-label", date.toLocaleDateString(undefined, {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -2571,7 +2644,7 @@ function renderCalendar() {
     const count = selectedCalendarDates.size;
     document.getElementById("calendarSelectionCount").textContent = count
       ? `${count} day${count === 1 ? "" : "s"} selected`
-      : "Select dates to label";
+      : "Select dates";
     const selectedStatusTypes = Array.from(selectedCalendarDates).map((date) => {
       const status = calendarDayStatus(loadLocal(date));
       return status ? status.type : null;
@@ -2582,6 +2655,7 @@ function renderCalendar() {
       button.classList.toggle("active", count > 0 && selectedStatusTypes.every((type) => type === button.dataset.dayStatus) && selectedTypes.size === 1);
     });
     document.getElementById("calendarClearStatus").disabled = count === 0;
+    document.getElementById("calendarMultiRoughAdd").disabled = count === 0;
   }
 }
 
@@ -2621,6 +2695,10 @@ function openCalendar() {
 function closeCalendar() {
   document.getElementById("calendarScreen").hidden = true;
   calendarMultiMode = false;
+  calendarDragging = false;
+  calendarDragAnchor = null;
+  clearTimeout(calendarLongPressTimer);
+  calendarLongPressTimer = null;
   selectedCalendarDates.clear();
 }
 
@@ -2628,6 +2706,53 @@ function toggleCalendarMultiMode() {
   calendarMultiMode = !calendarMultiMode;
   selectedCalendarDates.clear();
   renderCalendar();
+}
+
+function datesBetween(startDateStr, endDateStr) {
+  const start = dateFromYmd(startDateStr);
+  const end = dateFromYmd(endDateStr);
+  const [first, last] = start <= end ? [start, end] : [end, start];
+  const dates = [];
+  for (const cursor = new Date(first); cursor <= last; cursor.setDate(cursor.getDate() + 1)) dates.push(ymd(cursor));
+  return dates;
+}
+
+function calendarDateAtPoint(x, y) {
+  const element = document.elementFromPoint(x, y);
+  return element?.closest?.("button.calendar-day[data-date]")?.dataset.date || null;
+}
+
+function beginCalendarRangeSelection(dateStr, pointerId) {
+  calendarMultiMode = true;
+  calendarDragging = true;
+  calendarDragAnchor = dateStr;
+  selectedCalendarDates = new Set([dateStr]);
+  suppressCalendarClick = true;
+  const grid = document.getElementById("calendarGrid");
+  grid.classList.add("dragging");
+  try { grid.setPointerCapture(pointerId); } catch {}
+  renderCalendar();
+}
+
+function updateCalendarRangeSelection(endDateStr) {
+  if (!calendarDragging || !calendarDragAnchor || !endDateStr) return;
+  selectedCalendarDates = new Set(datesBetween(calendarDragAnchor, endDateStr));
+  renderCalendar();
+}
+
+function finishCalendarRangeSelection(pointerId) {
+  clearTimeout(calendarLongPressTimer);
+  calendarLongPressTimer = null;
+  const grid = document.getElementById("calendarGrid");
+  if (!calendarDragging) {
+    try { grid.releasePointerCapture(pointerId); } catch {}
+    return;
+  }
+  calendarDragging = false;
+  calendarDragAnchor = null;
+  grid.classList.remove("dragging");
+  try { grid.releasePointerCapture(pointerId); } catch {}
+  setTimeout(() => { suppressCalendarClick = false; }, 0);
 }
 
 async function applyCalendarDayStatus(type) {
@@ -3411,7 +3536,30 @@ document.getElementById("calendarToday").addEventListener("click", () => {
   renderCalendar();
   pullCalendarMonth();
 });
+document.getElementById("calendarGrid").addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("button.calendar-day[data-date]");
+  if (!button || event.button !== 0) return;
+  clearTimeout(calendarLongPressTimer);
+  const delay = calendarMultiMode ? 180 : 380;
+  calendarLongPressTimer = setTimeout(() => beginCalendarRangeSelection(button.dataset.date, event.pointerId), delay);
+});
+document.getElementById("calendarGrid").addEventListener("pointermove", (event) => {
+  if (!calendarDragging) return;
+  event.preventDefault();
+  updateCalendarRangeSelection(calendarDateAtPoint(event.clientX, event.clientY));
+});
+document.getElementById("calendarGrid").addEventListener("pointerup", (event) => finishCalendarRangeSelection(event.pointerId));
+document.getElementById("calendarGrid").addEventListener("pointercancel", (event) => finishCalendarRangeSelection(event.pointerId));
+document.addEventListener("pointerup", (event) => {
+  if (calendarLongPressTimer || calendarDragging) finishCalendarRangeSelection(event.pointerId);
+});
+document.addEventListener("pointercancel", (event) => {
+  if (calendarLongPressTimer || calendarDragging) finishCalendarRangeSelection(event.pointerId);
+});
 document.getElementById("calendarGrid").addEventListener("click", (e) => {
+  if (suppressCalendarClick) { e.preventDefault(); return; }
+  clearTimeout(calendarLongPressTimer);
+  calendarLongPressTimer = null;
   const button = e.target.closest("button[data-date]");
   if (!button) return;
   const dateStr = button.dataset.date;
@@ -3429,12 +3577,31 @@ document.getElementById("calendarMultiActions").addEventListener("click", (e) =>
 });
 document.getElementById("calendarClearStatus").addEventListener("click", () => applyCalendarDayStatus(null));
 document.getElementById("calendarDayPreview").addEventListener("click", (e) => {
+  const removeRough = e.target.closest("button[data-remove-rough-plan]");
+  if (removeRough && selectedCalendarDate) {
+    removeRoughPlan(selectedCalendarDate, parseInt(removeRough.dataset.removeRoughPlan, 10));
+    return;
+  }
   const item = e.target.closest("button[data-preview-start][data-preview-end]");
   if (!item) return;
   editCalendarPreviewItem(parseInt(item.dataset.previewStart, 10), parseInt(item.dataset.previewEnd, 10));
 });
 document.getElementById("calendarOpenDay").addEventListener("click", () => openSelectedCalendarDate(false));
 document.getElementById("calendarPlanEvent").addEventListener("click", () => openSelectedCalendarDate(true));
+document.getElementById("calendarRoughAdd").addEventListener("click", async () => {
+  const input = document.getElementById("calendarRoughInput");
+  if (selectedCalendarDate && await addRoughPlanToDates([selectedCalendarDate], input.value)) input.value = "";
+});
+document.getElementById("calendarRoughInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); document.getElementById("calendarRoughAdd").click(); }
+});
+document.getElementById("calendarMultiRoughAdd").addEventListener("click", async () => {
+  const input = document.getElementById("calendarMultiRoughInput");
+  if (await addRoughPlanToDates([...selectedCalendarDates], input.value)) input.value = "";
+});
+document.getElementById("calendarMultiRoughInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); document.getElementById("calendarMultiRoughAdd").click(); }
+});
 document.getElementById("gymBtn").addEventListener("click", () => openInsight("gym"));
 document.getElementById("gymBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "gymBackdrop") closeGymLogger();
@@ -3941,5 +4108,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=58").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=59").catch(() => {});
 }

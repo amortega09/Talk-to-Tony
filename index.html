@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=58" />
+  <link rel="stylesheet" href="styles.css?v=59" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -266,6 +266,10 @@
 
     <div class="calendar-actions" id="calendarActions" hidden>
       <div class="calendar-selected-date" id="calendarSelectedDate"></div>
+      <div class="calendar-rough-compose">
+        <input id="calendarRoughInput" type="text" autocomplete="off" placeholder="Add a rough plan or reminder…" />
+        <button class="primary-btn" id="calendarRoughAdd" type="button">Add</button>
+      </div>
       <div class="calendar-day-preview" id="calendarDayPreview"></div>
       <div class="calendar-action-buttons">
         <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
@@ -273,7 +277,12 @@
       </div>
     </div>
     <div class="calendar-multi-actions" id="calendarMultiActions" hidden>
-      <div class="calendar-selection-count" id="calendarSelectionCount">Select dates to label</div>
+      <div class="calendar-selection-count" id="calendarSelectionCount">Select dates</div>
+      <div class="calendar-selection-help">Hold and drag across the calendar, or click individual days.</div>
+      <div class="calendar-rough-compose calendar-multi-compose">
+        <input id="calendarMultiRoughInput" type="text" autocomplete="off" placeholder="Plan or reminder for selected days…" />
+        <button class="primary-btn" id="calendarMultiRoughAdd" type="button">Add</button>
+      </div>
       <div class="calendar-status-options">
         <button type="button" data-day-status="holiday"><span>🏖</span> Holiday</button>
         <button type="button" data-day-status="travel"><span>✈️</span> Travel day</button>
@@ -352,7 +361,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=58"></script>
+  <script src="app.js?v=59"></script>
 
 
 </body>

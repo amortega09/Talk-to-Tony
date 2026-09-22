@@ -976,7 +976,17 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   font-family: inherit;
   font-size: 13px;
   cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  padding: 7px;
 }
+.calendar-day-number { display: block; font-variant-numeric: tabular-nums; }
+.calendar-day-plans { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.calendar-day-plan { overflow: hidden; border-radius: 3px; padding: 2px 4px; background: color-mix(in srgb, #d1a13a 17%, var(--surface)); color: color-mix(in srgb, #a4771e 85%, var(--text)); font-size: 9.5px; font-weight: 600; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-day-more { color: var(--text-faint); font-size: 9px; line-height: 1.2; }
+.calendar-day.selected .calendar-day-plan { background: rgba(255,255,255,.2); color: #fff; }
+.calendar-day.multi-selected .calendar-day-plan { background: color-mix(in srgb, var(--link) 16%, var(--surface)); color: var(--link); }
+.calendar-grid.dragging { user-select: none; touch-action: none; }
 .calendar-day:hover { background: var(--hover); }
 .calendar-day.outside { color: var(--text-faint); }
 .calendar-day.today { border-color: color-mix(in srgb, var(--link) 55%, var(--line)); color: var(--link); font-weight: 700; }
@@ -996,6 +1006,15 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .calendar-day.selected.has-status::after { background: #fff; }
 .calendar-actions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 15px; }
 .calendar-selected-date { font-size: 14px; font-weight: 650; margin-bottom: 11px; }
+.calendar-rough-compose { display: grid; grid-template-columns: minmax(0, 1fr) 66px; gap: 8px; margin-bottom: 13px; }
+.calendar-rough-compose input { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 11px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; outline: none; }
+.calendar-rough-compose input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 16%, transparent); }
+.calendar-rough-compose .primary-btn { padding: 9px; }
+.calendar-rough-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 2px; }
+.calendar-rough-item { display: grid; grid-template-columns: 8px minmax(0, 1fr) 28px; align-items: center; gap: 8px; min-height: 38px; border: 1px solid color-mix(in srgb, #d1a13a 30%, var(--line)); border-radius: var(--radius); padding: 6px 7px 6px 11px; background: color-mix(in srgb, #d1a13a 9%, var(--surface)); font-size: 13px; }
+.calendar-rough-dot { width: 6px; height: 6px; border-radius: 50%; background: #d1a13a; }
+.calendar-rough-item button { border: none; background: none; color: var(--text-faint); font: inherit; font-size: 18px; cursor: pointer; }
+.calendar-rough-item button:hover { color: #c84f49; }
 .calendar-day-preview { display: flex; flex-direction: column; gap: 6px; margin-bottom: 13px; }
 .calendar-preview-item {
   width: 100%;
@@ -1027,6 +1046,8 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .calendar-action-buttons .ghost-btn, .calendar-action-buttons .primary-btn { flex: 1; }
 .calendar-multi-actions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 15px; }
 .calendar-selection-count { margin-bottom: 11px; font-size: 14px; font-weight: 650; }
+.calendar-selection-help { margin: -5px 0 12px; color: var(--text-faint); font-size: 11.5px; }
+.calendar-multi-compose { margin-bottom: 13px; }
 .calendar-status-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
 .calendar-status-options button {
   border: 1px solid var(--line);
@@ -1312,7 +1333,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .planner-week-card { padding: 20px; }
   .planner-open-day { align-self: start; }
 
-  .calendar-day { min-height: 72px; padding: 9px 7px; }
+  .calendar-day { min-height: 92px; padding: 9px 7px; }
   .calendar-day-number { font-size: 15px; }
   .calendar-preview { margin-top: 24px; }
 
@@ -1410,6 +1431,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .help-shortcuts > div { grid-template-columns: 120px 1fr; gap: 10px; }
   .calendar-grid { gap: 2px; }
   .calendar-day { min-height: 44px; }
+  .calendar-day-plans { display: none; }
   .calendar-header-actions .text-btn { padding: 5px; font-size: 12px; }
   .calendar-preview-item { grid-template-columns: 76px 4px minmax(0, 1fr); padding: 8px; gap: 8px; }
   .recovery-banner { align-items: stretch; flex-direction: column; }
