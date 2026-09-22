@@ -521,6 +521,7 @@ function render() {
   document.getElementById("dateMain").textContent = prettyDate(current);
   document.getElementById("dateSub").textContent =
     current.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+  renderDayPlansStrip();
 
   // Timeline
   const tl = document.getElementById("blockList");
@@ -584,6 +585,23 @@ function render() {
   renderPlanBanner();
   renderObjectiveEditor();
   renderEventReminderBanner();
+}
+
+function renderDayPlansStrip() {
+  const strip = document.getElementById("dayPlansStrip");
+  const list = document.getElementById("dayPlansList");
+  const plans = roughPlansForDay(data);
+  const status = calendarDayStatus(data);
+  const reminderTitles = new Set(eventRemindersForDay(data)
+    .filter((item) => item.type === "rough")
+    .map((item) => item.title.trim().toLowerCase()));
+  strip.hidden = !status && plans.length === 0;
+  if (strip.hidden) { list.innerHTML = ""; return; }
+  const statusHtml = status
+    ? `<div class="day-plan-item status"><span aria-hidden="true">${status.emoji}</span><span>${escapeHtml(status.label)}</span></div>`
+    : "";
+  const plansHtml = plans.map((plan) => `<div class="day-plan-item"><span aria-hidden="true">${reminderTitles.has(plan.trim().toLowerCase()) ? "🔔" : "•"}</span><span>${escapeHtml(plan)}</span></div>`).join("");
+  list.innerHTML = statusHtml + plansHtml;
 }
 
 function formatHour(h) {
@@ -4330,5 +4348,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=62").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=63").catch(() => {});
 }

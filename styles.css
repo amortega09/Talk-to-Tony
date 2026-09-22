@@ -99,6 +99,14 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 }
 .day-event-btn:hover { background: var(--hover); color: var(--text); border-color: var(--text-faint); }
 
+.day-plans-strip { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 10px; margin: 6px 0 8px; border-block: 1px solid var(--line); padding: 8px 4px; }
+.day-plans-strip[hidden] { display: none; }
+.day-plans-label { padding-top: 5px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.day-plans-list { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px; }
+.day-plan-item { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 6px; border-radius: 5px; padding: 5px 9px; background: color-mix(in srgb, #d1a13a 13%, var(--surface)); color: color-mix(in srgb, #9d721f 82%, var(--text)); font-size: 12px; font-weight: 600; }
+.day-plan-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-plan-item.status { background: color-mix(in srgb, #6a7fd0 11%, var(--surface)); color: color-mix(in srgb, #6a7fd0 72%, var(--text)); }
+
 .event-reminder-banner { position: fixed; z-index: 48; right: clamp(20px, 3vw, 48px); bottom: calc(var(--safe-bottom) + 70px); display: grid; width: min(380px, calc(100vw - 40px)); grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid color-mix(in srgb, #d1a13a 40%, var(--line)); border-radius: 8px; padding: 10px 12px; background: color-mix(in srgb, #d1a13a 12%, var(--surface)); box-shadow: 0 10px 30px rgba(0,0,0,.12); }
 .event-reminder-banner[hidden] { display: none; }
 .event-reminder-icon { font-size: 17px; }
