@@ -56,6 +56,7 @@ const PLAN_KEY = "__plan__";
 const GYM_KEY = "__gym__";
 const DAY_STATUS_KEY = "__day_status__";
 const ROUGH_PLAN_KEY = "__rough_plan__";
+const EVENT_REMINDER_KEY = "__event_reminders__";
 const SETTINGS_DATE = "2000-01-01";  // sentinel row for synced settings
 const DAY_STATUS_TYPES = {
   holiday: { label: "Holiday", emoji: "🏖" },
@@ -582,6 +583,7 @@ function render() {
 
   renderPlanBanner();
   renderObjectiveEditor();
+  renderEventReminderBanner();
 }
 
 function formatHour(h) {
@@ -747,6 +749,7 @@ function openSheet(slotList, preferredCat) {
   eventMode = false;
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
+  document.getElementById("eventReminderField").hidden = true;
   document.getElementById("activityPickerLabel").textContent = "What did you do?";
   document.getElementById("activitySearch").placeholder = "Search or add an activity…";
   editing = slotList;
@@ -848,6 +851,8 @@ function openEventSheet() {
   customEventStart = SLOTS[startIndex];
   customEventEnd = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
   document.getElementById("eventTimePresets").hidden = false;
+  document.getElementById("eventReminderField").hidden = false;
+  document.getElementById("eventReminderLead").value = "60";
   document.getElementById("activityPickerLabel").textContent = "What is happening?";
   document.getElementById("activitySearch").placeholder = "e.g. Birthday celebration";
   document.getElementById("activitySearch").value = "";
@@ -1574,6 +1579,7 @@ function closeSheet() {
   document.getElementById("sheetBackdrop").hidden = true;
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
+  document.getElementById("eventReminderField").hidden = true;
   eventMode = false;
   plannerSlotMode = false;
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
@@ -1583,13 +1589,16 @@ function saveSheet() {
   if (!editing) return;
   let note = document.getElementById("noteInput").value.trim();
   const dateStr = ymd(current);
-  if (eventMode) {
+  const savingEvent = eventMode;
+  let eventTitle = "";
+  if (savingEvent) {
     const eventName = document.getElementById("activitySearch").value.trim();
     if (!eventName) {
       setStatus("err", "Add an event name");
       document.getElementById("activitySearch").focus();
       return;
     }
+    eventTitle = eventName;
     if (!selectedActivityLabel || selectedActivityLabel.toLowerCase() !== eventName.toLowerCase()) {
       createActivityFromSearch();
     }
@@ -1613,6 +1622,7 @@ function saveSheet() {
   rememberActivityArea(selectedActivityLabel || sub || (CAT[selectedCat] && CAT[selectedCat].label), selectedCat);
   const block = { category: selectedCat, note, sub };
   for (const s of editing) data[s] = { category: selectedCat, note, sub };
+  if (savingEvent) saveEventReminder(dateStr, eventTitle, editing[0], document.getElementById("eventReminderLead").value);
   pushBlocks(dateStr, editing, block);
   render();
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
@@ -1625,8 +1635,13 @@ function clearSheet() {
     return;
   }
   const dateStr = ymd(current);
+  const reminders = eventRemindersForDay(data).filter((item) => item.type === "rough" || !editing.includes(item.start));
+  const reminderBlock = eventReminderBlock(reminders);
+  if (reminderBlock) data[EVENT_REMINDER_KEY] = reminderBlock;
+  else delete data[EVENT_REMINDER_KEY];
   for (const s of editing) delete data[s];
   pushBlocks(dateStr, editing, null);
+  syncSlots(dateStr, [EVENT_REMINDER_KEY], reminderBlock);
   render();
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
   closeSheet();
@@ -1647,6 +1662,7 @@ function exportData() {
           ? { type: day[DAY_STATUS_KEY].sub || "", label: day[DAY_STATUS_KEY].note || "" }
           : null,
         rough_plans: roughPlansForDay(day),
+        event_reminders: eventRemindersForDay(day),
         blocks: SLOTS.filter((s) => day[s]).map((s) => ({
           start_time: s,
           category: day[s].category,
@@ -1724,6 +1740,13 @@ function recoveryRowsFromBackup(backup) {
       if (plans.length) {
         day[ROUGH_PLAN_KEY] = roughPlanBlock(plans);
         rows.push({ date: dateStr, start_time: ROUGH_PLAN_KEY, ...day[ROUGH_PLAN_KEY] });
+      }
+    }
+    if (Array.isArray(savedDay.event_reminders)) {
+      const reminders = savedDay.event_reminders.filter((item) => item && typeof item.title === "string" && SLOTS.includes(item.start));
+      if (reminders.length) {
+        day[EVENT_REMINDER_KEY] = eventReminderBlock(reminders);
+        rows.push({ date: dateStr, start_time: EVENT_REMINDER_KEY, ...day[EVENT_REMINDER_KEY] });
       }
     }
     saveLocal(dateStr, day);
@@ -2455,9 +2478,154 @@ function dateFromYmd(dateStr) {
   return new Date(year, month - 1, day, 12);
 }
 
+function eventRemindersForDay(day) {
+  const note = day?.[EVENT_REMINDER_KEY]?.note || "";
+  if (!note) return [];
+  try {
+    const parsed = JSON.parse(note);
+    return Array.isArray(parsed) ? parsed.filter((item) => item && item.title && SLOTS.includes(item.start)) : [];
+  } catch { return []; }
+}
+
+function eventReminderBlock(reminders) {
+  return reminders.length
+    ? { category: "calendar_reminder", note: JSON.stringify(reminders), sub: "Event reminders" }
+    : null;
+}
+
+function eventReminderDate(dateStr, start) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const [hour, minute] = start.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+}
+
+function saveEventReminder(dateStr, title, start, leadValue) {
+  const reminders = eventRemindersForDay(data).filter((item) => item.type === "rough" || item.start !== start);
+  if (leadValue !== "none") {
+    reminders.push({
+      id: `${dateStr}-${start}-${Date.now().toString(36)}`,
+      title,
+      start,
+      lead: Math.max(0, Number(leadValue) || 0),
+      dismissed: false,
+      notified: false,
+      type: "event",
+    });
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  }
+  const block = eventReminderBlock(reminders);
+  if (block) data[EVENT_REMINDER_KEY] = block;
+  else delete data[EVENT_REMINDER_KEY];
+  saveLocal(dateStr, data);
+  syncSlots(dateStr, [EVENT_REMINDER_KEY], block);
+  renderEventReminderBanner();
+}
+
+function saveRoughPlanReminder(dateStr, title, reminderType) {
+  const day = loadLocal(dateStr);
+  const normalizedTitle = title.trim().toLowerCase();
+  const reminders = eventRemindersForDay(day).filter((item) => !(item.type === "rough" && item.title.trim().toLowerCase() === normalizedTitle));
+  const leads = { day: 0, before: 1440, week: 10080 };
+  if (Object.prototype.hasOwnProperty.call(leads, reminderType)) {
+    reminders.push({
+      id: `${dateStr}-rough-${Date.now().toString(36)}`,
+      title: title.trim(),
+      start: "09:00",
+      lead: leads[reminderType],
+      dismissed: false,
+      notified: false,
+      type: "rough",
+    });
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  }
+  const block = eventReminderBlock(reminders);
+  if (block) day[EVENT_REMINDER_KEY] = block;
+  else delete day[EVENT_REMINDER_KEY];
+  saveLocal(dateStr, day);
+  if (dateStr === ymd(current)) data = day;
+  syncSlots(dateStr, [EVENT_REMINDER_KEY], block);
+}
+
+function storedEventReminders() {
+  const reminders = [];
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith("day_data_")) continue;
+    const dateStr = key.slice("day_data_".length);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+    const day = loadLocal(dateStr);
+    eventRemindersForDay(day).forEach((item) => reminders.push({ ...item, dateStr }));
+  }
+  return reminders;
+}
+
+function dueEventReminders(now = new Date()) {
+  return storedEventReminders().filter((item) => {
+    if (item.dismissed) return false;
+    const eventAt = eventReminderDate(item.dateStr, item.start);
+    const alertAt = new Date(eventAt.getTime() - item.lead * 60000);
+    return now >= alertAt && now <= new Date(eventAt.getTime() + 30 * 60000);
+  }).sort((a, b) => eventReminderDate(a.dateStr, a.start) - eventReminderDate(b.dateStr, b.start));
+}
+
+function reminderWhenText(reminder, now = new Date()) {
+  const eventAt = eventReminderDate(reminder.dateStr, reminder.start);
+  const minutes = Math.round((eventAt - now) / 60000);
+  const clock = `${eventAt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at ${to12(reminder.start)}`;
+  if (minutes > 60) return `${clock} · in ${Math.round(minutes / 60)} hours`;
+  if (minutes > 0) return `${clock} · in ${minutes} minutes`;
+  if (minutes === 0) return `${clock} · happening now`;
+  return `${clock} · started ${Math.abs(minutes)} minutes ago`;
+}
+
+function updateStoredReminder(reminder, updates) {
+  const day = loadLocal(reminder.dateStr);
+  const reminders = eventRemindersForDay(day).map((item) => item.id === reminder.id ? { ...item, ...updates } : item);
+  const block = eventReminderBlock(reminders);
+  day[EVENT_REMINDER_KEY] = block;
+  saveLocal(reminder.dateStr, day);
+  if (reminder.dateStr === ymd(current)) data = day;
+  syncSlots(reminder.dateStr, [EVENT_REMINDER_KEY], block);
+}
+
+function renderEventReminderBanner() {
+  const banner = document.getElementById("eventReminderBanner");
+  if (!banner) return;
+  const reminder = dueEventReminders()[0];
+  banner.hidden = !reminder;
+  banner.dataset.reminderId = reminder?.id || "";
+  banner.dataset.reminderDate = reminder?.dateStr || "";
+  if (!reminder) return;
+  document.getElementById("eventReminderTitle").textContent = reminder.title;
+  document.getElementById("eventReminderWhen").textContent = reminderWhenText(reminder);
+  if (!reminder.notified && "Notification" in window && Notification.permission === "granted") {
+    try { new Notification(`Upcoming: ${reminder.title}`, { body: reminderWhenText(reminder), tag: reminder.id }); } catch {}
+    updateStoredReminder(reminder, { notified: true });
+  }
+}
+
+async function pullUpcomingReminders() {
+  if (!sb || !USER_ID || USER_ID === "local-recovery") return;
+  const start = new Date();
+  const end = new Date(start); end.setDate(end.getDate() + 31);
+  try {
+    const { data: rows, error } = await sb.from("blocks")
+      .select("date,category,note,subcategory").eq("user_id", USER_ID)
+      .eq("start_time", EVENT_REMINDER_KEY).gte("date", ymd(start)).lte("date", ymd(end));
+    if (error) throw error;
+    for (const row of rows || []) {
+      const day = loadLocal(row.date);
+      day[EVENT_REMINDER_KEY] = { category: row.category, note: row.note || "", sub: row.subcategory || "" };
+      saveLocal(row.date, day);
+      if (row.date === ymd(current)) data = day;
+    }
+    renderEventReminderBanner();
+  } catch (error) { console.warn("Could not sync upcoming reminders", error); }
+}
+
 function dayHasCalendarContent(dateStr) {
   const day = loadLocal(dateStr);
-  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY || key === DAY_STATUS_KEY || key === ROUGH_PLAN_KEY);
+  return Object.keys(day).some((key) => SLOTS.includes(key) || key === PLAN_KEY || key === REFLECT_KEY || key === DAY_STATUS_KEY || key === ROUGH_PLAN_KEY || key === EVENT_REMINDER_KEY);
 }
 
 function roughPlansForDay(day) {
@@ -2498,14 +2666,22 @@ async function removeRoughPlan(dateStr, index) {
   const day = loadLocal(dateStr);
   const plans = roughPlansForDay(day);
   if (!plans[index]) return;
+  const removedTitle = plans[index].trim().toLowerCase();
   plans.splice(index, 1);
   const block = roughPlanBlock(plans);
   if (block) day[ROUGH_PLAN_KEY] = block;
   else delete day[ROUGH_PLAN_KEY];
+  const reminders = eventRemindersForDay(day).filter((item) => !(item.type === "rough" && item.title.trim().toLowerCase() === removedTitle));
+  const reminderBlock = eventReminderBlock(reminders);
+  if (reminderBlock) day[EVENT_REMINDER_KEY] = reminderBlock;
+  else delete day[EVENT_REMINDER_KEY];
   saveLocal(dateStr, day);
   if (dateStr === ymd(current)) data = day;
   renderCalendar();
-  await syncSlots(dateStr, [ROUGH_PLAN_KEY], block);
+  await Promise.all([
+    syncSlots(dateStr, [ROUGH_PLAN_KEY], block),
+    syncSlots(dateStr, [EVENT_REMINDER_KEY], reminderBlock),
+  ]);
 }
 
 function calendarDayStatus(day) {
@@ -2555,12 +2731,15 @@ function calendarItemTitle(item) {
 }
 
 function calendarCellEntries(day) {
-  const rough = roughPlansForDay(day).map((label) => ({ type: "rough", label }));
+  const reminders = eventRemindersForDay(day);
+  const roughReminderTitles = new Set(reminders.filter((item) => item.type === "rough").map((item) => item.title.trim().toLowerCase()));
+  const rough = roughPlansForDay(day).map((label) => ({ type: "rough", label: `${roughReminderTitles.has(label.trim().toLowerCase()) ? "🔔 " : ""}${label}` }));
+  const reminderStarts = new Set(reminders.filter((item) => item.type !== "rough").map((item) => item.start));
   const events = calendarPreviewItems(day)
     .sort((a, b) => Number(b.block?.sub === "Google Calendar") - Number(a.block?.sub === "Google Calendar") || a.startIndex - b.startIndex)
     .map((item) => ({
       type: "event",
-      label: `${item.startIndex === 0 && item.endIndex === SLOTS.length ? "All day" : to12(SLOTS[item.startIndex])} · ${calendarItemTitle(item)}`,
+      label: `${reminderStarts.has(SLOTS[item.startIndex]) ? "🔔 " : ""}${item.startIndex === 0 && item.endIndex === SLOTS.length ? "All day" : to12(SLOTS[item.startIndex])} · ${calendarItemTitle(item)}`,
     }));
   if (rough.length && events.length) return [events[0], rough[0], ...events.slice(1), ...rough.slice(1)];
   return events.concat(rough);
@@ -2571,6 +2750,9 @@ function renderCalendarDayPreview(dateStr) {
   if (!dateStr) { preview.innerHTML = ""; return; }
   const day = loadLocal(dateStr);
   const items = calendarPreviewItems(day);
+  const reminders = eventRemindersForDay(day);
+  const reminderStarts = new Set(reminders.filter((item) => item.type !== "rough").map((item) => item.start));
+  const roughReminderTitles = new Set(reminders.filter((item) => item.type === "rough").map((item) => item.title.trim().toLowerCase()));
   const status = calendarDayStatus(day);
   let html = status
     ? `<div class="calendar-preview-status"><span>${status.emoji}</span><span>${escapeHtml(status.label)}</span></div>`
@@ -2580,14 +2762,14 @@ function renderCalendarDayPreview(dateStr) {
     html += `<div class="calendar-rough-list">${roughPlans.map((plan, index) => `
       <div class="calendar-rough-item">
         <span class="calendar-rough-dot" aria-hidden="true"></span>
-        <span>${escapeHtml(plan)}</span>
+        <span>${roughReminderTitles.has(plan.trim().toLowerCase()) ? "🔔 " : ""}${escapeHtml(plan)}</span>
         <button type="button" data-remove-rough-plan="${index}" aria-label="Remove ${escapeHtml(plan)}">×</button>
       </div>`).join("")}</div>`;
   }
   html += items.map((item) => {
     const category = CAT[item.block.category] || CAT.other;
     const note = displayBlockNote(item.block);
-    const title = item.block.sub || note || category.label;
+    const title = `${reminderStarts.has(SLOTS[item.startIndex]) ? "🔔 " : ""}${item.block.sub || note || category.label}`;
     const detail = item.block.sub
       ? [category.label, note].filter(Boolean).join(" · ")
       : (note ? category.label : "");
@@ -3612,7 +3794,13 @@ document.getElementById("calendarOpenDay").addEventListener("click", () => openS
 document.getElementById("calendarPlanEvent").addEventListener("click", () => openSelectedCalendarDate(true));
 document.getElementById("calendarRoughAdd").addEventListener("click", async () => {
   const input = document.getElementById("calendarRoughInput");
-  if (selectedCalendarDate && await addRoughPlanToDates([selectedCalendarDate], input.value)) input.value = "";
+  const text = input.value.trim();
+  if (selectedCalendarDate && await addRoughPlanToDates([selectedCalendarDate], text)) {
+    saveRoughPlanReminder(selectedCalendarDate, text, document.getElementById("calendarRoughReminder").value);
+    input.value = "";
+    document.getElementById("calendarRoughReminder").value = "none";
+    renderCalendar();
+  }
 });
 document.getElementById("calendarRoughInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter") { event.preventDefault(); document.getElementById("calendarRoughAdd").click(); }
@@ -3774,6 +3962,12 @@ document.getElementById("diaryTargetList").addEventListener("click", (event) => 
 });
 document.addEventListener("keydown", handleDiaryTargetKeyboard);
 document.getElementById("addEventBtn").addEventListener("click", openEventSheet);
+document.getElementById("eventReminderDismiss").addEventListener("click", () => {
+  const banner = document.getElementById("eventReminderBanner");
+  const reminder = storedEventReminders().find((item) => item.id === banner.dataset.reminderId && item.dateStr === banner.dataset.reminderDate);
+  if (reminder) updateStoredReminder(reminder, { dismissed: true });
+  renderEventReminderBanner();
+});
 document.getElementById("eventTimePresets").addEventListener("click", (e) => {
   const button = e.target.closest("button[data-event-preset]");
   if (button) selectEventPreset(button.dataset.eventPreset);
@@ -3797,7 +3991,10 @@ function applySession(session) {
     pullSettings()
       .then(() => migrateHistoricalCategories())
       .catch((e) => console.warn("Category migration will retry next time", e))
-      .finally(() => goto(new Date()));
+      .finally(() => {
+        goto(new Date());
+        pullUpcomingReminders();
+      });
   } else {
     document.getElementById("app").hidden = true;
     document.getElementById("statsScreen").hidden = true;
@@ -3892,6 +4089,9 @@ async function initAuth() {
 
 // ---- Boot ----
 initAuth();
+setInterval(renderEventReminderBanner, 30000);
+setInterval(pullUpcomingReminders, 6 * 60 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) renderEventReminderBanner(); });
 
 // ---- Google Calendar Sync Module ----
 
@@ -4130,5 +4330,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=61").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=62").catch(() => {});
 }

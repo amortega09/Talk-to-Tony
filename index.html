@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=61" />
+  <link rel="stylesheet" href="styles.css?v=62" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -54,6 +54,15 @@
     <div class="day-actions">
       <button class="day-event-btn" id="addEventBtn" type="button"><span aria-hidden="true">＋</span> Plan event</button>
       <button class="day-event-btn gcal-sync-btn" id="gcalSyncTopBtn" type="button"><span aria-hidden="true">📅</span> Sync GCal</button>
+    </div>
+
+    <div class="event-reminder-banner" id="eventReminderBanner" role="status" hidden>
+      <span class="event-reminder-icon" aria-hidden="true">🔔</span>
+      <div class="event-reminder-copy">
+        <strong id="eventReminderTitle"></strong>
+        <span id="eventReminderWhen"></span>
+      </div>
+      <button id="eventReminderDismiss" type="button" aria-label="Dismiss reminder">×</button>
     </div>
 
 
@@ -274,6 +283,15 @@
             <input id="calendarRoughInput" type="text" autocomplete="off" placeholder="Add a rough plan or reminder…" />
             <button class="primary-btn" id="calendarRoughAdd" type="button">Add</button>
           </div>
+          <label class="calendar-rough-reminder">
+            <span>🔔 Remind me</span>
+            <select id="calendarRoughReminder">
+              <option value="none">No reminder</option>
+              <option value="day">On the day at 9 AM</option>
+              <option value="before">1 day before at 9 AM</option>
+              <option value="week">1 week before at 9 AM</option>
+            </select>
+          </label>
           <div class="calendar-day-preview" id="calendarDayPreview"></div>
           <div class="calendar-action-buttons">
             <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
@@ -316,6 +334,17 @@
         <span class="event-time-arrow" aria-hidden="true">→</span>
         <label class="event-time-field">End<select id="eventEnd"></select></label>
       </div>
+      <label class="event-reminder-field" id="eventReminderField" hidden>
+        <span>Reminder</span>
+        <select id="eventReminderLead">
+          <option value="none">No reminder</option>
+          <option value="0">At event time</option>
+          <option value="10">10 minutes before</option>
+          <option value="30">30 minutes before</option>
+          <option value="60" selected>1 hour before</option>
+          <option value="1440">1 day before</option>
+        </select>
+      </label>
       <div class="picker-label" id="activityPickerLabel">What did you do?</div>
       <input class="activity-search" id="activitySearch" type="search"
              placeholder="Search or add an activity…" autocomplete="off" />
@@ -367,7 +396,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=61"></script>
+  <script src="app.js?v=62"></script>
 
 
 </body>
