@@ -2546,6 +2546,26 @@ function calendarPreviewTime(item) {
     : `${start.clock} ${start.period}–${end.clock} ${end.period}`;
 }
 
+function calendarItemTitle(item) {
+  const block = item.block || {};
+  const category = CAT[block.category] || CAT.other;
+  const note = displayBlockNote(block).replace(/^\[GCal\]\s*/i, "").trim();
+  if (block.sub && block.sub !== "Google Calendar") return block.sub;
+  return note || block.sub || category.label;
+}
+
+function calendarCellEntries(day) {
+  const rough = roughPlansForDay(day).map((label) => ({ type: "rough", label }));
+  const events = calendarPreviewItems(day)
+    .sort((a, b) => Number(b.block?.sub === "Google Calendar") - Number(a.block?.sub === "Google Calendar") || a.startIndex - b.startIndex)
+    .map((item) => ({
+      type: "event",
+      label: `${item.startIndex === 0 && item.endIndex === SLOTS.length ? "All day" : to12(SLOTS[item.startIndex])} · ${calendarItemTitle(item)}`,
+    }));
+  if (rough.length && events.length) return [events[0], rough[0], ...events.slice(1), ...rough.slice(1)];
+  return events.concat(rough);
+}
+
 function renderCalendarDayPreview(dateStr) {
   const preview = document.getElementById("calendarDayPreview");
   if (!dateStr) { preview.innerHTML = ""; return; }
@@ -2617,14 +2637,16 @@ function renderCalendar() {
     if (calendarMultiMode && selectedCalendarDates.has(dateStr)) button.classList.add("multi-selected");
     if (dayHasCalendarContent(dateStr)) button.classList.add("has-data");
     if (calendarDayStatus(loadLocal(dateStr))) button.classList.add("has-status");
-    const dayPlans = roughPlansForDay(loadLocal(dateStr));
-    button.innerHTML = `<span class="calendar-day-number">${date.getDate()}</span>${dayPlans.length
-      ? `<span class="calendar-day-plans">${dayPlans.slice(0, 2).map((plan) => `<span class="calendar-day-plan">${escapeHtml(plan)}</span>`).join("")}${dayPlans.length > 2 ? `<span class="calendar-day-more">+${dayPlans.length - 2} more</span>` : ""}</span>`
+    const day = loadLocal(dateStr);
+    const dayEntries = calendarCellEntries(day);
+    button.innerHTML = `<span class="calendar-day-number">${date.getDate()}</span>${dayEntries.length
+      ? `<span class="calendar-day-plans">${dayEntries.slice(0, 2).map((entry) => `<span class="calendar-day-plan calendar-day-${entry.type}">${escapeHtml(entry.label)}</span>`).join("")}${dayEntries.length > 2 ? `<span class="calendar-day-more">+${dayEntries.length - 2} more</span>` : ""}</span>`
       : ""}`;
     button.dataset.date = dateStr;
-    button.setAttribute("aria-label", date.toLocaleDateString(undefined, {
+    const dateLabel = date.toLocaleDateString(undefined, {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
-    }));
+    });
+    button.setAttribute("aria-label", dayEntries.length ? `${dateLabel}. ${dayEntries.map((entry) => entry.label).join(". ")}` : dateLabel);
     grid.appendChild(button);
   }
 
@@ -4108,5 +4130,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=60").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=61").catch(() => {});
 }

@@ -987,6 +987,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .calendar-day-number { display: block; font-variant-numeric: tabular-nums; }
 .calendar-day-plans { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
 .calendar-day-plan { overflow: hidden; border-radius: 3px; padding: 2px 4px; background: color-mix(in srgb, #d1a13a 17%, var(--surface)); color: color-mix(in srgb, #a4771e 85%, var(--text)); font-size: 9.5px; font-weight: 600; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-day-event { background: color-mix(in srgb, var(--link) 12%, var(--surface)); color: color-mix(in srgb, var(--link) 82%, var(--text)); }
 .calendar-day-more { color: var(--text-faint); font-size: 9px; line-height: 1.2; }
 .calendar-day.selected .calendar-day-plan { background: rgba(255,255,255,.2); color: #fff; }
 .calendar-day.multi-selected .calendar-day-plan { background: color-mix(in srgb, var(--link) 16%, var(--surface)); color: var(--link); }
