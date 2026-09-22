@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=59" />
+  <link rel="stylesheet" href="styles.css?v=60" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -243,53 +243,59 @@
         <button class="text-btn" id="calendarMultiSelect">Select days</button>
       </div>
     </header>
-    <div class="calendar-month-nav">
-      <button class="nav-btn" id="calendarPrev" aria-label="Previous month">‹</button>
-      <div class="calendar-month-label" id="calendarMonthLabel"></div>
-      <button class="nav-btn" id="calendarNext" aria-label="Next month">›</button>
-    </div>
-    <div class="calendar-weekdays" aria-hidden="true">
-      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-    </div>
-    <div class="calendar-grid" id="calendarGrid"></div>
-    <div class="gcal-card">
-      <div class="gcal-card-head">
-        <div class="gcal-card-title">📅 Google Calendar Sync</div>
-        <div class="gcal-card-status" id="gcalStatus">Not connected</div>
+    <div class="calendar-layout">
+      <div class="calendar-main">
+        <div class="calendar-month-nav">
+          <button class="nav-btn" id="calendarPrev" aria-label="Previous month">‹</button>
+          <div class="calendar-month-label" id="calendarMonthLabel"></div>
+          <button class="nav-btn" id="calendarNext" aria-label="Next month">›</button>
+        </div>
+        <div class="calendar-weekdays" aria-hidden="true">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
       </div>
-      <div class="gcal-card-actions">
-        <button class="primary-btn gcal-btn" id="gcalConnectBtn" type="button">Connect Google Calendar</button>
-        <button class="ghost-btn gcal-btn" id="gcalFetchBtn" type="button" hidden>Import Today's Events</button>
-      </div>
-      <div class="gcal-msg" id="gcalMsg"></div>
-    </div>
+      <aside class="calendar-panel">
+        <div class="gcal-card">
+          <div class="gcal-card-head">
+            <div class="gcal-card-title">📅 Google Calendar Sync</div>
+            <div class="gcal-card-status" id="gcalStatus">Not connected</div>
+          </div>
+          <div class="gcal-card-actions">
+            <button class="primary-btn gcal-btn" id="gcalConnectBtn" type="button">Connect Google Calendar</button>
+            <button class="ghost-btn gcal-btn" id="gcalFetchBtn" type="button" hidden>Import Today's Events</button>
+          </div>
+          <div class="gcal-msg" id="gcalMsg"></div>
+        </div>
 
-    <div class="calendar-actions" id="calendarActions" hidden>
-      <div class="calendar-selected-date" id="calendarSelectedDate"></div>
-      <div class="calendar-rough-compose">
-        <input id="calendarRoughInput" type="text" autocomplete="off" placeholder="Add a rough plan or reminder…" />
-        <button class="primary-btn" id="calendarRoughAdd" type="button">Add</button>
-      </div>
-      <div class="calendar-day-preview" id="calendarDayPreview"></div>
-      <div class="calendar-action-buttons">
-        <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
-        <button class="primary-btn" id="calendarPlanEvent" type="button">Plan event</button>
-      </div>
-    </div>
-    <div class="calendar-multi-actions" id="calendarMultiActions" hidden>
-      <div class="calendar-selection-count" id="calendarSelectionCount">Select dates</div>
-      <div class="calendar-selection-help">Hold and drag across the calendar, or click individual days.</div>
-      <div class="calendar-rough-compose calendar-multi-compose">
-        <input id="calendarMultiRoughInput" type="text" autocomplete="off" placeholder="Plan or reminder for selected days…" />
-        <button class="primary-btn" id="calendarMultiRoughAdd" type="button">Add</button>
-      </div>
-      <div class="calendar-status-options">
-        <button type="button" data-day-status="holiday"><span>🏖</span> Holiday</button>
-        <button type="button" data-day-status="travel"><span>✈️</span> Travel day</button>
-        <button type="button" data-day-status="sick"><span>🤒</span> Sick day</button>
-        <button type="button" data-day-status="off"><span>🌿</span> Day off</button>
-      </div>
-      <button class="calendar-clear-status" id="calendarClearStatus" type="button">Clear day label</button>
+        <div class="calendar-actions" id="calendarActions" hidden>
+          <div class="calendar-selected-date" id="calendarSelectedDate"></div>
+          <div class="calendar-rough-compose">
+            <input id="calendarRoughInput" type="text" autocomplete="off" placeholder="Add a rough plan or reminder…" />
+            <button class="primary-btn" id="calendarRoughAdd" type="button">Add</button>
+          </div>
+          <div class="calendar-day-preview" id="calendarDayPreview"></div>
+          <div class="calendar-action-buttons">
+            <button class="ghost-btn" id="calendarOpenDay" type="button">Open day</button>
+            <button class="primary-btn" id="calendarPlanEvent" type="button">Plan event</button>
+          </div>
+        </div>
+        <div class="calendar-multi-actions" id="calendarMultiActions" hidden>
+          <div class="calendar-selection-count" id="calendarSelectionCount">Select dates</div>
+          <div class="calendar-selection-help">Hold and drag across the calendar, or click individual days.</div>
+          <div class="calendar-rough-compose calendar-multi-compose">
+            <input id="calendarMultiRoughInput" type="text" autocomplete="off" placeholder="Plan or reminder for selected days…" />
+            <button class="primary-btn" id="calendarMultiRoughAdd" type="button">Add</button>
+          </div>
+          <div class="calendar-status-options">
+            <button type="button" data-day-status="holiday"><span>🏖</span> Holiday</button>
+            <button type="button" data-day-status="travel"><span>✈️</span> Travel day</button>
+            <button type="button" data-day-status="sick"><span>🤒</span> Sick day</button>
+            <button type="button" data-day-status="off"><span>🌿</span> Day off</button>
+          </div>
+          <button class="calendar-clear-status" id="calendarClearStatus" type="button">Clear day label</button>
+        </div>
+      </aside>
     </div>
   </section>
 
@@ -361,7 +367,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=59"></script>
+  <script src="app.js?v=60"></script>
 
 
 </body>
