@@ -1695,6 +1695,7 @@ function exportData() {
     exported_at: new Date().toISOString(),
     user_id: USER_ID,
     targets: { short_term: shortTermObjectives, long_term: longTermObjectives },
+    notes: visibleNotes(),
     days: all,
   }, null, 2)],
     { type: "application/json" });
@@ -1789,11 +1790,22 @@ async function restoreData(file) {
   }
   const realDays = Object.keys(backup.days).filter((date) => date !== SETTINGS_DATE && /^\d{4}-\d{2}-\d{2}$/.test(date));
   const blockCount = realDays.reduce((count, date) => count + (Array.isArray(backup.days[date].blocks) ? backup.days[date].blocks.length : 0), 0);
-  if (!window.confirm(`Restore ${blockCount} blocks across ${realDays.length} dates? Existing entries at the same times will be replaced.`)) return;
+  const backupNotes = Array.isArray(backup.notes) ? backup.notes.filter((note) => note && typeof note.title === "string" && typeof note.body === "string") : [];
+  if (!window.confirm(`Restore ${blockCount} blocks across ${realDays.length} dates and ${backupNotes.length} notes? Existing entries at the same times will be replaced.`)) return;
 
   setStatus("syncing", "Restoring…");
   try {
     const { rows, restoredDays } = recoveryRowsFromBackup(backup);
+    const restoredNotes = backupNotes.map((note) => ({
+      id: typeof note.id === "string" ? note.id : noteId(),
+      title: note.title, body: note.body,
+      updatedAt: new Date().toISOString(),
+    }));
+    for (const note of restoredNotes) {
+      notes[note.id] = note;
+      rows.push({ date: NOTES_DATE, start_time: NOTES_PREFIX + note.id, category: "note", note: JSON.stringify(note), sub: "" });
+    }
+    saveNotesLocal();
     const remoteRows = rows.map((row) => ({
       user_id: USER_ID,
       date: row.date,
@@ -3047,6 +3059,7 @@ let insightRange = 7;
 let currentInsight = null;
 
 const INSIGHTS = [
+  { id: "notes",    title: "Notes",          icon: "📝", desc: "Linked Markdown notes" },
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
   { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Daily actions & longer-term direction", fn: renderInsightGoals },
@@ -3303,20 +3316,9 @@ function renderInsightGoals(map) {
     
     let subItemIndex = 0;
     lines.forEach((line) => {
-      let isChecked = false;
-      let cleanText = line;
-      
-      let bulletMatch = line.match(/^([•\-\*\d+\.\s]*)(.*)$/);
-      let prefix = bulletMatch ? bulletMatch[1] : "";
-      let remainder = bulletMatch ? bulletMatch[2] : line;
-      
-      let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
-      if (checkMatch) {
-        isChecked = checkMatch[1].toLowerCase() === "x";
-        cleanText = checkMatch[2];
-      } else {
-        cleanText = remainder;
-      }
+      const parsed = parseObjectiveLine(line);
+      const isChecked = parsed.completed;
+      const cleanText = parsed.text;
       
       totalCount++;
       totalTasks++;
@@ -3389,25 +3391,8 @@ function toggleInsightObjective(dateStr, idx) {
   const targetOriginalIndex = nonElLineIndices[idx];
   if (targetOriginalIndex === undefined) return;
 
-  const line = lines[targetOriginalIndex];
-  let cleanLine = line.trim();
-
-  let bulletMatch = cleanLine.match(/^([•\-\*\d+\.\s]*)(.*)$/);
-  let prefix = bulletMatch ? bulletMatch[1] : "";
-  let remainder = bulletMatch ? bulletMatch[2] : cleanLine;
-
-  let checkMatch = remainder.match(/^\[([ xX])\]\s*(.*)$/);
-  let newLine;
-  if (checkMatch) {
-    const isChecked = checkMatch[1].toLowerCase() === "x";
-    const text = checkMatch[2];
-    const newCheck = isChecked ? "[ ]" : "[x]";
-    newLine = `${prefix}${newCheck} ${text}`;
-  } else {
-    newLine = `${prefix}[x] ${remainder}`;
-  }
-
-  lines[targetOriginalIndex] = newLine;
+  const parsed = parseObjectiveLine(lines[targetOriginalIndex]);
+  lines[targetOriginalIndex] = serializeObjectiveItem({ ...parsed, completed: !parsed.completed });
   const newNote = lines.join("\n");
   const block = { category: "plan", note: newNote };
   day[PLAN_KEY] = block;
@@ -3638,12 +3623,199 @@ function openInsightsMenu() {
 function closeInsightsMenu() { document.getElementById("insightsMenu").hidden = true; }
 
 function openInsight(id) {
+  if (id === "notes") {
+    currentInsight = null;
+    document.getElementById("insightTitle").textContent = "Notes";
+    document.getElementById("insightRangeSeg").hidden = true;
+    document.getElementById("insightScreen").hidden = false;
+    renderNotes();
+    return;
+  }
+  document.getElementById("insightRangeSeg").hidden = false;
   currentInsight = INSIGHTS.find((i) => i.id === id);
   document.getElementById("insightTitle").textContent = currentInsight.title;
   document.getElementById("insightScreen").hidden = false;
   renderInsight();
 }
 function closeInsight() { document.getElementById("insightScreen").hidden = true; }
+
+// ---- Linked notes ----
+const NOTES_KEY = "day_notes_v1";
+const NOTES_DATE = SETTINGS_DATE;
+const NOTES_PREFIX = "__note__";
+let notes = loadNotesLocal();
+let activeNoteId = null;
+let notesQuery = "";
+let notesPreview = false;
+function loadNotesLocal() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch { return {}; }
+}
+function saveNotesLocal() { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+function noteId() {
+  return window.crypto?.randomUUID ? crypto.randomUUID() : `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+function noteTitleKey(value) { return (value || "").trim().toLocaleLowerCase(); }
+function visibleNotes() { return Object.values(notes).filter((note) => !note.deleted); }
+function saveNote(note) {
+  note.updatedAt = new Date().toISOString();
+  notes[note.id] = note;
+  saveNotesLocal();
+  if (sb && USER_ID && USER_ID !== "local-recovery") {
+    clearTimeout(noteSaveTimer);
+    noteSaveTimer = setTimeout(() => sb.from("blocks").upsert({
+      user_id: USER_ID, date: NOTES_DATE, start_time: NOTES_PREFIX + note.id,
+      category: "note", note: JSON.stringify(note), updated_at: note.updatedAt,
+    }, { onConflict: "user_id,date,start_time" }).then(({ error }) => {
+      if (error) { console.warn("Could not sync note", error); setStatus("err", "Note saved offline"); }
+    }), 350);
+  }
+}
+let noteSaveTimer = null;
+async function pullNotes() {
+  if (!sb || !USER_ID || USER_ID === "local-recovery") return;
+  try {
+    const { data: rows, error } = await sb.from("blocks")
+      .select("start_time,note,updated_at").eq("user_id", USER_ID)
+      .eq("date", NOTES_DATE).eq("category", "note");
+    if (error) throw error;
+    const remote = {};
+    for (const row of rows || []) {
+      if (!row.start_time?.startsWith(NOTES_PREFIX)) continue;
+      try {
+        const item = JSON.parse(row.note || "{}");
+        if (item.id) remote[item.id] = item;
+      } catch {}
+    }
+    let localChanged = false;
+    for (const [id, remoteNote] of Object.entries(remote)) {
+      const local = notes[id];
+      if (!local || Date.parse(remoteNote.updatedAt || "") > Date.parse(local.updatedAt || "")) {
+        notes[id] = remoteNote;
+        localChanged = true;
+      }
+    }
+    for (const [id, local] of Object.entries(notes)) {
+      if (!remote[id] || Date.parse(local.updatedAt || "") > Date.parse(remote[id].updatedAt || "")) saveNote(local);
+    }
+    if (localChanged) saveNotesLocal();
+    if (!document.getElementById("insightScreen").hidden && !currentInsight) renderNotes();
+  } catch (error) { console.warn("Could not sync notes", error); }
+}
+function noteLinks(body) {
+  const out = [];
+  const re = /\[\[([^\]]+)\]\]/g;
+  let match;
+  while ((match = re.exec(body || ""))) {
+    const [target, alias] = match[1].split("|").map((part) => part.trim());
+    if (target) out.push({ target, label: alias || target });
+  }
+  return out;
+}
+function noteBacklinks(note) {
+  const key = noteTitleKey(note.title);
+  return visibleNotes().filter((candidate) => candidate.id !== note.id
+    && noteLinks(candidate.body).some((link) => noteTitleKey(link.target) === key));
+}
+function renderMarkdown(source) {
+  const escape = (text) => escapeHtml(text);
+  const inline = (text) => escape(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/(^|\s)(#[\p{L}\p{N}_/-]+)/gu, '$1<span class="note-tag">$2</span>')
+    .replace(/\[\[([^\]]+)\]\]/g, (_all, raw) => {
+      const [target, alias] = raw.split("|").map((part) => part.trim());
+      return `<button class="note-wikilink" type="button" data-note-title="${escapeHtml(target)}">${escapeHtml(alias || target)}</button>`;
+    });
+  const lines = (source || "").split(/\r?\n/);
+  const output = [];
+  let list = false;
+  for (const line of lines) {
+    const item = line.match(/^\s*[-*]\s+(.+)$/);
+    if (item) {
+      if (!list) { output.push("<ul>"); list = true; }
+      output.push(`<li>${inline(item[1])}</li>`);
+      continue;
+    }
+    if (list) { output.push("</ul>"); list = false; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) output.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
+    else if (line.trim()) output.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) output.push("</ul>");
+  return output.join("");
+}
+function notesIndexHtml() {
+  const query = notesQuery.trim().toLocaleLowerCase();
+  const matched = visibleNotes().filter((note) => !query || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(query))
+    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  return `<div class="notes-app">
+    <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search notes and tags" value="${escapeHtml(notesQuery)}"><button class="primary-btn" id="notesNew" type="button">New note</button></div>
+    <div class="notes-index">${matched.length ? matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span></button>`).join("") : `<div class="stats-empty">${query ? "No matching notes." : "No notes yet. Create one to get started."}</div>`}</div>
+    ${activeNoteId && notes[activeNoteId] && !notes[activeNoteId].deleted ? renderNoteEditor(notes[activeNoteId]) : ""}
+  </div>`;
+}
+function renderNoteEditor(note) {
+  const backlinks = noteBacklinks(note);
+  const tags = [...new Set((note.body.match(/#[\p{L}\p{N}_/-]+/gu) || []))];
+  return `<section class="note-editor">
+    <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit" : "Preview"}</button><button class="text-btn" id="noteDelete" type="button">Delete</button></div></div>
+    ${notesPreview ? `<div class="note-preview">${renderMarkdown(note.body)}</div>` : `<textarea id="noteBody" spellcheck="true" placeholder="Write in Markdown. Link notes with [[Note title]]">${escapeHtml(note.body)}</textarea>`}
+    ${tags.length ? `<div class="note-meta">${tags.map((tag) => `<button class="note-tag note-tag-button" type="button" data-note-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
+    <div class="note-backlinks"><strong>Linked mentions</strong>${backlinks.length ? backlinks.map((item) => `<button type="button" data-note-id="${escapeHtml(item.id)}">${escapeHtml(item.title || "Untitled")}</button>`).join("") : `<span class="notes-muted">No backlinks yet</span>`}</div>
+  </section>`;
+}
+function renderNotes() {
+  document.getElementById("insightBody").innerHTML = notesIndexHtml();
+}
+function openOrCreateLinkedNote(title) {
+  let note = visibleNotes().find((candidate) => noteTitleKey(candidate.title) === noteTitleKey(title));
+  if (!note) {
+    note = { id: noteId(), title: title.trim(), body: "", updatedAt: new Date().toISOString() };
+    saveNote(note);
+  }
+  activeNoteId = note.id;
+  notesPreview = false;
+  renderNotes();
+}
+function bindNotesControls() {
+  const body = document.getElementById("insightBody");
+  body.addEventListener("input", (event) => {
+    if (event.target.id === "notesSearch") { notesQuery = event.target.value; renderNotes(); document.getElementById("notesSearch")?.focus(); return; }
+    const note = notes[activeNoteId];
+    if (!note) return;
+    if (event.target.id === "noteTitle") note.title = event.target.value;
+    if (event.target.id === "noteBody") note.body = event.target.value;
+    saveNote(note);
+  });
+  body.addEventListener("change", (event) => {
+    if (event.target.id === "noteTitle") renderNotes();
+  });
+  body.addEventListener("click", (event) => {
+    const select = event.target.closest("[data-note-id]");
+    const link = event.target.closest("[data-note-title]");
+    const tag = event.target.closest("[data-note-tag]");
+    if (select) { activeNoteId = select.dataset.noteId; notesPreview = false; renderNotes(); }
+    else if (link) openOrCreateLinkedNote(link.dataset.noteTitle);
+    else if (tag) { notesQuery = tag.dataset.noteTag; renderNotes(); }
+    else if (event.target.closest("#notesNew")) {
+      let title = "Untitled", suffix = 2;
+      while (visibleNotes().some((note) => noteTitleKey(note.title) === noteTitleKey(title))) title = `Untitled ${suffix++}`;
+      openOrCreateLinkedNote(title);
+    }
+    else if (event.target.closest("#notePreviewToggle")) { notesPreview = !notesPreview; renderNotes(); }
+    else if (event.target.closest("#noteDelete")) {
+      const note = notes[activeNoteId];
+      if (note && window.confirm(`Delete “${note.title || "Untitled"}”?`)) {
+        note.deleted = true; saveNote(note); activeNoteId = null; renderNotes();
+      }
+    }
+  });
+}
+bindNotesControls();
 
 async function renderInsight() {
   if (!currentInsight) return;
@@ -4011,6 +4183,7 @@ function applySession(session) {
       .catch((e) => console.warn("Category migration will retry next time", e))
       .finally(() => {
         goto(new Date());
+        pullNotes();
         pullUpcomingReminders();
       });
   } else {
@@ -4348,5 +4521,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=63").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=64").catch(() => {});
 }
