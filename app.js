@@ -3660,6 +3660,7 @@ let activeProjectId = "all";
 let notesQuery = "";
 let notesPreview = false;
 let noteProjectsUpdatedAt = loadNoteProjectsUpdatedAt();
+let draggedNoteId = null;
 function loadNotesLocal() {
   try {
     const parsed = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}");
@@ -3899,13 +3900,15 @@ function bindNotesControls() {
   body.addEventListener("dragstart", (event) => {
     const noteRow = event.target.closest(".notes-index-item[data-note-id]");
     if (!noteRow || !event.dataTransfer) return;
-    event.dataTransfer.setData("text/plain", noteRow.dataset.noteId);
+    draggedNoteId = noteRow.dataset.noteId;
+    event.dataTransfer.setData("text/plain", draggedNoteId);
     event.dataTransfer.effectAllowed = "move";
     noteRow.classList.add("dragging");
   });
   body.addEventListener("dragend", (event) => {
     event.target.closest(".notes-index-item")?.classList.remove("dragging");
     body.querySelectorAll(".drop-target").forEach((target) => target.classList.remove("drop-target"));
+    draggedNoteId = null;
   });
   body.addEventListener("dragover", (event) => {
     const destination = event.target.closest("[data-project-select]:not([data-project-select='all'])");
@@ -3923,7 +3926,8 @@ function bindNotesControls() {
     if (!destination) return;
     event.preventDefault();
     destination.classList.remove("drop-target");
-    const note = notes[event.dataTransfer?.getData("text/plain")];
+    const droppedId = event.dataTransfer?.getData("text/plain") || draggedNoteId;
+    const note = notes[droppedId];
     if (!note || note.deleted) return;
     const projectId = destination.dataset.projectSelect === "unfiled" ? "" : destination.dataset.projectSelect;
     if (projectId && !noteProjects.some((project) => project.id === projectId)) return;
@@ -4691,5 +4695,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=67").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=68").catch(() => {});
 }
