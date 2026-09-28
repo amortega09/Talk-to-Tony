@@ -861,6 +861,9 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .notes-project-action.delete:hover { color: #c03030; }
 .notes-tree-divider { margin: 7px 0 4px; border-top: 1px solid var(--line); }
 .notes-index-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 11px; border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.notes-index-item[draggable="true"] { cursor: grab; }
+.notes-index-item.dragging { opacity: .45; cursor: grabbing; }
+.notes-project-select.drop-target, .notes-scope.drop-target { border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, var(--surface)); }
 .notes-index-item:hover { background: var(--hover); }
 .notes-index-item.active { border-color: var(--line); background: var(--hover); }
 .notes-index-item strong { font-size: 14px; font-weight: 600; }

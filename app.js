@@ -3851,19 +3851,19 @@ function notesIndexHtml() {
     return note.projectId === activeProjectId;
   })
     .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-  const projectRow = (project) => `<div class="notes-project-row"><button class="notes-project-select${activeProjectId === project.id ? " active" : ""}" type="button" data-project-select="${escapeHtml(project.id)}"><span class="notes-project-chevron" aria-hidden="true">›</span><span class="notes-project-name">${escapeHtml(project.name)}</span><span class="notes-project-count">${allNotes.filter((note) => note.projectId === project.id).length}</span></button><button class="notes-project-action" type="button" data-project-rename="${escapeHtml(project.id)}" aria-label="Rename ${escapeHtml(project.name)}" title="Rename project">···</button><button class="notes-project-action delete" type="button" data-project-delete="${escapeHtml(project.id)}" aria-label="Delete ${escapeHtml(project.name)}" title="Delete project">×</button></div>`;
+  const projectRow = (project) => `<div class="notes-project-row"><button class="notes-project-select${activeProjectId === project.id ? " active" : ""}" type="button" data-project-select="${escapeHtml(project.id)}" title="Drop a note here to move it into ${escapeHtml(project.name)}"><span class="notes-project-chevron" aria-hidden="true">›</span><span class="notes-project-name">${escapeHtml(project.name)}</span><span class="notes-project-count">${allNotes.filter((note) => note.projectId === project.id).length}</span></button><button class="notes-project-action" type="button" data-project-rename="${escapeHtml(project.id)}" aria-label="Rename ${escapeHtml(project.name)}" title="Rename project">···</button><button class="notes-project-action delete" type="button" data-project-delete="${escapeHtml(project.id)}" aria-label="Delete ${escapeHtml(project.name)}" title="Delete project">×</button></div>`;
   return `<div class="notes-app">
     <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search all notes" value="${escapeHtml(notesQuery)}"><button class="ghost-btn" id="notesProjectNew" type="button">＋ Project</button><button class="primary-btn" id="notesNew" type="button">＋ New note</button></div>
     <div class="notes-workspace">
       <aside class="notes-index" aria-label="Projects and notes">
         <div class="notes-tree-label">Workspace</div>
         <button class="notes-scope${activeProjectId === "all" ? " active" : ""}" type="button" data-project-select="all"><span>All notes</span><span class="notes-project-count">${allNotes.length}</span></button>
-        <button class="notes-scope${activeProjectId === "unfiled" ? " active" : ""}" type="button" data-project-select="unfiled"><span>Unfiled</span><span class="notes-project-count">${allNotes.filter((note) => !note.projectId || !noteProjects.some((project) => project.id === note.projectId)).length}</span></button>
+        <button class="notes-scope${activeProjectId === "unfiled" ? " active" : ""}" type="button" data-project-select="unfiled" title="Drop a note here to remove it from a project"><span>Unfiled</span><span class="notes-project-count">${allNotes.filter((note) => !note.projectId || !noteProjects.some((project) => project.id === note.projectId)).length}</span></button>
         <div class="notes-tree-label notes-projects-label"><span>Projects</span><button type="button" id="notesProjectNewSmall" aria-label="Add project">＋</button></div>
         ${noteProjects.length ? noteProjects.map(projectRow).join("") : `<div class="notes-empty project-empty">No projects yet</div>`}
         <div class="notes-tree-divider"></div>
         <div class="notes-index-label">${query ? `Search results · ${matched.length}` : `${matched.length} ${matched.length === 1 ? "note" : "notes"}`}</div>
-        ${matched.length ? matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span><small>${escapeHtml(noteProjectName(note.projectId))}</small></button>`).join("") : `<div class="notes-empty">${query ? "No matching notes" : "No notes here yet"}</div>`}
+        ${matched.length ? matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" draggable="true" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span><small>${escapeHtml(noteProjectName(note.projectId))}</small></button>`).join("") : `<div class="notes-empty">${query ? "No matching notes" : "No notes here yet"}</div>`}
       </aside>
       ${activeNoteId && notes[activeNoteId] && !notes[activeNoteId].deleted ? renderNoteEditor(notes[activeNoteId]) : `<div class="notes-welcome"><strong>Choose a note to open it</strong><span>Or create a new note to get started.</span></div>`}
     </div>
@@ -3896,6 +3896,43 @@ function openOrCreateLinkedNote(title) {
 }
 function bindNotesControls() {
   const body = document.getElementById("insightBody");
+  body.addEventListener("dragstart", (event) => {
+    const noteRow = event.target.closest(".notes-index-item[data-note-id]");
+    if (!noteRow || !event.dataTransfer) return;
+    event.dataTransfer.setData("text/plain", noteRow.dataset.noteId);
+    event.dataTransfer.effectAllowed = "move";
+    noteRow.classList.add("dragging");
+  });
+  body.addEventListener("dragend", (event) => {
+    event.target.closest(".notes-index-item")?.classList.remove("dragging");
+    body.querySelectorAll(".drop-target").forEach((target) => target.classList.remove("drop-target"));
+  });
+  body.addEventListener("dragover", (event) => {
+    const destination = event.target.closest("[data-project-select]:not([data-project-select='all'])");
+    if (!destination) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    destination.classList.add("drop-target");
+  });
+  body.addEventListener("dragleave", (event) => {
+    const destination = event.target.closest("[data-project-select]");
+    if (destination && !destination.contains(event.relatedTarget)) destination.classList.remove("drop-target");
+  });
+  body.addEventListener("drop", (event) => {
+    const destination = event.target.closest("[data-project-select]:not([data-project-select='all'])");
+    if (!destination) return;
+    event.preventDefault();
+    destination.classList.remove("drop-target");
+    const note = notes[event.dataTransfer?.getData("text/plain")];
+    if (!note || note.deleted) return;
+    const projectId = destination.dataset.projectSelect === "unfiled" ? "" : destination.dataset.projectSelect;
+    if (projectId && !noteProjects.some((project) => project.id === projectId)) return;
+    if (note.projectId === projectId) return;
+    note.projectId = projectId;
+    saveNote(note);
+    if (activeNoteId === note.id) activeProjectId = projectId || "unfiled";
+    renderNotes();
+  });
   body.addEventListener("input", (event) => {
     if (event.target.id === "notesSearch") { notesQuery = event.target.value; renderNotes(); document.getElementById("notesSearch")?.focus(); return; }
     const note = notes[activeNoteId];
@@ -4654,5 +4691,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=66").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=67").catch(() => {});
 }
