@@ -1696,6 +1696,7 @@ function exportData() {
     user_id: USER_ID,
     targets: { short_term: shortTermObjectives, long_term: longTermObjectives },
     notes: visibleNotes(),
+    note_projects: noteProjects,
     days: all,
   }, null, 2)],
     { type: "application/json" });
@@ -1791,14 +1792,15 @@ async function restoreData(file) {
   const realDays = Object.keys(backup.days).filter((date) => date !== SETTINGS_DATE && /^\d{4}-\d{2}-\d{2}$/.test(date));
   const blockCount = realDays.reduce((count, date) => count + (Array.isArray(backup.days[date].blocks) ? backup.days[date].blocks.length : 0), 0);
   const backupNotes = Array.isArray(backup.notes) ? backup.notes.filter((note) => note && typeof note.title === "string" && typeof note.body === "string") : [];
-  if (!window.confirm(`Restore ${blockCount} blocks across ${realDays.length} dates and ${backupNotes.length} notes? Existing entries at the same times will be replaced.`)) return;
+  const backupProjects = Array.isArray(backup.note_projects) ? backup.note_projects.filter((project) => project && typeof project.id === "string" && typeof project.name === "string") : [];
+  if (!window.confirm(`Restore ${blockCount} blocks across ${realDays.length} dates, ${backupNotes.length} notes, and ${backupProjects.length} projects? Existing entries at the same times will be replaced.`)) return;
 
   setStatus("syncing", "Restoring…");
   try {
     const { rows, restoredDays } = recoveryRowsFromBackup(backup);
     const restoredNotes = backupNotes.map((note) => ({
       id: typeof note.id === "string" ? note.id : noteId(),
-      title: note.title, body: note.body,
+      title: note.title, body: note.body, projectId: typeof note.projectId === "string" ? note.projectId : "",
       updatedAt: new Date().toISOString(),
     }));
     for (const note of restoredNotes) {
@@ -1806,6 +1808,12 @@ async function restoreData(file) {
       rows.push({ date: NOTES_DATE, start_time: NOTES_PREFIX + note.id, category: "note", note: JSON.stringify(note), sub: "" });
     }
     saveNotesLocal();
+    if (backupProjects.length) {
+      noteProjects = backupProjects;
+      noteProjectsUpdatedAt = new Date().toISOString();
+      localStorage.setItem(NOTE_PROJECTS_KEY, JSON.stringify({ projects: noteProjects, updatedAt: noteProjectsUpdatedAt }));
+      rows.push({ date: NOTES_DATE, start_time: NOTE_PROJECTS_SLOT, category: "note_projects", note: JSON.stringify({ projects: noteProjects, updatedAt: noteProjectsUpdatedAt }), sub: "" });
+    }
     const remoteRows = rows.map((row) => ({
       user_id: USER_ID,
       date: row.date,
@@ -3641,12 +3649,17 @@ function closeInsight() { document.getElementById("insightScreen").hidden = true
 
 // ---- Linked notes ----
 const NOTES_KEY = "day_notes_v1";
+const NOTE_PROJECTS_KEY = "day_note_projects_v1";
 const NOTES_DATE = SETTINGS_DATE;
 const NOTES_PREFIX = "__note__";
+const NOTE_PROJECTS_SLOT = "__note_projects__";
 let notes = loadNotesLocal();
+let noteProjects = loadNoteProjectsLocal();
 let activeNoteId = null;
+let activeProjectId = "all";
 let notesQuery = "";
 let notesPreview = false;
+let noteProjectsUpdatedAt = loadNoteProjectsUpdatedAt();
 function loadNotesLocal() {
   try {
     const parsed = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}");
@@ -3654,35 +3667,111 @@ function loadNotesLocal() {
   } catch { return {}; }
 }
 function saveNotesLocal() { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+function loadNoteProjectsLocal() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NOTE_PROJECTS_KEY) || "[]");
+    const list = Array.isArray(parsed) ? parsed : parsed.projects;
+    return Array.isArray(list) ? list.filter((project) => project && project.id && project.name) : [];
+  } catch { return []; }
+}
+function loadNoteProjectsUpdatedAt() {
+  try { return JSON.parse(localStorage.getItem(NOTE_PROJECTS_KEY) || "{}").updatedAt || ""; }
+  catch { return ""; }
+}
+function saveNoteProjects() {
+  noteProjectsUpdatedAt = new Date().toISOString();
+  localStorage.setItem(NOTE_PROJECTS_KEY, JSON.stringify({ projects: noteProjects, updatedAt: noteProjectsUpdatedAt }));
+  if (sb && USER_ID && USER_ID !== "local-recovery") {
+    sb.from("blocks").upsert({
+      user_id: USER_ID, date: NOTES_DATE, start_time: NOTE_PROJECTS_SLOT,
+      category: "note_projects", note: JSON.stringify({ projects: noteProjects, updatedAt: noteProjectsUpdatedAt }),
+      updated_at: noteProjectsUpdatedAt,
+    }, { onConflict: "user_id,date,start_time" }).then(({ error }) => {
+      if (error) { console.warn("Could not sync note projects", error); setStatus("err", "Projects saved offline"); }
+    });
+  }
+}
 function noteId() {
   return window.crypto?.randomUUID ? crypto.randomUUID() : `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 function noteTitleKey(value) { return (value || "").trim().toLocaleLowerCase(); }
 function visibleNotes() { return Object.values(notes).filter((note) => !note.deleted); }
+function noteProjectName(projectId) { return noteProjects.find((project) => project.id === projectId)?.name || "Unfiled"; }
+function createNoteProject() {
+  const name = window.prompt("Project name");
+  if (!name || !name.trim()) return;
+  const cleanName = name.trim();
+  if (noteProjects.some((project) => project.name.toLocaleLowerCase() === cleanName.toLocaleLowerCase())) {
+    window.alert("A project with that name already exists.");
+    return;
+  }
+  const project = { id: noteId(), name: cleanName };
+  noteProjects.push(project);
+  saveNoteProjects();
+  activeProjectId = project.id;
+  activeNoteId = null;
+  renderNotes();
+}
+function renameNoteProject(id) {
+  const project = noteProjects.find((item) => item.id === id);
+  if (!project) return;
+  const name = window.prompt("Rename project", project.name);
+  if (!name || !name.trim()) return;
+  const cleanName = name.trim();
+  if (noteProjects.some((item) => item.id !== id && item.name.toLocaleLowerCase() === cleanName.toLocaleLowerCase())) {
+    window.alert("A project with that name already exists.");
+    return;
+  }
+  project.name = cleanName;
+  saveNoteProjects();
+  renderNotes();
+}
+function deleteNoteProject(id) {
+  const project = noteProjects.find((item) => item.id === id);
+  if (!project || !window.confirm(`Delete project “${project.name}”? Its notes will move to Unfiled.`)) return;
+  noteProjects = noteProjects.filter((item) => item.id !== id);
+  for (const note of visibleNotes()) {
+    if (note.projectId === id) { note.projectId = ""; saveNote(note); }
+  }
+  saveNoteProjects();
+  if (activeProjectId === id) activeProjectId = "unfiled";
+  renderNotes();
+}
+const noteSaveTimers = new Map();
 function saveNote(note) {
   note.updatedAt = new Date().toISOString();
   notes[note.id] = note;
   saveNotesLocal();
   if (sb && USER_ID && USER_ID !== "local-recovery") {
-    clearTimeout(noteSaveTimer);
-    noteSaveTimer = setTimeout(() => sb.from("blocks").upsert({
+    clearTimeout(noteSaveTimers.get(note.id));
+    noteSaveTimers.set(note.id, setTimeout(() => sb.from("blocks").upsert({
       user_id: USER_ID, date: NOTES_DATE, start_time: NOTES_PREFIX + note.id,
       category: "note", note: JSON.stringify(note), updated_at: note.updatedAt,
     }, { onConflict: "user_id,date,start_time" }).then(({ error }) => {
       if (error) { console.warn("Could not sync note", error); setStatus("err", "Note saved offline"); }
-    }), 350);
+    }), 350));
   }
 }
-let noteSaveTimer = null;
 async function pullNotes() {
   if (!sb || !USER_ID || USER_ID === "local-recovery") return;
   try {
     const { data: rows, error } = await sb.from("blocks")
-      .select("start_time,note,updated_at").eq("user_id", USER_ID)
-      .eq("date", NOTES_DATE).eq("category", "note");
+      .select("start_time,category,note,updated_at").eq("user_id", USER_ID)
+      .eq("date", NOTES_DATE).in("category", ["note", "note_projects"]);
     if (error) throw error;
     const remote = {};
     for (const row of rows || []) {
+      if (row.category === "note_projects" && row.start_time === NOTE_PROJECTS_SLOT) {
+        try {
+          const parsed = JSON.parse(row.note || "{}");
+          if (Array.isArray(parsed.projects) && (!noteProjectsUpdatedAt || Date.parse(parsed.updatedAt || "") > Date.parse(noteProjectsUpdatedAt))) {
+            noteProjects = parsed.projects.filter((project) => project && project.id && project.name);
+            noteProjectsUpdatedAt = parsed.updatedAt;
+            localStorage.setItem(NOTE_PROJECTS_KEY, JSON.stringify({ projects: noteProjects, updatedAt: noteProjectsUpdatedAt }));
+          }
+        } catch {}
+        continue;
+      }
       if (!row.start_time?.startsWith(NOTES_PREFIX)) continue;
       try {
         const item = JSON.parse(row.note || "{}");
@@ -3700,6 +3789,10 @@ async function pullNotes() {
     for (const [id, local] of Object.entries(notes)) {
       if (!remote[id] || Date.parse(local.updatedAt || "") > Date.parse(remote[id].updatedAt || "")) saveNote(local);
     }
+    const remoteProjects = (rows || []).find((row) => row.category === "note_projects" && row.start_time === NOTE_PROJECTS_SLOT);
+    if (!remoteProjects || Date.parse(noteProjectsUpdatedAt || "") > Date.parse((() => {
+      try { return JSON.parse(remoteProjects.note || "{}").updatedAt || ""; } catch { return ""; }
+    })())) saveNoteProjects();
     if (localChanged) saveNotesLocal();
     if (!document.getElementById("insightScreen").hidden && !currentInsight) renderNotes();
   } catch (error) { console.warn("Could not sync notes", error); }
@@ -3750,12 +3843,28 @@ function renderMarkdown(source) {
 }
 function notesIndexHtml() {
   const query = notesQuery.trim().toLocaleLowerCase();
-  const matched = visibleNotes().filter((note) => !query || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(query))
+  const allNotes = visibleNotes();
+  const matched = allNotes.filter((note) => {
+    if (query) return `${note.title}\n${note.body}`.toLocaleLowerCase().includes(query);
+    if (activeProjectId === "all") return true;
+    if (activeProjectId === "unfiled") return !note.projectId || !noteProjects.some((project) => project.id === note.projectId);
+    return note.projectId === activeProjectId;
+  })
     .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  const projectRow = (project) => `<div class="notes-project-row"><button class="notes-project-select${activeProjectId === project.id ? " active" : ""}" type="button" data-project-select="${escapeHtml(project.id)}"><span class="notes-project-chevron" aria-hidden="true">›</span><span class="notes-project-name">${escapeHtml(project.name)}</span><span class="notes-project-count">${allNotes.filter((note) => note.projectId === project.id).length}</span></button><button class="notes-project-action" type="button" data-project-rename="${escapeHtml(project.id)}" aria-label="Rename ${escapeHtml(project.name)}" title="Rename project">···</button><button class="notes-project-action delete" type="button" data-project-delete="${escapeHtml(project.id)}" aria-label="Delete ${escapeHtml(project.name)}" title="Delete project">×</button></div>`;
   return `<div class="notes-app">
-    <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search notes" value="${escapeHtml(notesQuery)}"><button class="primary-btn" id="notesNew" type="button">＋ New note</button></div>
+    <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search all notes" value="${escapeHtml(notesQuery)}"><button class="ghost-btn" id="notesProjectNew" type="button">＋ Project</button><button class="primary-btn" id="notesNew" type="button">＋ New note</button></div>
     <div class="notes-workspace">
-      <aside class="notes-index" aria-label="Notes">${matched.length ? `<div class="notes-index-label">${matched.length} ${matched.length === 1 ? "note" : "notes"}</div>${matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span></button>`).join("")}` : `<div class="notes-empty">${query ? "No matching notes" : "No notes yet"}</div>`}</aside>
+      <aside class="notes-index" aria-label="Projects and notes">
+        <div class="notes-tree-label">Workspace</div>
+        <button class="notes-scope${activeProjectId === "all" ? " active" : ""}" type="button" data-project-select="all"><span>All notes</span><span class="notes-project-count">${allNotes.length}</span></button>
+        <button class="notes-scope${activeProjectId === "unfiled" ? " active" : ""}" type="button" data-project-select="unfiled"><span>Unfiled</span><span class="notes-project-count">${allNotes.filter((note) => !note.projectId || !noteProjects.some((project) => project.id === note.projectId)).length}</span></button>
+        <div class="notes-tree-label notes-projects-label"><span>Projects</span><button type="button" id="notesProjectNewSmall" aria-label="Add project">＋</button></div>
+        ${noteProjects.length ? noteProjects.map(projectRow).join("") : `<div class="notes-empty project-empty">No projects yet</div>`}
+        <div class="notes-tree-divider"></div>
+        <div class="notes-index-label">${query ? `Search results · ${matched.length}` : `${matched.length} ${matched.length === 1 ? "note" : "notes"}`}</div>
+        ${matched.length ? matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span><small>${escapeHtml(noteProjectName(note.projectId))}</small></button>`).join("") : `<div class="notes-empty">${query ? "No matching notes" : "No notes here yet"}</div>`}
+      </aside>
       ${activeNoteId && notes[activeNoteId] && !notes[activeNoteId].deleted ? renderNoteEditor(notes[activeNoteId]) : `<div class="notes-welcome"><strong>Choose a note to open it</strong><span>Or create a new note to get started.</span></div>`}
     </div>
   </div>`;
@@ -3765,6 +3874,7 @@ function renderNoteEditor(note) {
   const tags = [...new Set((note.body.match(/#[\p{L}\p{N}_/-]+/gu) || []))];
   return `<section class="note-editor">
     <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit note" : "Preview"}</button><button class="text-btn note-delete" id="noteDelete" type="button">Delete</button></div></div>
+    <div class="note-location"><label for="noteProject">Project</label><select id="noteProject"><option value=""${!note.projectId ? " selected" : ""}>Unfiled</option>${noteProjects.map((project) => `<option value="${escapeHtml(project.id)}"${note.projectId === project.id ? " selected" : ""}>${escapeHtml(project.name)}</option>`).join("")}</select></div>
     ${notesPreview ? `<div class="note-preview">${renderMarkdown(note.body)}</div>` : `<textarea id="noteBody" spellcheck="true" placeholder="Write in Markdown. Link notes with [[Note title]]">${escapeHtml(note.body)}</textarea>`}
     ${tags.length ? `<div class="note-meta">${tags.map((tag) => `<button class="note-tag note-tag-button" type="button" data-note-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
     <div class="note-backlinks"><strong>Linked mentions</strong>${backlinks.length ? backlinks.map((item) => `<button type="button" data-note-id="${escapeHtml(item.id)}">${escapeHtml(item.title || "Untitled")}</button>`).join("") : `<span class="notes-muted">No backlinks yet</span>`}</div>
@@ -3776,10 +3886,11 @@ function renderNotes() {
 function openOrCreateLinkedNote(title) {
   let note = visibleNotes().find((candidate) => noteTitleKey(candidate.title) === noteTitleKey(title));
   if (!note) {
-    note = { id: noteId(), title: title.trim(), body: "", updatedAt: new Date().toISOString() };
+    note = { id: noteId(), title: title.trim(), body: "", projectId: noteProjects.some((project) => project.id === activeProjectId) ? activeProjectId : "", updatedAt: new Date().toISOString() };
     saveNote(note);
   }
   activeNoteId = note.id;
+  activeProjectId = noteProjects.some((project) => project.id === note.projectId) ? note.projectId : "unfiled";
   notesPreview = false;
   renderNotes();
 }
@@ -3795,14 +3906,34 @@ function bindNotesControls() {
   });
   body.addEventListener("change", (event) => {
     if (event.target.id === "noteTitle") renderNotes();
+    if (event.target.id === "noteProject") {
+      const note = notes[activeNoteId];
+      if (!note) return;
+      note.projectId = event.target.value;
+      activeProjectId = note.projectId || "unfiled";
+      saveNote(note);
+      renderNotes();
+    }
   });
   body.addEventListener("click", (event) => {
+    const projectSelect = event.target.closest("[data-project-select]");
+    const projectRename = event.target.closest("[data-project-rename]");
+    const projectDelete = event.target.closest("[data-project-delete]");
     const select = event.target.closest("[data-note-id]");
     const link = event.target.closest("[data-note-title]");
     const tag = event.target.closest("[data-note-tag]");
-    if (select) { activeNoteId = select.dataset.noteId; notesPreview = false; renderNotes(); }
+    if (projectSelect) { activeProjectId = projectSelect.dataset.projectSelect; activeNoteId = null; renderNotes(); }
+    else if (projectRename) renameNoteProject(projectRename.dataset.projectRename);
+    else if (projectDelete) deleteNoteProject(projectDelete.dataset.projectDelete);
+    else if (select) {
+      activeNoteId = select.dataset.noteId;
+      const note = notes[activeNoteId];
+      activeProjectId = noteProjects.some((project) => project.id === note?.projectId) ? note.projectId : "unfiled";
+      notesPreview = false; renderNotes();
+    }
     else if (link) openOrCreateLinkedNote(link.dataset.noteTitle);
     else if (tag) { notesQuery = tag.dataset.noteTag; renderNotes(); }
+    else if (event.target.closest("#notesProjectNew, #notesProjectNewSmall")) createNoteProject();
     else if (event.target.closest("#notesNew")) {
       let title = "Untitled", suffix = 2;
       while (visibleNotes().some((note) => noteTitleKey(note.title) === noteTitleKey(title))) title = `Untitled ${suffix++}`;
@@ -4523,5 +4654,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=65").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=66").catch(() => {});
 }
