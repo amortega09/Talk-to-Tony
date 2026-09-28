@@ -3753,16 +3753,18 @@ function notesIndexHtml() {
   const matched = visibleNotes().filter((note) => !query || `${note.title}\n${note.body}`.toLocaleLowerCase().includes(query))
     .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
   return `<div class="notes-app">
-    <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search notes and tags" value="${escapeHtml(notesQuery)}"><button class="primary-btn" id="notesNew" type="button">New note</button></div>
-    <div class="notes-index">${matched.length ? matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span></button>`).join("") : `<div class="stats-empty">${query ? "No matching notes." : "No notes yet. Create one to get started."}</div>`}</div>
-    ${activeNoteId && notes[activeNoteId] && !notes[activeNoteId].deleted ? renderNoteEditor(notes[activeNoteId]) : ""}
+    <div class="notes-toolbar"><input id="notesSearch" type="search" placeholder="Search notes" value="${escapeHtml(notesQuery)}"><button class="primary-btn" id="notesNew" type="button">＋ New note</button></div>
+    <div class="notes-workspace">
+      <aside class="notes-index" aria-label="Notes">${matched.length ? `<div class="notes-index-label">${matched.length} ${matched.length === 1 ? "note" : "notes"}</div>${matched.map((note) => `<button class="notes-index-item${note.id === activeNoteId ? " active" : ""}" type="button" data-note-id="${escapeHtml(note.id)}"><strong>${escapeHtml(note.title || "Untitled")}</strong><span>${escapeHtml((note.body || "").replace(/\s+/g, " ").slice(0, 90) || "Empty note")}</span></button>`).join("")}` : `<div class="notes-empty">${query ? "No matching notes" : "No notes yet"}</div>`}</aside>
+      ${activeNoteId && notes[activeNoteId] && !notes[activeNoteId].deleted ? renderNoteEditor(notes[activeNoteId]) : `<div class="notes-welcome"><strong>Choose a note to open it</strong><span>Or create a new note to get started.</span></div>`}
+    </div>
   </div>`;
 }
 function renderNoteEditor(note) {
   const backlinks = noteBacklinks(note);
   const tags = [...new Set((note.body.match(/#[\p{L}\p{N}_/-]+/gu) || []))];
   return `<section class="note-editor">
-    <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit" : "Preview"}</button><button class="text-btn" id="noteDelete" type="button">Delete</button></div></div>
+    <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit note" : "Preview"}</button><button class="text-btn note-delete" id="noteDelete" type="button">Delete</button></div></div>
     ${notesPreview ? `<div class="note-preview">${renderMarkdown(note.body)}</div>` : `<textarea id="noteBody" spellcheck="true" placeholder="Write in Markdown. Link notes with [[Note title]]">${escapeHtml(note.body)}</textarea>`}
     ${tags.length ? `<div class="note-meta">${tags.map((tag) => `<button class="note-tag note-tag-button" type="button" data-note-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
     <div class="note-backlinks"><strong>Linked mentions</strong>${backlinks.length ? backlinks.map((item) => `<button type="button" data-note-id="${escapeHtml(item.id)}">${escapeHtml(item.title || "Untitled")}</button>`).join("") : `<span class="notes-muted">No backlinks yet</span>`}</div>
@@ -4521,5 +4523,5 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=64").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=65").catch(() => {});
 }
