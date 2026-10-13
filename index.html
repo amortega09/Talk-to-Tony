@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=69" />
+  <link rel="stylesheet" href="styles.css?v=70" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -75,6 +75,11 @@
       <div id="blockList"></div>
       <div class="reflect">
         <div class="reflect-label">How was today?</div>
+        <div class="daily-checkin" id="dailyCheckin">
+          <label>Energy <select id="checkinEnergy" aria-label="Daily energy"><option value="">Not rated</option><option value="1">1 · Very low</option><option value="2">2 · Low</option><option value="3">3 · Okay</option><option value="4">4 · High</option><option value="5">5 · Very high</option></select></label>
+          <label>Satisfaction <select id="checkinSatisfaction" aria-label="Daily satisfaction"><option value="">Not rated</option><option value="1">1 · Very poor</option><option value="2">2 · Poor</option><option value="3">3 · Okay</option><option value="4">4 · Good</option><option value="5">5 · Very good</option></select></label>
+          <small>Optional daily check-in · saved with this day</small>
+        </div>
         <textarea class="reflect-input" id="reflectInput" rows="2" placeholder="A line about your day — what went well, what didn't…"></textarea>
         <div class="objective-editor diary-target-card">
           <div class="diary-target-head">
@@ -401,7 +406,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
-  <script src="app.js?v=69"></script>
+  <script src="patterns.js?v=70"></script>
+  <script src="app.js?v=70"></script>
 
 
 </body>

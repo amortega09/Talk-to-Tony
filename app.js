@@ -51,6 +51,7 @@ function rebuildCats() {
 rebuildCats();
 
 // Special "slot" keys stored in the same table (never real times).
+const CHECKIN_KEY = "__checkin__";
 const REFLECT_KEY = "__reflect__";
 const PLAN_KEY = "__plan__";
 const GYM_KEY = "__gym__";
@@ -582,6 +583,7 @@ function render() {
     ri.value = (data[REFLECT_KEY] && data[REFLECT_KEY].note) || "";
   }
 
+  renderDailyCheckin();
   renderPlanBanner();
   renderObjectiveEditor();
   renderEventReminderBanner();
@@ -1674,6 +1676,8 @@ function exportData() {
       const date = k.replace("day_data_", "");
       const day = JSON.parse(localStorage.getItem(k));
       all[date] = {
+        checkin: DayPatterns.checkin(day),
+        gym: parseGymRecord(day),
         reflection: (day[REFLECT_KEY] && day[REFLECT_KEY].note) || "",
         objectives: (day[PLAN_KEY] && day[PLAN_KEY].note) || "",
         day_status: day[DAY_STATUS_KEY]
@@ -1740,6 +1744,17 @@ function recoveryRowsFromBackup(backup) {
           }
         } catch { /* Preserve malformed legacy notes without blocking recovery. */ }
       }
+    }
+    if (savedDay.checkin) {
+      const value = DayPatterns.checkin({ [CHECKIN_KEY]: { note: JSON.stringify(savedDay.checkin) } });
+      if (value.energy !== null || value.satisfaction !== null) {
+        day[CHECKIN_KEY] = { category: "checkin", note: JSON.stringify(value), sub: "" };
+        rows.push({ date: dateStr, start_time: CHECKIN_KEY, ...day[CHECKIN_KEY] });
+      }
+    }
+    if (savedDay.gym && Array.isArray(savedDay.gym.sessions)) {
+      day[GYM_KEY] = { category: "gym", note: JSON.stringify(savedDay.gym), sub: "" };
+      rows.push({ date: dateStr, start_time: GYM_KEY, ...day[GYM_KEY] });
     }
     if (typeof savedDay.reflection === "string" && savedDay.reflection) {
       day[REFLECT_KEY] = { category: "reflection", note: savedDay.reflection, sub: "" };
@@ -3067,6 +3082,7 @@ let insightRange = 7;
 let currentInsight = null;
 
 const INSIGHTS = [
+  { id: "patterns", title: "Patterns", icon: "📊", desc: "Time, work rhythm & daily check-ins", fn: renderPatterns },
   { id: "notes",    title: "Notes",          icon: "📝", desc: "Linked Markdown notes" },
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
@@ -3640,6 +3656,10 @@ function openInsight(id) {
     return;
   }
   document.getElementById("insightRangeSeg").hidden = false;
+  if (id === 'patterns') {
+    insightRange = 30;
+    document.querySelectorAll('#insightRangeSeg button').forEach(b => b.classList.toggle('active', b.dataset.range === '30'));
+  }
   currentInsight = INSIGHTS.find((i) => i.id === id);
   document.getElementById("insightTitle").textContent = currentInsight.title;
   document.getElementById("insightScreen").hidden = false;
@@ -4001,8 +4021,10 @@ bindNotesControls();
 
 async function renderInsight() {
   if (!currentInsight) return;
+  const insight = currentInsight, requestedRange = insightRange;
   const body = document.getElementById("insightBody");
   
+  if (currentInsight.id === "patterns") { await loadPatterns(); return; }
   const map = gatherLocalRange(insightRange);
   body.innerHTML = currentInsight.fn(map);
   
@@ -4015,6 +4037,7 @@ async function renderInsight() {
       let q = sb.from("blocks").select("date,start_time,category,note,subcategory").eq("user_id", USER_ID).lte("date", ymd(new Date()));
       if (start) q = q.gte("date", start);
       const { data: rows, error } = await q;
+      if (currentInsight !== insight || insightRange !== requestedRange) return;
       if (!error && rows) {
         let changed = false;
         for (const r of rows) {
@@ -4703,5 +4726,109 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=69").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=70").catch(() => {});
+}
+
+// ---- Daily check-ins and Patterns ----
+function parseGymRecord(day) {
+  try { return day[GYM_KEY] ? JSON.parse(day[GYM_KEY].note || '{}') : null; }
+  catch { return null; }
+}
+function renderDailyCheckin() {
+  const value = DayPatterns.checkin(data);
+  for (const key of ['energy', 'satisfaction']) {
+    const el = document.getElementById(key === 'energy' ? 'checkinEnergy' : 'checkinSatisfaction');
+    el.value = value[key] || '';
+  }
+}
+for (const id of ['checkinEnergy', 'checkinSatisfaction']) {
+  document.getElementById(id).addEventListener('change', () => {
+    const value = {
+      energy: Number(document.getElementById('checkinEnergy').value) || null,
+      satisfaction: Number(document.getElementById('checkinSatisfaction').value) || null,
+    };
+    const block = value.energy || value.satisfaction ? { category: 'checkin', note: JSON.stringify(value) } : null;
+    if (block) data[CHECKIN_KEY] = block; else delete data[CHECKIN_KEY];
+    pushBlocks(ymd(current), [CHECKIN_KEY], block);
+  });
+}
+let patternsRequest = 0;
+async function loadPatterns() {
+  const request = ++patternsRequest, range = insightRange;
+  const body = document.getElementById('insightBody');
+  const today = ymd(new Date());
+  const map = gatherLocalRange(0);
+  const baseline = { ...map };
+  const active = () => request === patternsRequest && currentInsight?.id === 'patterns' && insightRange === range;
+  const paint = message => { if (active()) body.innerHTML = renderPatterns(map, range) + `<p class="patterns-note" role="status">${message}</p>`; };
+  paint(sb ? 'Checking synced records…' : 'Using records saved in this browser.');
+  if (!sb) return;
+  try {
+    const period = range || 14;
+    const start = DayPatterns.shift(today, -2 * period);
+    // Paginate: Supabase commonly caps a response at 1,000 rows.
+    const remote = {};
+    for (let offset = 0; ; offset += 500) {
+      let query = sb.from('blocks').select('date,start_time,category,note,subcategory')
+        .eq('user_id', USER_ID).lte('date', today).order('date').order('start_time').range(offset, offset + 499);
+      if (range) query = query.gte('date', start);
+      const { data: rows, error } = await query;
+      if (error) throw error;
+      if (!active()) return;
+      for (const r of rows || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '' };
+      if (!rows || rows.length < 500) break;
+    }
+    // Prefer fresh server rows, but preserve edits made while this request ran.
+    // Reports never write snapshots back into the local cache.
+    for (const [date, day] of Object.entries(remote)) map[date] = { ...map[date], ...day };
+    const latest = gatherLocalRange(0);
+    for (const date of new Set([...Object.keys(baseline), ...Object.keys(latest)])) {
+      for (const slot of new Set([...Object.keys(baseline[date] || {}), ...Object.keys(latest[date] || {})])) {
+        if (JSON.stringify(baseline[date]?.[slot]) === JSON.stringify(latest[date]?.[slot])) continue;
+        map[date] ||= {};
+        if (latest[date]?.[slot]) map[date][slot] = latest[date][slot];
+        else delete map[date][slot];
+      }
+    }
+    paint('Includes synced records and entries saved in this browser.');
+  } catch (e) {
+    console.warn(e); paint('Could not load synced records. Showing this browser’s data; reconnect and reopen Patterns to retry.');
+  }
+}
+function renderPatterns(map, range = insightRange) {
+  const a = DayPatterns.analyze(map, { today: ymd(new Date()), range, category: reportingCategoryForBlock, objectives: plannerItemsForDay });
+  const mean = a.mean, hours = n => `${(n || 0).toFixed(1)}h`;
+  const card = (number, label) => `<div class="stat-card"><div class="num">${number}</div><div class="lbl">${label}</div></div>`;
+  const section = (title, content) => `<section class="patterns-section"><h2>${title}</h2>${content}</section>`;
+  const p = text => `<p class="patterns-note">${text}</p>`;
+  if (!a.selected.length) return `<div class="stats-empty">No records in this range. Log some activities or add a daily check-in to get started.</div>`;
+  const targetDays = a.selected.filter(d => d.date < ymd(new Date()) && d.completion !== null);
+  let html = `<div class="patterns-intro">Understand your routines using the data you already log.</div><div class="stat-cards">`;
+  html += card(a.logged.length, 'days with logged activity');
+  html += card(`${Math.round((mean(a.logged.map(d => d.logged)) || 0) / 48 * 100)}%`, 'average day coverage');
+  html += card(hours(mean(a.logged.map(d => d.longest))), 'average longest work run');
+  html += card(targetDays.length ? `${Math.round(mean(targetDays.map(d => d.completion)) * 100)}%` : '—', `target completion · ${targetDays.length} past days`);
+  html += '</div>' + p('Each block counts as 30 minutes. Empty slots are unknown. Calendar imports are excluded. Manually planned blocks have no completion marker and may still be included. Work runs measure contiguous work entries, not attention or output.');
+  const total = Object.values(a.categories).reduce((x, y) => x + y, 0);
+  html += section('Where your time goes', Object.entries(a.categories).sort((x, y) => y[1] - x[1]).map(([cat, value]) =>
+    `<div class="patterns-row"><span>${escapeHtml(catLabel(cat))}</span><strong>${hours(value)} · ${Math.round(value / total * 100)}%</strong></div><div class="patterns-track"><div style="width:${value / total * 100}%"></div></div>`).join('') || p('No activity logged yet.'));
+  const trendMetric = (label, get) => {
+    const now = mean(a.recent.map(get)), before = mean(a.prior.map(get));
+    const delta = now - before;
+    return `<div class="patterns-row"><span>${label}</span><strong>${hours(now)} vs ${hours(before)} (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}h/day)</strong></div>`;
+  };
+  html += section('What changed?', p(`Last ${a.period} completed days (${a.recentStart} to ${a.end}) compared with the preceding ${a.period}. Only days with at least 16 hours logged and no holiday, travel, sick or day-off status qualify. ${a.recent.length} recent / ${a.prior.length} previous days qualify.`) +
+    (a.recent.length >= 5 && a.prior.length >= 5 ? trendMetric('Logged work', d => d.counts.work || 0) + trendMetric('Longest work run', d => d.longest) + trendMetric('Logged exercise', d => d.counts.exercise || d.counts.gym || 0) : p('Need at least 5 qualifying days in each period before comparing.')));
+  const focusDays = a.logged.filter(d => d.date < ymd(new Date()) && d.logged >= 32 && !d.status);
+  html += section('Work continuity', p('Category changes count only adjacent recorded blocks; gaps break runs. A long work run may contain different tasks. Based on completed ordinary days with at least 16 hours logged.') +
+    `<div class="patterns-row"><span>Longest work run / day</span><strong>${focusDays.length ? hours(mean(focusDays.map(d => d.longest))) : '—'}</strong></div><div class="patterns-row"><span>Category changes / day</span><strong>${focusDays.length ? mean(focusDays.map(d => d.switches)).toFixed(1) : '—'} · ${focusDays.length} days</strong></div>`);
+  html += section('When work happens' , p('Average logged work per clock hour, among days with activity recorded in that hour. Darker cells mean more work; blanks mean fewer than 3 observed days. This describes your schedule, not your best performance.') +
+    `<div class="patterns-rhythm">${a.rhythm.map(r => `<div class="patterns-hour" style="--strength:${r.days >= 3 ? r.work : 0}" title="${String(r.hour).padStart(2, '0')}:00: ${r.days} observed days${r.days >= 3 ? ', ' + Math.round(r.work * 60) + ' average work minutes' : ''}"><span>${String(r.hour).padStart(2, '0')}</span><small>${r.days >= 3 ? Math.round(r.work * 60) + 'm' : '—'}</small></div>`).join('')}</div>`);
+  const format = (n, unit) => unit === '%' ? `${Math.round(n * 100)}%` : `${n.toFixed(1)}/5`;
+  html += section('Patterns to investigate', p(`These are descriptive associations, not causes. Only completed ordinary days with at least 16 hours logged qualify (${a.eligible} days). Each comparison needs at least 5 days in both groups. Workload, weekday and incomplete logging can explain differences. Moved targets are excluded from their original day. Sleep comparisons use recorded nights of at least 4 hours with known boundaries, including the preceding evening; time logged as sleep is not measured sleep. Energy groups use 4–5 vs 1–3.`) +
+    (a.comparisons.map(c => `<div class="patterns-finding"><strong>${escapeHtml(c.label)}</strong><div>${format(c.a, c.unit)} (${c.nA} days) vs ${format(c.b, c.unit)} (${c.nB} days)</div></div>`).join('') || p('Not enough comparable observations yet. Keep logging activities and targets; daily check-ins will make these comparisons more useful.')));
+  const ratings = a.selected.filter(d => d.checkin.energy !== null || d.checkin.satisfaction !== null);
+  const energies = ratings.map(d => d.checkin.energy).filter(x => x !== null), satisfaction = ratings.map(d => d.checkin.satisfaction).filter(x => x !== null);
+  html += section('How your days feel', `<div class="patterns-row"><span>Energy</span><strong>${energies.length ? mean(energies).toFixed(1) + '/5' : '—'} · ${energies.length} ratings</strong></div><div class="patterns-row"><span>Satisfaction</span><strong>${satisfaction.length ? mean(satisfaction).toFixed(1) + '/5' : '—'} · ${satisfaction.length} ratings</strong></div>` + p('Add optional ratings below your daily timeline. A consistent evening check-in helps distinguish busy days from satisfying days. Reflections stay as your own words; they are not automatically scored.'));
+  return html;
 }

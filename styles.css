@@ -80,6 +80,7 @@ html, body {
 .recovery-banner .primary-btn { flex: 0 0 auto; padding: 9px 12px; font-size: 12px; }
 body.recovery-mode #app button:not(#exportBtn):not(#recoveryExport),
 body.recovery-mode #app textarea,
+body.recovery-mode #app select,
 body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 
 /* ── Day planning action ─────────────────── */
@@ -1618,3 +1619,21 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
   .sheet { background: #202020; }
   .sheet-backdrop { background: rgba(0,0,0,.5); }
 }
+
+/* Patterns and the daily check-in */
+.daily-checkin { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }
+.daily-checkin label { display:flex; flex:1; min-width:130px; flex-direction:column; gap:6px; font-size:13px; color:var(--text-soft); }
+.daily-checkin select { padding:10px; border:1px solid var(--border, #dedbd5); border-radius:10px; background:var(--bg, #faf9f7); color:var(--text, #292929); font:inherit; }
+.daily-checkin small { flex-basis:100%; color:var(--text-soft); }
+.patterns-intro { margin:12px 0 20px; color:var(--text-soft); }
+.patterns-section { margin:24px 0; }
+.patterns-section h2 { font-size:17px; margin:0 0 12px; }
+.patterns-note { color:var(--text-soft); font-size:13px; line-height:1.6; margin:12px 0; }
+.patterns-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:12px 0 7px; font-size:13px; }
+.patterns-row strong { text-align:right; }
+.patterns-track { height:5px; background:#e8e5df; border-radius:4px; overflow:hidden; }
+.patterns-track div { height:100%; background:#4a5d4e; }
+.patterns-rhythm { display:grid; grid-template-columns:repeat(6, 1fr); gap:6px; }
+.patterns-hour { display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 3px; border:1px solid #dedbd5; border-radius:8px; background:rgba(74,93,78,calc(var(--strength) * .45)); font-size:12px; }
+.patterns-finding { padding:14px; background:rgba(74,93,78,.06); border-radius:12px; margin:10px 0; font-size:13px; line-height:1.7; }
+@media (min-width:700px) { .patterns-rhythm { grid-template-columns:repeat(12, 1fr); } }
