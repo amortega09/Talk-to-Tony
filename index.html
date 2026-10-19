@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=70" />
+  <link rel="stylesheet" href="styles.css?v=71" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -339,6 +339,14 @@
         <button type="button" data-event-preset="evening">Evening</button>
         <button type="button" data-event-preset="custom">Custom</button>
       </div>
+      <div id="eventDatePicker" class="event-date-picker" hidden>
+        <div class="event-day-nav"><button type="button" id="eventPrevDay" aria-label="Move event one day earlier">‹</button><span>Event dates</span><button type="button" id="eventNextDay" aria-label="Move event one day later">›</button></div>
+        <div class="event-date-fields">
+          <label class="event-time-field">Start date<input type="date" id="eventStartDate" /></label>
+          <label class="event-time-field">End date<input type="date" id="eventEndDate" /></label>
+        </div>
+        <p id="eventRangeHint" class="event-range-hint" role="status"></p>
+      </div>
       <div class="event-time-picker" id="eventTimePicker" hidden>
         <label class="event-time-field">Start<select id="eventStart"></select></label>
         <span class="event-time-arrow" aria-hidden="true">→</span>
@@ -407,7 +415,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="config.js?v=40"></script>
   <script src="patterns.js?v=70"></script>
-  <script src="app.js?v=70"></script>
+  <script src="event-range.js?v=71"></script>
+  <script src="app.js?v=71"></script>
 
 
 </body>

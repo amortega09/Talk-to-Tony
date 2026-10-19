@@ -110,6 +110,7 @@ const SLOTS = slots();
 let current = new Date();
 let data = {};          // { "08:30": {category, note}, ... } for current day
 let editing = null;     // array of slot strings being edited
+let eventDraftVersion = 0;
 let eventMode = false;  // true when the sheet was opened through Plan event
 let activeEventPreset = "all";
 let customEventStart = "09:00";
@@ -767,6 +768,8 @@ function highlightSlots(slotList) {
 function openSheet(slotList, preferredCat) {
   plannerSlotMode = false;
   eventMode = false;
+  document.getElementById("eventDatePicker").hidden = true;
+  document.getElementById("saveBlock").disabled = false;
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
   document.getElementById("eventReminderField").hidden = true;
@@ -810,31 +813,36 @@ function fillEventTimeOptions() {
   const end = document.getElementById("eventEnd");
   if (start.options.length) return;
   for (const slot of SLOTS) start.add(new Option(eventTimeLabel(slot), slot));
-  for (const slot of SLOTS.slice(1).concat("24:00")) {
+  for (const slot of SLOTS.concat("24:00")) {
     end.add(new Option(slot === "24:00" ? "12:00 AM (next day)" : eventTimeLabel(slot), slot));
   }
 }
 
+function selectedEventRange() {
+  return DayEventRange.build(
+    document.getElementById('eventStartDate').value, document.getElementById('eventStart').value,
+    document.getElementById('eventEndDate').value, document.getElementById('eventEnd').value);
+}
 function updateEventRange() {
   if (!eventMode) return;
-  const startSelect = document.getElementById("eventStart");
-  const endSelect = document.getElementById("eventEnd");
-  const startIndex = SLOTS.indexOf(startSelect.value);
-  let endIndex = endSelect.value === "24:00" ? SLOTS.length : SLOTS.indexOf(endSelect.value);
-  if (endIndex <= startIndex) {
-    endIndex = Math.min(startIndex + 1, SLOTS.length);
-    endSelect.value = endIndex === SLOTS.length ? "24:00" : SLOTS[endIndex];
+  if (activeEventPreset === 'custom') {
+    customEventStart = document.getElementById('eventStart').value;
+    customEventEnd = document.getElementById('eventEnd').value;
   }
-  if (activeEventPreset === "custom") {
-    customEventStart = startSelect.value;
-    customEventEnd = endSelect.value;
-  }
-  editing = SLOTS.slice(startIndex, endIndex);
-  const hours = editing.length / 2;
-  const presetNames = { all: "All day", morning: "Morning", afternoon: "Afternoon", evening: "Evening" };
-  const duration = presetNames[activeEventPreset] || `${hours % 1 ? hours.toFixed(1) : hours}h`;
-  document.getElementById("sheetTime").textContent = `Plan event · ${duration}`;
+  const range = selectedEventRange();
+  editing = range.days.find(day => day.date === ymd(current))?.slots || [];
+  document.getElementById('saveBlock').disabled = !!range.error;
+  document.getElementById('sheetTime').textContent = range.error ? 'Plan event' : `Plan event · ${range.hours}h`;
+  const hint = range.error || `${range.days.length} day${range.days.length === 1 ? '' : 's'} · ${range.hours}h${document.getElementById('eventEnd').value === '24:00' ? ' · ends at midnight after the end date' : ''}`;
+  document.getElementById('eventRangeHint').textContent = hint;
   highlightSlots(editing);
+}
+function moveEventDates(offset) {
+  for (const id of ['eventStartDate', 'eventEndDate']) {
+    const input = document.getElementById(id);
+    input.value = DayEventRange.shift(input.value, offset);
+  }
+  updateEventRange();
 }
 
 function selectEventPreset(preset) {
@@ -860,6 +868,9 @@ function selectEventPreset(preset) {
 function openEventSheet() {
   closeSheet();
   eventMode = true;
+  document.getElementById('eventDatePicker').hidden = false;
+  document.getElementById('eventStartDate').value = ymd(current);
+  document.getElementById('eventEndDate').value = ymd(current);
   fillEventTimeOptions();
   const isToday = ymd(current) === ymd(new Date());
   const now = new Date();
@@ -1596,7 +1607,11 @@ function selectObjectiveHorizon(horizon) {
 }
 
 function closeSheet() {
+  eventDraftVersion++;
+  document.getElementById("sheet").inert = false;
   document.getElementById("sheetBackdrop").hidden = true;
+  document.getElementById("eventDatePicker").hidden = true;
+  document.getElementById("saveBlock").disabled = false;
   document.getElementById("eventTimePresets").hidden = true;
   document.getElementById("eventTimePicker").hidden = true;
   document.getElementById("eventReminderField").hidden = true;
@@ -1605,8 +1620,8 @@ function closeSheet() {
   editing = null; selectedCat = null; selectedSub = null; selectedActivityLabel = null;
   highlightSlots(null);
 }
-function saveSheet() {
-  if (!editing) return;
+async function saveSheet() {
+  if (!editing || document.getElementById("saveBlock").disabled) return;
   let note = document.getElementById("noteInput").value.trim();
   const dateStr = ymd(current);
   const savingEvent = eventMode;
@@ -1622,8 +1637,6 @@ function saveSheet() {
     if (!selectedActivityLabel || selectedActivityLabel.toLowerCase() !== eventName.toLowerCase()) {
       createActivityFromSearch();
     }
-    const conflicts = editing.filter((slot) => data[slot]).length;
-    if (conflicts && !window.confirm(`This will replace ${conflicts} already logged half-hour block${conflicts === 1 ? "" : "s"}. Continue?`)) return;
   }
   if (!selectedCat) { closeSheet(); return; }
   const sub = selectedSub || "";
@@ -1641,8 +1654,11 @@ function saveSheet() {
   if (sub) rememberSub(selectedCat, sub);
   rememberActivityArea(selectedActivityLabel || sub || (CAT[selectedCat] && CAT[selectedCat].label), selectedCat);
   const block = { category: selectedCat, note, sub };
+  if (savingEvent) {
+    await savePlannedEvent(selectedEventRange(), block, eventTitle, document.getElementById('eventReminderLead').value);
+    return;
+  }
   for (const s of editing) data[s] = { category: selectedCat, note, sub };
-  if (savingEvent) saveEventReminder(dateStr, eventTitle, editing[0], document.getElementById("eventReminderLead").value);
   pushBlocks(dateStr, editing, block);
   render();
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
@@ -4369,6 +4385,15 @@ document.getElementById("eventTimePresets").addEventListener("click", (e) => {
 });
 document.getElementById("eventStart").addEventListener("change", updateEventRange);
 document.getElementById("eventEnd").addEventListener("change", updateEventRange);
+document.getElementById('eventEndDate').addEventListener('change', updateEventRange);
+document.getElementById('eventStartDate').addEventListener('change', () => {
+  const start = document.getElementById('eventStartDate').value;
+  const end = document.getElementById('eventEndDate');
+  if (end.value < start) end.value = start;
+  updateEventRange();
+});
+document.getElementById('eventPrevDay').addEventListener('click', () => moveEventDates(-1));
+document.getElementById('eventNextDay').addEventListener('click', () => moveEventDates(1));
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
@@ -4726,7 +4751,7 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=70").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=71").catch(() => {});
 }
 
 // ---- Daily check-ins and Patterns ----
@@ -4831,4 +4856,77 @@ function renderPatterns(map, range = insightRange) {
   const energies = ratings.map(d => d.checkin.energy).filter(x => x !== null), satisfaction = ratings.map(d => d.checkin.satisfaction).filter(x => x !== null);
   html += section('How your days feel', `<div class="patterns-row"><span>Energy</span><strong>${energies.length ? mean(energies).toFixed(1) + '/5' : '—'} · ${energies.length} ratings</strong></div><div class="patterns-row"><span>Satisfaction</span><strong>${satisfaction.length ? mean(satisfaction).toFixed(1) + '/5' : '—'} · ${satisfaction.length} ratings</strong></div>` + p('Add optional ratings below your daily timeline. A consistent evening check-in helps distinguish busy days from satisfying days. Reflections stay as your own words; they are not automatically scored.'));
   return html;
+}
+
+// Save only the selected blocks on each date; reminders belong to the start.
+async function savePlannedEvent(range, block, title, lead) {
+  if (range.error || !range.days.length) return;
+  const draft = eventDraftVersion;
+  const sheet = document.getElementById('sheet');
+  const button = document.getElementById('saveBlock');
+  button.disabled = true;
+  sheet.inert = true;
+  const remote = {}, rows = [], dayMap = {};
+  let persisted = false;
+  try {
+    if (sb) {
+      for (let offset = 0; ; offset += 500) {
+        const result = await sb.from('blocks').select('date,start_time,category,note,subcategory')
+          .eq('user_id', USER_ID).gte('date', range.days[0].date).lte('date', range.days.at(-1).date)
+          .order('date').order('start_time').range(offset, offset + 499);
+        if (result.error) throw result.error;
+        for (const r of result.data || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '' };
+        if (!result.data || result.data.length < 500) break;
+      }
+    }
+    if (!eventMode || draft !== eventDraftVersion) return;
+    let conflicts = 0;
+    for (const day of range.days) {
+      dayMap[day.date] = { ...loadLocal(day.date), ...remote[day.date] };
+      conflicts += day.slots.filter(slot => dayMap[day.date][slot]).length;
+    }
+    if (conflicts && !window.confirm(`This will replace ${conflicts} already logged half-hour block${conflicts === 1 ? '' : 's'} across ${range.days.length} day${range.days.length === 1 ? '' : 's'}. Continue?`)) return;
+    for (const day of range.days) {
+      for (const slot of day.slots) {
+        dayMap[day.date][slot] = { ...block };
+        rows.push({ user_id: USER_ID, date: day.date, start_time: slot, category: block.category,
+          note: block.note || '', subcategory: block.sub || '', updated_at: new Date().toISOString() });
+      }
+    }
+    const first = range.days[0], firstDay = dayMap[first.date];
+    const reminders = eventRemindersForDay(firstDay).filter(item => item.type === 'rough' || item.start !== first.slots[0]);
+    if (lead !== 'none') reminders.push({ id: `${first.date}-${first.slots[0]}-${Date.now().toString(36)}`,
+      title, start: first.slots[0], lead: Math.max(0, Number(lead) || 0), dismissed: false, notified: false, type: 'event' });
+    const reminder = eventReminderBlock(reminders);
+    if (reminder) firstDay[EVENT_REMINDER_KEY] = reminder;
+    else delete firstDay[EVENT_REMINDER_KEY];
+    for (const day of range.days) saveLocal(day.date, dayMap[day.date]);
+    persisted = true;
+    if (dayMap[ymd(current)]) { data = dayMap[ymd(current)]; render(); }
+    if (!document.getElementById('plannerScreen').hidden) renderPlanner();
+    closeSheet();
+    if (lead !== 'none' && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+    if (sb) {
+      setStatus('syncing', 'Saving event…');
+      for (let offset = 0; offset < rows.length; offset += 500) {
+        const { error } = await sb.from('blocks').upsert(rows.slice(offset, offset + 500), { onConflict: 'user_id,date,start_time' });
+        if (error) throw error;
+      }
+      const query = reminder
+        ? sb.from('blocks').upsert({ user_id: USER_ID, date: first.date, start_time: EVENT_REMINDER_KEY, category: reminder.category, note: reminder.note, subcategory: reminder.sub, updated_at: new Date().toISOString() }, { onConflict: 'user_id,date,start_time' })
+        : sb.from('blocks').delete().eq('user_id', USER_ID).eq('date', first.date).eq('start_time', EVENT_REMINDER_KEY);
+      const { error } = await query;
+      if (error) throw error;
+    }
+    setStatus('ok', `Event saved · ${range.days.length} day${range.days.length === 1 ? '' : 's'}`);
+    renderEventReminderBanner();
+  } catch (error) {
+    console.warn(error);
+    setStatus('err', persisted ? 'Event saved on this device; cloud sync failed. Export a backup before switching devices.' : 'Could not check existing events. Reconnect and press Done to retry.');
+  } finally {
+    if (draft === eventDraftVersion) {
+      sheet.inert = false;
+      if (eventMode) updateEventRange();
+    }
+  }
 }

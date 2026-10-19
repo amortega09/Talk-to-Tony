@@ -49,9 +49,26 @@ the app has no durable pending-edit queue or reliable remote deletion history.
 
 ### Validation
 
-Run `node --test tests/patterns.test.js` and `node --check app.js`.
+Run `node --test tests/*.test.js` and `node --check app.js`.
 Tests cover incomplete logging, calendar imports, period boundaries, minimum
 sample sizes, moved targets, overnight sleep, rating validation, cloud
 pagination/failures, and backward-compatible restore. Browser checks use
 synthetic local data. Live authenticated Supabase sync is not exercised by the
 local browser checks.
+
+## Planning events across dates
+
+In **Plan event**, choose start and end dates, or use the arrows to move both
+one day earlier or later without losing the draft. Custom times support
+crossing midnight; an end time of midnight on the end date excludes that date,
+while “12:00 AM (next day)” includes the full end date. Presets set the start
+and end times of a continuous event, including intervening dates. The range is
+limited to 366 dates and uses the app's usual half-hour clock slots.
+
+The save checks cloud and local entries before confirming any replacements,
+writes only the selected slots on each affected date, preserves subcategories,
+and places a single reminder at the event's start. Invalid ranges cannot be
+saved. If cloud checking fails, no local event is created; if upload fails after
+local saving, a visible status asks the user to back up before switching devices.
+No new database schema is needed. Tests cover cross-midnight saves, date
+boundaries, overwrite cancellation, cloud preflight failure and subcategories.
