@@ -21,7 +21,7 @@ function app({initial={},confirm=true,sb=null}={}) {
  const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,textContent:'',innerHTML:'',addEventListener(){},focus(){}};
  const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
  SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
- vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
+ vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
 }
 test('saving reviewed draft preserves unrelated slots and appends reflections',async()=>{
  const {ctx,store}=app({initial:{'2026-10-20':{'08:00':{category:'food',note:'Breakfast'},__reflect__:{note:'Existing thought'}}}});
@@ -55,4 +55,28 @@ test('connecting does not choose an untested model when the recommendation is un
  ctx.fetch=async()=>({ok:true,json:async()=>({token:'test-token',models:['different-model'],default_model:'',recommended_model:null,api_key_ready:true,transcription_ready:true})});
  await ctx.testVoice.connect();
  assert.equal(get('voiceModel').value,'');assert.equal(get('voiceBuild').disabled,true);assert.match(get('voiceStatus').textContent,/Choose a cloud model explicitly/);
+});
+
+const connectedResponse=()=>({ok:true,json:async()=>({token:'test-token',models:['gemma4:31b'],default_model:'gemma4:31b',recommended_model:'gemma4:31b',api_key_ready:true,transcription_ready:true})});
+test('opening voice automatically connects, refreshes on reopen, and keeps settings collapsed',async()=>{
+ const {ctx,get}=app();let calls=0;
+ ctx.fetch=async()=>{calls++;return connectedResponse();};
+ assert.equal(calls,0);
+ await ctx.testVoice.open();
+ assert.equal(calls,1);assert.equal(ctx.testVoice.state.connected,true);assert.equal(get('voiceSettings').open,false);
+ ctx.testVoice.close();await ctx.testVoice.open();assert.equal(calls,2);assert.equal(ctx.testVoice.state.connected,true);
+});
+test('failed automatic connection reveals settings and permits retry',async()=>{
+ const {ctx,get}=app();ctx.fetch=async()=>{throw new TypeError('Failed to fetch');};
+ await ctx.testVoice.open();
+ assert.equal(ctx.testVoice.state.connected,false);assert.equal(get('voiceSettings').open,true);assert.equal(get('voiceConnect').disabled,false);
+ ctx.fetch=async()=>connectedResponse();await ctx.testVoice.connect();assert.equal(ctx.testVoice.state.connected,true);
+});
+test('closing and reopening during connection does not let the stale request change state',async()=>{
+ const {ctx}=app();const pending=[];ctx.fetch=()=>new Promise(resolve=>pending.push(resolve));
+ const first=ctx.testVoice.open();ctx.testVoice.close();const second=ctx.testVoice.open();
+ pending[0](connectedResponse());await first;
+ assert.equal(ctx.testVoice.state.busy,true);assert.equal(ctx.testVoice.state.connected,false);
+ pending[1](connectedResponse());await second;
+ assert.equal(ctx.testVoice.state.busy,false);assert.equal(ctx.testVoice.state.connected,true);
 });

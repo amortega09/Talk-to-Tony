@@ -88,14 +88,14 @@ saved events or answer analytical questions. Use the timeline/Patterns for those
 Run `python3 desktop.py` from this directory. No Python packages are needed.
 The helper binds only to `127.0.0.1:8765` and creates `.env`.
 Open that file locally and put your Ollama Cloud API key after `OLLAMA_API_KEY=`.
-Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reconnect in the
-app after saving the key file. No local Ollama service or LLM download is needed.
+Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reopen Talk to Day after saving the key file. No local Ollama service or LLM download is needed.
 
 The helper supports the local app origin and `https://amortega09.github.io` by
 default. For a different deployed website, run
 `python3 desktop.py --allow-origin https://your-exact-origin.example`.
-The origin has no path or trailing slash. Open your normal signed-in Day app,
-click **Talk to Day**, and **Connect**. Browsers may require permission to access
+The origin has no path or trailing slash. Open your normal signed-in Day app and click **Talk to Day**. The helper
+connects automatically whenever the panel opens. Advanced settings stay hidden
+after a successful connection; if it fails, use **Retry connection** there. Browsers may require permission to access
 the local helper. The helper URL must be an HTTP loopback address; no public
 proxy or wildcard CORS is used. You can also open `http://127.0.0.1:8765` but will
 need to sign in separately and allow that redirect URL in Supabase Auth.

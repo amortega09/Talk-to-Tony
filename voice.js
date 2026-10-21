@@ -34,6 +34,7 @@
     } finally { clearTimeout(timer); if (state.controller === controller) state.controller = null; }
   }
   async function connect() {
+    if (state.busy || state.saving || state.stream) return;
     const version = state.version;
     state.connected = false; state.busy = true; buttons(); status('Connecting…');
     try {
@@ -49,10 +50,13 @@
       $('voiceModel').value = preferred === 'auto' ? (result.recommended_model ? 'auto' : '') : result.models.includes(preferred) ? preferred : (result.recommended_model ? 'auto' : '');
       localStorage.setItem('day_voice_helper', state.origin);
       status(!state.keyReady ? 'Add your key to .env, then reconnect.' : result.ollama_error || (!$('voiceModel').value ? 'Recommended model unavailable. Choose a cloud model explicitly.' : state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
-      $('voiceSettings').open = !state.keyReady || !result.models.length;
+      $('voiceSettings').open = !state.keyReady || !result.models.length || !$('voiceModel').value;
     } catch (error) {
-      if (version === state.version) status(error.name === 'AbortError' ? 'Connection cancelled or timed out.' : `${error.message} If blocked, allow your Day website with --allow-origin.`);
-    } finally { state.busy = false; buttons(); }
+      if (version === state.version) {
+        $('voiceSettings').open = true;
+        status(error.name === 'AbortError' ? 'Connection timed out. Retry when the helper is ready.' : `${error.message} Check the helper is running, then retry.`);
+      }
+    } finally { if (version === state.version) { state.busy = false; buttons(); } }
   }
   function timeSelect(value, end, index, field) {
     const times = [...SLOTS, ...(end ? ['24:00'] : [])];
@@ -88,7 +92,7 @@
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
       state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); status(state.stale ? 'Your description changed during drafting. Make a new draft before saving.' : `Draft ready${result.model_used ? ' · ' + result.model_used : ''}. Check the dates, times and activities before saving.`);
     } catch (error) { if (version === state.version) status(error.name === 'AbortError' ? 'Request cancelled or timed out. Nothing was saved.' : error.message); }
-    finally { state.busy = false; $('voiceDraft').inert = false; buttons(); }
+    finally { if (version === state.version) { state.busy = false; $('voiceDraft').inert = false; buttons(); } }
   }
   async function record() {
     if (state.recorder?.state === 'recording') { state.recorder.stop(); return; }
@@ -116,13 +120,13 @@
           $('voiceTranscript').value = [$('voiceTranscript').value.trim(), result.text].filter(Boolean).join('\n');
           state.stale = !!state.draft; buttons(); status('Transcript ready. Edit it if needed, then make a draft.');
         } catch (error) { if (version === state.version) status(error.name === 'AbortError' ? 'Transcription cancelled or timed out.' : error.message); }
-        finally { state.busy = false; buttons(); }
+        finally { if (version === state.version) { state.busy = false; buttons(); } }
       };
       recorder.onerror = () => { status('Recording failed. Try again or type your description.'); if (recorder.state !== 'inactive') recorder.stop(); else stream.getTracks().forEach(track => track.stop()); };
       recorder.start(); recordTimer = state.timer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 120000);
       $('voiceRecord').textContent = '■ Stop recording'; status('Recording · click Stop when finished (2 minute limit).');
     } catch (error) { stream?.getTracks().forEach(track => track.stop()); state.stream = null; status(error.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow it in your browser, or type instead.' : 'Could not start the microphone. Type your description instead.'); }
-    finally { state.busy = false; buttons(); }
+    finally { if (version === state.version) { state.busy = false; buttons(); } }
   }
   async function save() {
     if ($('voiceSave').disabled || !state.draft) return;
@@ -170,12 +174,19 @@
   function close() {
     if (state.saving) return;
     state.version++; state.controller?.abort(); clearTimeout(state.timer);
+    state.busy = false; state.connected = false; state.token = '';
+    $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
     $('voiceRecord').textContent = '🎙 Record';
     $('voiceDialog').hidden = true; $('voiceOpen').focus();
   }
-  $('voiceOpen').addEventListener('click', () => { $('voiceDialog').hidden = false; buttons(); $('voiceTranscript').focus(); });
+  async function open() {
+    $('voiceDialog').hidden = false;
+    buttons(); $('voiceTranscript').focus();
+    await connect();
+  }
+  $('voiceOpen').addEventListener('click', open);
   $('voiceClose').addEventListener('click', close);
   $('voiceDialog').addEventListener('click', e => { if (e.target === $('voiceDialog')) close(); });
   $('voiceDialog').addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
