@@ -131,3 +131,13 @@ Cloud API calls may count against your Ollama plan.
 The ignored `.env` file holds the key; `.day-voice/` holds the downloaded speech model.
 It must never be committed. Run `node --test tests/*.test.js` and
 `python3 -m unittest discover -s tests -p 'test_*.py'` for validation.
+
+### Recommended Cloud model
+
+**Automatic → Gemma 4 31B** is the default for new voice settings. It uses
+`think: false` for concise, fast structured drafting. In a small live evaluation,
+it passed all 12 diary-specific checks (1.575 s median); GPT-OSS 120B passed 8/12.
+Manual model choices remain available. Automatic will ask for a manual choice
+if the recommended model is unavailable rather than silently switching models.
+See [the model comparison](docs/voice-model-selection.md) for methods, limitations
+and reproducible synthetic examples. Live evaluations use your Cloud allowance.

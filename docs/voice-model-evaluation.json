@@ -1,0 +1,429 @@
+{
+  "date": "2026-10-21",
+  "description": "Small synthetic task-specific evaluation; concurrent requests, not a general model ranking.",
+  "cases": [
+    {
+      "name": "explicit",
+      "transcript": "Yesterday I did design work from 9 AM to noon, then walked from 1 PM until 2 PM.",
+      "previous": null
+    },
+    {
+      "name": "unknowns",
+      "transcript": "Today I went to the gym and saw friends. I do not remember any of the times.",
+      "previous": null
+    },
+    {
+      "name": "overnight",
+      "transcript": "Yesterday I slept from 11 PM until 7 AM this morning.",
+      "previous": null
+    },
+    {
+      "name": "correction",
+      "transcript": "Actually change the design work to 10 AM until noon. Keep the walk unchanged.",
+      "previous": {
+        "reply": "Review this.",
+        "questions": [],
+        "reflections": [],
+        "items": [
+          {
+            "date": "2026-10-20",
+            "start": "09:00",
+            "end_date": "2026-10-20",
+            "end": "12:00",
+            "category": "work",
+            "activity": "Design work",
+            "note": ""
+          },
+          {
+            "date": "2026-10-20",
+            "start": "13:00",
+            "end_date": "2026-10-20",
+            "end": "14:00",
+            "category": "exercise",
+            "activity": "Walk",
+            "note": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "off_grid",
+      "transcript": "Today I did design work from 9:10 AM until 10:40 AM.",
+      "previous": null
+    },
+    {
+      "name": "unsupported",
+      "transcript": "Delete all my saved work entries from last week.",
+      "previous": null
+    }
+  ],
+  "context": {
+    "today": "2026-10-21",
+    "viewed_date": "2026-10-19",
+    "local_time": "15:00",
+    "timezone": "Europe/London",
+    "activities": [
+      {
+        "activity": "Design work",
+        "category": "work"
+      },
+      {
+        "activity": "Walk",
+        "category": "exercise"
+      }
+    ]
+  },
+  "summary": [
+    {
+      "model": "gpt-oss:20b",
+      "passed": 2,
+      "valid": 6,
+      "total": 6,
+      "median_seconds": 4.319,
+      "think": "low"
+    },
+    {
+      "model": "gpt-oss:120b",
+      "passed": 6,
+      "valid": 6,
+      "total": 6,
+      "median_seconds": 2.713,
+      "think": "low"
+    },
+    {
+      "model": "gemma4:31b",
+      "passed": 6,
+      "valid": 6,
+      "total": 6,
+      "median_seconds": 2.728,
+      "think": false
+    },
+    {
+      "model": "glm-5.3-flash",
+      "passed": 0,
+      "valid": 0,
+      "total": 6,
+      "median_seconds": 0.408,
+      "think": false
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "passed": 0,
+      "valid": 0,
+      "total": 6,
+      "median_seconds": 0.279,
+      "think": null
+    }
+  ],
+  "results": [
+    {
+      "model": "gemma4:31b",
+      "case": "correction",
+      "valid": true,
+      "correct": true,
+      "reply_words": 5,
+      "seconds": 3.033
+    },
+    {
+      "model": "gemma4:31b",
+      "case": "explicit",
+      "valid": true,
+      "correct": true,
+      "reply_words": 9,
+      "seconds": 2.469
+    },
+    {
+      "model": "gemma4:31b",
+      "case": "off_grid",
+      "valid": true,
+      "correct": true,
+      "reply_words": 12,
+      "seconds": 2.693
+    },
+    {
+      "model": "gemma4:31b",
+      "case": "overnight",
+      "valid": true,
+      "correct": true,
+      "reply_words": 10,
+      "seconds": 2.764
+    },
+    {
+      "model": "gemma4:31b",
+      "case": "unknowns",
+      "valid": true,
+      "correct": true,
+      "reply_words": 17,
+      "seconds": 2.635
+    },
+    {
+      "model": "gemma4:31b",
+      "case": "unsupported",
+      "valid": true,
+      "correct": true,
+      "reply_words": 16,
+      "seconds": 2.763
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "correction",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.278
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "explicit",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 1.629
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "off_grid",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.288
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "overnight",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.528
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "unknowns",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.963
+    },
+    {
+      "model": "glm-5.3-flash",
+      "case": "unsupported",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.277
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "correction",
+      "valid": true,
+      "correct": true,
+      "reply_words": 4,
+      "seconds": 2.843
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "explicit",
+      "valid": true,
+      "correct": true,
+      "reply_words": 4,
+      "seconds": 3.203
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "off_grid",
+      "valid": true,
+      "correct": true,
+      "reply_words": 14,
+      "seconds": 2.889
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "overnight",
+      "valid": true,
+      "correct": true,
+      "reply_words": 3,
+      "seconds": 2.582
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "unknowns",
+      "valid": true,
+      "correct": true,
+      "reply_words": 13,
+      "seconds": 2.583
+    },
+    {
+      "model": "gpt-oss:120b",
+      "case": "unsupported",
+      "valid": true,
+      "correct": true,
+      "reply_words": 21,
+      "seconds": 2.54
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "correction",
+      "valid": true,
+      "correct": true,
+      "reply_words": 4,
+      "seconds": 5.019
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "explicit",
+      "valid": true,
+      "correct": false,
+      "reply_words": 6,
+      "draft": {
+        "reply": "Here\u2019s a draft for yesterday\u2019s activities.",
+        "questions": [],
+        "items": [
+          {
+            "date": "2026-10-19",
+            "start": "09:00",
+            "end_date": "2026-10-19",
+            "end": "12:00",
+            "category": "work",
+            "activity": "Design work",
+            "note": ""
+          },
+          {
+            "date": "2026-10-19",
+            "start": "13:00",
+            "end_date": "2026-10-19",
+            "end": "14:00",
+            "category": "exercise",
+            "activity": "Walk",
+            "note": ""
+          }
+        ],
+        "reflections": []
+      },
+      "seconds": 4.44
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "off_grid",
+      "valid": true,
+      "correct": false,
+      "reply_words": 27,
+      "draft": {
+        "reply": "I can draft your activity, but the times you gave don\u2019t align with the 30\u2011minute slots. Please pick a half\u2011hour boundary for the start and end times.",
+        "questions": [
+          "What 30\u2011minute slot would you like to use for the start time?",
+          "What 30\u2011minute slot would you like to use for the end time?"
+        ],
+        "items": [],
+        "reflections": []
+      },
+      "seconds": 4.879
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "overnight",
+      "valid": true,
+      "correct": false,
+      "reply_words": 5,
+      "draft": {
+        "reply": "Added sleep entry for yesterday.",
+        "questions": [],
+        "items": [
+          {
+            "date": "2026-10-19",
+            "start": "23:00",
+            "end_date": "2026-10-20",
+            "end": "07:00",
+            "category": "sleep",
+            "activity": "sleep",
+            "note": ""
+          }
+        ],
+        "reflections": []
+      },
+      "seconds": 2.795
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "unknowns",
+      "valid": true,
+      "correct": false,
+      "reply_words": 15,
+      "draft": {
+        "reply": "I can draft your gym and social activities for today, but I need the times.",
+        "questions": [
+          "What time did you go to the gym?",
+          "What time did you see friends?"
+        ],
+        "items": [],
+        "reflections": []
+      },
+      "seconds": 1.163
+    },
+    {
+      "model": "gpt-oss:20b",
+      "case": "unsupported",
+      "valid": true,
+      "correct": true,
+      "reply_words": 13,
+      "seconds": 4.199
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "correction",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.275
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "explicit",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.67
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "off_grid",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.297
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "overnight",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.272
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "unknowns",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.284
+    },
+    {
+      "model": "mistral-large-3:675b",
+      "case": "unsupported",
+      "valid": false,
+      "correct": false,
+      "error": "Ollama Cloud could not complete the request. Check the selected model.",
+      "seconds": 0.272
+    }
+  ],
+  "availability_followup": {
+    "glm-5.3-flash": {
+      "http_status": 402,
+      "note": "Not included in available usage; not an accuracy measurement."
+    },
+    "mistral-large-3:675b": {
+      "http_status": 402,
+      "note": "Not included in available usage; not an accuracy measurement."
+    }
+  }
+}

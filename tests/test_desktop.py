@@ -39,6 +39,40 @@ class DesktopTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Nothing was saved'):
             desktop.interpret({'model': 'test-cloud', 'transcript': 'Hello', 'context': {'today': '2026-10-21', 'viewed_date': '2026-10-20'}})
 
+    @patch('desktop.cloud_models', return_value=[{'name': 'gemma4:31b'}, {'name': 'gpt-oss:120b'}])
+    @patch('desktop.ollama')
+    def test_automatic_selects_task_tested_gemma_without_thinking(self, call, _models):
+        call.return_value = {'message': {'content': json.dumps(draft())}}
+        payload = {'model': 'auto', 'transcript': 'Worked nine to twelve', 'context': {'today': '2026-10-21', 'viewed_date': '2026-10-20'}}
+        result = desktop.interpret(payload)
+        request = call.call_args.args[1]
+        self.assertEqual(request['model'], 'gemma4:31b')
+        self.assertIs(request['think'], False)
+        self.assertEqual(result['model_used'], 'gemma4:31b')
+        self.assertNotIn('format', request)
+        payload['model'] = 'gpt-oss:120b'
+        desktop.interpret(payload)
+        self.assertEqual(call.call_args.args[1]['think'], 'low')
+
+    @patch('desktop.cloud_models', return_value=[{'name': 'different-model'}])
+    @patch('desktop.ollama')
+    def test_unavailable_recommendation_does_not_silently_choose_another_model(self, call, _models):
+        with self.assertRaisesRegex(ValueError, 'recommended diary model is unavailable'):
+            desktop.interpret({'model': 'auto', 'transcript': 'Hello'})
+        call.assert_not_called()
+
+    @patch('desktop.ollama', return_value={'models': [
+        {'name': 'chat', 'capabilities': ['completion']},
+        {'name': 'decision', 'capabilities': ['decision', 'vision']},
+        {'name': 'embed', 'capabilities': ['embedding']}]})
+    def test_model_catalog_excludes_non_chat_models(self, _call):
+        self.assertEqual([m['name'] for m in desktop.cloud_models()], ['chat'])
+
+    def test_malformed_model_message_is_reported_without_crashing(self):
+        for value in [None, {'message': None}, {'message': {'content': None}}, {'message': {'content': '{}'}}]:
+            with self.assertRaisesRegex(ValueError, 'Nothing was saved'):
+                desktop.parse_model_draft(value)
+
     def test_api_key_stays_in_server_config(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(desktop, 'ROOT', Path(temp)), patch.dict(os.environ, {'OLLAMA_API_KEY': ''}):
             folder = Path(temp) / '.day-voice'; folder.mkdir(); (folder / 'ollama.env').write_text('OLLAMA_API_KEY="test-only-not-real"\n')

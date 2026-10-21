@@ -42,11 +42,13 @@
       if (version !== state.version) return;
       if (!result.token || !Array.isArray(result.models)) throw new Error('Desktop helper returned an invalid connection response.');
       state.token = result.token; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready;
-      const preferred = localStorage.getItem('day_voice_model');
-      $('voiceModel').innerHTML = result.models.map(model => `<option value="${escape(model)}">${escape(model)}</option>`).join('');
-      $('voiceModel').value = result.models.includes(preferred) ? preferred : result.default_model;
+      const preferred = localStorage.getItem('day_voice_model_v2') || 'auto';
+      const automatic = result.recommended_model ? `<option value="auto">Automatic · ${escape(result.recommended_model)} (recommended)</option>` : '<option value="">Choose a cloud model (recommendation unavailable)</option>';
+      const models = [...result.models].sort((a, b) => (a === result.recommended_model ? -1 : b === result.recommended_model ? 1 : a.localeCompare(b)));
+      $('voiceModel').innerHTML = automatic + models.map(model => `<option value="${escape(model)}">${escape(model)}</option>`).join('');
+      $('voiceModel').value = preferred === 'auto' ? (result.recommended_model ? 'auto' : '') : result.models.includes(preferred) ? preferred : (result.recommended_model ? 'auto' : '');
       localStorage.setItem('day_voice_helper', state.origin);
-      status(!state.keyReady ? 'Add your key to .env, then reconnect.' : result.ollama_error || (state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
+      status(!state.keyReady ? 'Add your key to .env, then reconnect.' : result.ollama_error || (!$('voiceModel').value ? 'Recommended model unavailable. Choose a cloud model explicitly.' : state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
       $('voiceSettings').open = !state.keyReady || !result.models.length;
     } catch (error) {
       if (version === state.version) status(error.name === 'AbortError' ? 'Connection cancelled or timed out.' : `${error.message} If blocked, allow your Day website with --allow-origin.`);
@@ -84,7 +86,7 @@
           activities: activityOptions().slice(0, 80).map(a => ({ activity: a.label, category: a.catId })) } });
       if (version !== state.version) return;
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
-      state.draft = result; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); status(state.stale ? 'Your description changed during drafting. Make a new draft before saving.' : 'Draft ready. Check the dates, times and activities before saving.');
+      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); status(state.stale ? 'Your description changed during drafting. Make a new draft before saving.' : `Draft ready${result.model_used ? ' · ' + result.model_used : ''}. Check the dates, times and activities before saving.`);
     } catch (error) { if (version === state.version) status(error.name === 'AbortError' ? 'Request cancelled or timed out. Nothing was saved.' : error.message); }
     finally { state.busy = false; $('voiceDraft').inert = false; buttons(); }
   }
@@ -182,7 +184,7 @@
   $('voiceBuild').addEventListener('click', build);
   $('voiceSave').addEventListener('click', save);
   $('voiceHelper').addEventListener('input', () => { state.connected = false; buttons(); status('Reconnect to use the new helper address.'); });
-  $('voiceModel').addEventListener('change', () => localStorage.setItem('day_voice_model', $('voiceModel').value));
+  $('voiceModel').addEventListener('change', () => localStorage.setItem('day_voice_model_v2', $('voiceModel').value));
   $('voiceTranscript').addEventListener('input', () => { state.stale = !!state.draft; buttons(); });
   $('voiceDraft').addEventListener('input', e => {
     const { group, index, field } = e.target.dataset;

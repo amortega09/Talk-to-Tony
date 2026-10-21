@@ -16,6 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
+# Chosen by the synthetic diary evaluation in docs/voice-model-finalists.json.
+RECOMMENDED_MODEL = 'gemma4:31b'
+MODEL_THINKING = {'gemma4:31b': False, 'gpt-oss:120b': 'low', 'gpt-oss:20b': 'low'}
+
 CATEGORIES = ['sleep', 'work', 'exercise', 'gym', 'food', 'learn', 'social', 'chores', 'travel', 'relax', 'other']
 NULL_TEXT = {'type': ['string', 'null']}
 ITEM = {'type': 'object', 'additionalProperties': False, 'properties': {
@@ -71,6 +75,8 @@ def ollama(path, payload=None, timeout=10):
         if response.status != 200:
             if response.status in [401, 403]:
                 raise ValueError('Ollama Cloud rejected the API key. Update OLLAMA_API_KEY in .env, then reconnect.')
+            if response.status == 402:
+                raise ValueError('This model is not included in your Ollama plan. Choose Automatic (Gemma 4) or another included model.')
             if response.status == 429:
                 raise ValueError('Ollama Cloud usage limit reached. Try again later or check your plan.')
             raise ValueError('Ollama Cloud could not complete the request. Check the selected model.')
@@ -81,7 +87,8 @@ def ollama(path, payload=None, timeout=10):
 
 def cloud_models():
     return [m for m in ollama('/api/tags').get('models', [])
-            if 'embed' not in m.get('name', '').lower()]
+            if 'embed' not in m.get('name', '').lower()
+            and ('capabilities' not in m or 'completion' in m['capabilities'])]
 
 
 def valid_date(value):
@@ -129,8 +136,13 @@ def interpret(payload):
     transcript = payload.get('transcript')
     if not isinstance(transcript, str) or not transcript.strip() or len(transcript) > 12000:
         raise ValueError('Enter a description of up to 12,000 characters.')
-    model = payload.get('model')
-    if model not in [m['name'] for m in cloud_models()]:
+    available = [m['name'] for m in cloud_models()]
+    model = payload.get('model', 'auto')
+    if model == 'auto':
+        if RECOMMENDED_MODEL not in available:
+            raise ValueError('The recommended diary model is unavailable. Reconnect and choose a cloud model manually.')
+        model = RECOMMENDED_MODEL
+    if model not in available:
         raise ValueError('Select an available Ollama Cloud model, then reconnect.')
     context = payload.get('context', {})
     if not isinstance(context, dict) or not valid_date(context.get('today')) or not valid_date(context.get('viewed_date')):
@@ -141,9 +153,23 @@ def interpret(payload):
     data = {'transcript': transcript, 'context': context, 'previous_draft': previous}
     if len(json.dumps(data)) > 60000:
         raise ValueError('Draft is too large. Split this into a smaller request.')
-    result = ollama('/api/chat', {'model': model, 'stream': False, 'messages': [{'role': 'system', 'content': SYSTEM + '\nRequired JSON schema: ' + json.dumps(SCHEMA)}, {'role': 'user', 'content': json.dumps(data)}],
-        'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 2500}}, timeout=180)
-    text = result.get('message', {}).get('content', '').strip()
+    request = {'model': model, 'stream': False, 'messages': [
+        {'role': 'system', 'content': SYSTEM + '\nRequired JSON schema: ' + json.dumps(SCHEMA)},
+        {'role': 'user', 'content': json.dumps(data)}],
+        'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 2500}}
+    if model in MODEL_THINKING:
+        request['think'] = MODEL_THINKING[model]
+    result = ollama('/api/chat', request, timeout=180)
+    draft = parse_model_draft(result)
+    return {**draft, 'model_used': model}
+
+
+def parse_model_draft(result):
+    message = result.get('message') if isinstance(result, dict) else None
+    text = message.get('content') if isinstance(message, dict) else None
+    if not isinstance(text, str):
+        raise ValueError('The cloud model returned an invalid draft. Nothing was saved; try again or select another model.')
+    text = text.strip()
     if text.startswith('```'):
         lines = text.splitlines()
         text = '\n'.join(lines[1:-1]) if lines[-1].strip() == '```' else text
@@ -227,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
                 error = 'Could not list Ollama Cloud models. Check your internet connection.'
             binary, model, ffmpeg = transcription_setup()
             names = [m['name'] for m in models]
-            return self.send(200, {'models': names, 'default_model': 'gpt-oss:120b' if 'gpt-oss:120b' in names else next(iter(names), ''),
+            return self.send(200, {'models': names, 'default_model': RECOMMENDED_MODEL if RECOMMENDED_MODEL in names else '',
+                'recommended_model': RECOMMENDED_MODEL if RECOMMENDED_MODEL in names else None,
                 'api_key_ready': bool(api_key()),
                 'ollama_error': error, 'transcription_ready': bool(binary and ffmpeg and model.is_file()), 'token': self.server.token})
         # Serve only app assets, never source directories, config backups or models.

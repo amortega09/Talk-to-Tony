@@ -21,7 +21,7 @@ function app({initial={},confirm=true,sb=null}={}) {
  const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,textContent:'',innerHTML:'',addEventListener(){},focus(){}};
  const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
  SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
- vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
+ vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
 }
 test('saving reviewed draft preserves unrelated slots and appends reflections',async()=>{
  const {ctx,store}=app({initial:{'2026-10-20':{'08:00':{category:'food',note:'Breakfast'},__reflect__:{note:'Existing thought'}}}});
@@ -41,4 +41,18 @@ test('closing voice capture stops microphone tracks without requesting transcrip
  ctx.MediaRecorder=Recorder;ctx.window.MediaRecorder=Recorder;ctx.navigator.mediaDevices={getUserMedia:async()=>stream};
  await ctx.testVoice.record();assert.equal(ctx.testVoice.state.recorder.state,'recording');
  ctx.testVoice.close();assert.ok(stopped>0);assert.equal(ctx.testVoice.state.stream,null);assert.equal(get('voiceDialog').hidden,true);
+});
+
+test('connecting defaults to the task-tested automatic model',async()=>{
+ const {ctx,get}=app();
+ ctx.fetch=async()=>({ok:true,json:async()=>({token:'test-token',models:['gpt-oss:120b','gemma4:31b'],default_model:'gemma4:31b',recommended_model:'gemma4:31b',api_key_ready:true,transcription_ready:true})});
+ await ctx.testVoice.connect();
+ assert.equal(get('voiceModel').value,'auto');assert.match(get('voiceModel').innerHTML,/gemma4:31b \(recommended\)/);assert.equal(ctx.testVoice.state.connected,true);
+});
+
+test('connecting does not choose an untested model when the recommendation is unavailable',async()=>{
+ const {ctx,get}=app();
+ ctx.fetch=async()=>({ok:true,json:async()=>({token:'test-token',models:['different-model'],default_model:'',recommended_model:null,api_key_ready:true,transcription_ready:true})});
+ await ctx.testVoice.connect();
+ assert.equal(get('voiceModel').value,'');assert.equal(get('voiceBuild').disabled,true);assert.match(get('voiceStatus').textContent,/Choose a cloud model explicitly/);
 });
