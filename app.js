@@ -4751,7 +4751,7 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=72").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=73").catch(() => {});
 }
 
 // ---- Daily check-ins and Patterns ----

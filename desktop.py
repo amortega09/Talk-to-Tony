@@ -44,19 +44,23 @@ def api_key():
     value = os.environ.get('OLLAMA_API_KEY', '').strip()
     if value:
         return value
-    try:
-        for line in (ROOT / '.day-voice/ollama.env').read_text().splitlines():
-            if line.strip().startswith('OLLAMA_API_KEY='):
-                return line.strip().split('=', 1)[1].strip().strip('"\'')
-    except OSError:
-        pass
+    for filename in ['.env', '.day-voice/ollama.env']:
+        try:
+            for line in (ROOT / filename).read_text().splitlines():
+                name, separator, value = line.partition('=')
+                if separator and name.strip() == 'OLLAMA_API_KEY':
+                    value = value.strip().strip('"\'')
+                    if value:
+                        return value
+        except OSError:
+            pass
     return ''
 
 
 def ollama(path, payload=None, timeout=10):
     key = api_key()
     if payload is not None and not key:
-        raise ValueError('Set OLLAMA_API_KEY in .day-voice/ollama.env or the helper environment, then reconnect.')
+        raise ValueError('Set OLLAMA_API_KEY in .env or the helper environment, then reconnect.')
     connection = http.client.HTTPSConnection('ollama.com', timeout=timeout)
     try:
         connection.request('POST' if payload is not None else 'GET', path,
@@ -66,7 +70,7 @@ def ollama(path, payload=None, timeout=10):
         data = json.loads(response.read(2_000_000))
         if response.status != 200:
             if response.status in [401, 403]:
-                raise ValueError('Ollama Cloud rejected the API key. Update OLLAMA_API_KEY in .day-voice/ollama.env, then reconnect.')
+                raise ValueError('Ollama Cloud rejected the API key. Update OLLAMA_API_KEY in .env, then reconnect.')
             if response.status == 429:
                 raise ValueError('Ollama Cloud usage limit reached. Try again later or check your plan.')
             raise ValueError('Ollama Cloud could not complete the request. Check the selected model.')
@@ -275,7 +279,7 @@ def main():
         parsed = urlsplit(origin)
         if parsed.scheme not in ['http', 'https'] or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
             parser.error('--allow-origin must be an exact http(s) origin without a trailing slash or path')
-    settings = ROOT / '.day-voice/ollama.env'
+    settings = ROOT / '.env'
     settings.parent.mkdir(exist_ok=True)
     try:
         descriptor = os.open(settings, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

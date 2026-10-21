@@ -46,6 +46,16 @@ class DesktopTests(unittest.TestCase):
         with patch.dict(os.environ, {'OLLAMA_API_KEY': 'environment-test'}):
             self.assertEqual(desktop.api_key(), 'environment-test')
 
+    def test_root_env_takes_priority_and_blank_root_keeps_legacy_support(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(desktop, 'ROOT', Path(temp)), patch.dict(os.environ, {'OLLAMA_API_KEY': ''}):
+            root = Path(temp)
+            folder = root / '.day-voice'; folder.mkdir()
+            (folder / 'ollama.env').write_text('OLLAMA_API_KEY=legacy-test\n')
+            (root / '.env').write_text('OLLAMA_API_KEY=\n')
+            self.assertEqual(desktop.api_key(), 'legacy-test')
+            (root / '.env').write_text('OLLAMA_API_KEY = "root-test"\n')
+            self.assertEqual(desktop.api_key(), 'root-test')
+
     def handler(self, path, headers=None):
         handler = desktop.Handler.__new__(desktop.Handler)
         handler.headers = {'Host': '127.0.0.1:8765', **(headers or {})}
@@ -58,7 +68,7 @@ class DesktopTests(unittest.TestCase):
         h = self.handler('/api/voice/status', {'Origin': 'https://evil.example'}); h.do_GET(); self.assertEqual(h.results[0][0], 403)
         h = self.handler('/api/voice/status', {'Host': 'evil.example'}); h.do_GET(); self.assertEqual(h.results[0][0], 403)
         h = self.handler('/api/voice/draft', {'Origin': 'https://trusted.example'}); h.do_POST(); self.assertEqual(h.results[0][0], 403)
-        for path in ['/.git/config', '/.day-voice/ollama.env', '/desktop.py', '/README.md']:
+        for path in ['/.env', '/.git/config', '/.day-voice/ollama.env', '/desktop.py', '/README.md']:
             h = self.handler(path); h.do_GET(); self.assertEqual(h.results[0][0], 404)
 
     @patch('desktop.api_key', return_value='server-only-test-key')

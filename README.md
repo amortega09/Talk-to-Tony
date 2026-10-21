@@ -86,7 +86,7 @@ saved events or answer analytical questions. Use the timeline/Patterns for those
 ### Start the helper
 
 Run `python3 desktop.py` from this directory. No Python packages are needed.
-The helper binds only to `127.0.0.1:8765` and creates `.day-voice/ollama.env`.
+The helper binds only to `127.0.0.1:8765` and creates `.env`.
 Open that file locally and put your Ollama Cloud API key after `OLLAMA_API_KEY=`.
 Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reconnect in the
 app after saving the key file. No local Ollama service or LLM download is needed.
@@ -128,6 +128,6 @@ Audio is not sent to Ollama. Text input works without transcription installed.
 The helper never receives Supabase credentials or writes diary records itself.
 Cloud API calls may count against your Ollama plan.
 
-The ignored `.day-voice/` directory holds the key and downloaded speech model.
+The ignored `.env` file holds the key; `.day-voice/` holds the downloaded speech model.
 It must never be committed. Run `node --test tests/*.test.js` and
 `python3 -m unittest discover -s tests -p 'test_*.py'` for validation.

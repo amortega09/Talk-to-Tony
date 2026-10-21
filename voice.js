@@ -46,7 +46,7 @@
       $('voiceModel').innerHTML = result.models.map(model => `<option value="${escape(model)}">${escape(model)}</option>`).join('');
       $('voiceModel').value = result.models.includes(preferred) ? preferred : result.default_model;
       localStorage.setItem('day_voice_helper', state.origin);
-      status(!state.keyReady ? 'Add your key to .day-voice/ollama.env, then reconnect.' : result.ollama_error || (state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
+      status(!state.keyReady ? 'Add your key to .env, then reconnect.' : result.ollama_error || (state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
       $('voiceSettings').open = !state.keyReady || !result.models.length;
     } catch (error) {
       if (version === state.version) status(error.name === 'AbortError' ? 'Connection cancelled or timed out.' : `${error.message} If blocked, allow your Day website with --allow-origin.`);
