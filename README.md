@@ -72,3 +72,62 @@ saved. If cloud checking fails, no local event is created; if upload fails after
 local saving, a visible status asks the user to back up before switching devices.
 No new database schema is needed. Tests cover cross-midnight saves, date
 boundaries, overwrite cancellation, cloud preflight failure and subcategories.
+
+## Desktop voice + Ollama Cloud
+
+Open **Talk to Day**. Record locally (up to two minutes), edit the transcript,
+choose **Make draft**, then review/edit the dates, times, categories and notes
+before **Save reviewed draft**. You can describe corrections and make another
+draft. Missing times stay blank; overlapping/invalid entries cannot be saved.
+Reflections are appended. Existing time blocks require replacement confirmation.
+This first version drafts activities and reflections; it does not move/delete
+saved events or answer analytical questions. Use the timeline/Patterns for those.
+
+### Start the helper
+
+Run `python3 desktop.py` from this directory. No Python packages are needed.
+The helper binds only to `127.0.0.1:8765` and creates `.day-voice/ollama.env`.
+Open that file locally and put your Ollama Cloud API key after `OLLAMA_API_KEY=`.
+Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reconnect in the
+app after saving the key file. No local Ollama service or LLM download is needed.
+
+The helper supports the local app origin and `https://amortega09.github.io` by
+default. For a different deployed website, run
+`python3 desktop.py --allow-origin https://your-exact-origin.example`.
+The origin has no path or trailing slash. Open your normal signed-in Day app,
+click **Talk to Day**, and **Connect**. Browsers may require permission to access
+the local helper. The helper URL must be an HTTP loopback address; no public
+proxy or wildcard CORS is used. You can also open `http://127.0.0.1:8765` but will
+need to sign in separately and allow that redirect URL in Supabase Auth.
+
+Cloud models are listed by Ollama's API. Draft requests use
+`https://ollama.com/api/chat` with a server-side Bearer key. Ollama Cloud does not
+currently support schema-constrained structured outputs, so the schema is
+included in the prompt and both server and browser validate the draft. Invalid
+model output is rejected. API keys never go into browser storage, `config.js`,
+responses, request logs, or Git. Keep the helper running while using voice.
+
+### Optional local microphone transcription
+
+On macOS, install `whisper-cpp` and `ffmpeg` with Homebrew:
+
+```sh
+brew install whisper-cpp ffmpeg
+mkdir -p .day-voice/models
+curl -fL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin -o .day-voice/models/ggml-base.en.bin
+```
+
+You can override `DAY_WHISPER_BIN` and `DAY_WHISPER_MODEL`. The default model
+transcribes English. The helper converts recordings with ffmpeg and runs
+whisper-cli, with timeouts and temporary files deleted after transcription.
+Audio is not sent to Ollama. Text input works without transcription installed.
+
+**Data flow:** audio → local transcription → editable transcript → Ollama Cloud
+(text, up to 80 known activity names/categories, viewed date and prior draft)
+→ validated preview → explicit save → existing local/Supabase storage.
+The helper never receives Supabase credentials or writes diary records itself.
+Cloud API calls may count against your Ollama plan.
+
+The ignored `.day-voice/` directory holds the key and downloaded speech model.
+It must never be committed. Run `node --test tests/*.test.js` and
+`python3 -m unittest discover -s tests -p 'test_*.py'` for validation.

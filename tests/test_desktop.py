@@ -1,0 +1,81 @@
+import io
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import desktop
+
+
+def draft():
+    return {'reply': 'Review this.', 'questions': [], 'items': [{'date': '2026-10-20', 'start': '09:00', 'end_date': '2026-10-20', 'end': '12:00', 'category': 'work', 'activity': 'CFD', 'note': ''}], 'reflections': []}
+
+
+class DesktopTests(unittest.TestCase):
+    def test_validate_unknowns_and_reject_malformed_drafts(self):
+        good = draft(); good['items'][0]['start'] = None
+        self.assertEqual(desktop.validate_draft(good), good)
+        for field, value in [('category', 'bad'), ('date', '2026-02-30'), ('start', '09:15'), ('note', 1)]:
+            bad = draft(); bad['items'][0][field] = value
+            with self.assertRaises(ValueError): desktop.validate_draft(bad)
+
+    @patch('desktop.cloud_models', return_value=[{'name': 'test-cloud'}])
+    @patch('desktop.ollama')
+    def test_cloud_request_uses_prompt_schema_without_unsupported_format(self, call, _models):
+        call.return_value = {'message': {'content': '```json\n' + json.dumps(draft()) + '\n```'}}
+        result = desktop.interpret({'model': 'test-cloud', 'transcript': 'Worked from nine to twelve', 'context': {'today': '2026-10-21', 'viewed_date': '2026-10-20'}})
+        self.assertEqual(result['items'][0]['activity'], 'CFD')
+        args = call.call_args.args[1]
+        self.assertNotIn('format', args)
+        self.assertIn('Required JSON schema', args['messages'][0]['content'])
+
+    @patch('desktop.cloud_models', return_value=[{'name': 'test-cloud'}])
+    @patch('desktop.ollama', return_value={'message': {'content': 'not json'}})
+    def test_invalid_cloud_response_fails_without_writing(self, _call, _models):
+        with self.assertRaisesRegex(ValueError, 'Nothing was saved'):
+            desktop.interpret({'model': 'test-cloud', 'transcript': 'Hello', 'context': {'today': '2026-10-21', 'viewed_date': '2026-10-20'}})
+
+    def test_api_key_stays_in_server_config(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(desktop, 'ROOT', Path(temp)), patch.dict(os.environ, {'OLLAMA_API_KEY': ''}):
+            folder = Path(temp) / '.day-voice'; folder.mkdir(); (folder / 'ollama.env').write_text('OLLAMA_API_KEY="test-only-not-real"\n')
+            self.assertEqual(desktop.api_key(), 'test-only-not-real')
+        with patch.dict(os.environ, {'OLLAMA_API_KEY': 'environment-test'}):
+            self.assertEqual(desktop.api_key(), 'environment-test')
+
+    def handler(self, path, headers=None):
+        handler = desktop.Handler.__new__(desktop.Handler)
+        handler.headers = {'Host': '127.0.0.1:8765', **(headers or {})}
+        handler.server = SimpleNamespace(hosts={'127.0.0.1:8765'}, origins={'https://trusted.example'}, token='test-token')
+        handler.path = path; handler.results = []
+        handler.send = lambda *result: handler.results.append(result)
+        return handler
+
+    def test_origin_host_and_token_boundaries(self):
+        h = self.handler('/api/voice/status', {'Origin': 'https://evil.example'}); h.do_GET(); self.assertEqual(h.results[0][0], 403)
+        h = self.handler('/api/voice/status', {'Host': 'evil.example'}); h.do_GET(); self.assertEqual(h.results[0][0], 403)
+        h = self.handler('/api/voice/draft', {'Origin': 'https://trusted.example'}); h.do_POST(); self.assertEqual(h.results[0][0], 403)
+        for path in ['/.git/config', '/.day-voice/ollama.env', '/desktop.py', '/README.md']:
+            h = self.handler(path); h.do_GET(); self.assertEqual(h.results[0][0], 404)
+
+    @patch('desktop.api_key', return_value='server-only-test-key')
+    @patch('desktop.cloud_models', return_value=[{'name': 'test-cloud'}])
+    def test_status_exposes_readiness_but_not_api_key(self, _models, _key):
+        h = self.handler('/api/voice/status'); h.do_GET()
+        data = h.results[0][1]
+        self.assertTrue(data['api_key_ready']); self.assertNotIn('server-only-test-key', json.dumps(data))
+
+    @patch('desktop.api_key', return_value='not-real')
+    @patch('desktop.http.client.HTTPSConnection')
+    def test_cloud_credentials_only_go_to_fixed_https_host(self, connection, _key):
+        response = connection.return_value.getresponse.return_value; response.status = 200; response.read.return_value = b'{}'
+        desktop.ollama('/api/chat', {'model': 'test'})
+        self.assertEqual(connection.call_args.args[0], 'ollama.com')
+        self.assertEqual(connection.return_value.request.call_args.args[3]['Authorization'], 'Bearer not-real')
+
+
+if __name__ == '__main__':
+    unittest.main()

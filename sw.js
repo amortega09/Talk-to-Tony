@@ -1,9 +1,9 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v71";
+const CACHE = "day-v72";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=71", "./app.js?v=71", "./config.js?v=40",
+  "./", "./index.html", "./styles.css?v=72", "./app.js?v=72", "./config.js?v=40",
 
-  "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
+  "./voice.js?v=72", "./voice-draft.js?v=72", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
 
@@ -24,6 +24,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.hostname.endsWith("supabase.co")) return; // never touch API calls
+  if (url.pathname.startsWith("/api/voice/")) return;
   if (e.request.method !== "GET") return;
   e.respondWith(
     fetch(e.request).then((res) => {

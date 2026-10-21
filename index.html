@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=71" />
+  <link rel="stylesheet" href="styles.css?v=72" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -52,6 +52,7 @@
     </div>
 
     <div class="day-actions">
+      <button class="day-event-btn" id="voiceOpen" type="button">🎙 Talk to Day</button>
       <button class="day-event-btn" id="addEventBtn" type="button"><span aria-hidden="true">＋</span> Plan event</button>
       <button class="day-event-btn gcal-sync-btn" id="gcalSyncTopBtn" type="button"><span aria-hidden="true">📅</span> Sync GCal</button>
     </div>
@@ -327,6 +328,30 @@
     </div>
   </section>
 
+  <div class="sheet-backdrop" id="voiceDialog" hidden>
+    <section class="sheet voice-sheet" role="dialog" aria-modal="true" aria-labelledby="voiceTitle">
+      <div class="voice-heading"><h2 id="voiceTitle">Talk to Day</h2><button type="button" class="nav-btn" id="voiceClose" aria-label="Close voice logging">×</button></div>
+      <p class="voice-muted">Describe your day or correct the draft. Review everything before saving.</p>
+      <details id="voiceSettings" open>
+        <summary>Connection settings</summary>
+        <label>Desktop helper<input id="voiceHelper" type="url" value="http://127.0.0.1:8765" /></label>
+        <button type="button" id="voiceConnect" class="ghost-btn">Connect</button>
+        <label>Ollama Cloud model<select id="voiceModel"><option value="">Connect to load models</option></select></label>
+        <p class="voice-muted">Start the helper with <code>python3 desktop.py</code>. Put <code>OLLAMA_API_KEY</code> in <code>.day-voice/ollama.env</code>, never in browser config.</p>
+      </details>
+      <p id="voiceStatus" class="voice-status" role="status">Connect your desktop helper to begin.</p>
+      <label for="voiceTranscript">What happened?</label>
+      <textarea id="voiceTranscript" rows="4" maxlength="12000" placeholder="Yesterday I worked on CFD from 9 to 12. Then…"></textarea>
+      <div class="voice-actions"><button type="button" id="voiceRecord" class="ghost-btn" disabled>🎙 Record</button><button type="button" id="voiceBuild" class="primary-btn" disabled>Make draft</button></div>
+      <p class="voice-muted">Audio is transcribed on this computer. Make draft sends your text, activity names and draft to Ollama Cloud. Saved entries use your existing sync settings.</p>
+      <div id="voiceReply" class="voice-reply" hidden></div>
+      <div id="voiceQuestions" class="voice-muted"></div>
+      <div id="voiceDraft"></div>
+      <p id="voiceValidation" class="voice-status" role="status"></p>
+      <button type="button" id="voiceSave" class="primary-btn" hidden disabled>Save reviewed draft</button>
+    </section>
+  </div>
+
   <!-- Edit sheet -->
   <div class="sheet-backdrop" id="sheetBackdrop" hidden>
     <div class="sheet" id="sheet" role="dialog" aria-modal="true">
@@ -416,7 +441,9 @@
   <script src="config.js?v=40"></script>
   <script src="patterns.js?v=70"></script>
   <script src="event-range.js?v=71"></script>
-  <script src="app.js?v=71"></script>
+  <script src="voice-draft.js?v=72"></script>
+  <script src="app.js?v=72"></script>
+  <script src="voice.js?v=72"></script>
 
 
 </body>

@@ -1493,7 +1493,7 @@ function focusDiaryTargetSelected() {
 function handleDiaryTargetKeyboard(event) {
   const app = document.getElementById("app");
   if (app.hidden || event.defaultPrevented || !document.getElementById("helpDialog").hidden) return;
-  const overlayOpen = ["sheetBackdrop", "statsScreen", "plannerScreen", "calendarScreen", "insightScreen"]
+  const overlayOpen = ["sheetBackdrop", "voiceDialog", "statsScreen", "plannerScreen", "calendarScreen", "insightScreen"]
     .some((id) => !document.getElementById(id).hidden);
   if (overlayOpen || event.ctrlKey || event.metaKey || event.altKey) return;
   const target = event.target instanceof Element ? event.target : document.body;
@@ -4751,7 +4751,7 @@ wireGCalControls();
 
 // ---- Service worker (offline) ----
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=71").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=72").catch(() => {});
 }
 
 // ---- Daily check-ins and Patterns ----
