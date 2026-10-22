@@ -38,10 +38,17 @@ real recordings.
 - 34 JavaScript and 17 Python tests pass. Browser verification covered a live
   Ollama draft, invalid-time rejection, editing and saving synthetic data.
 
-Not yet done: a deployed Vercel project, production end-to-end authentication,
-a dedicated speech provider, durable quotas, draft recovery across reloads,
-or atomic/idempotent cloud saves. The Vercel device sign-in attempt expired;
-account authentication is the deployment prerequisite.
+Deployment update: the Vercel project is now linked to GitHub and deployed at
+https://talk-to-tony-nu.vercel.app. Production and preview server credentials are
+configured privately. The existing GitHub Pages app now points to that hosted
+voice API. Public smoke checks passed for the app shell, unsigned-request
+rejection, CORS preflight and disallowed-origin rejection. Supabase's redirect
+allowlist for the new frontend origin and a real signed-in end-to-end test remain
+to be confirmed. See [deployment details](vercel-deployment.md).
+
+Not yet done: a dedicated speech provider, durable quotas, draft recovery across
+reloads, or atomic/idempotent cloud saves. Browser speech recognition is the
+initial hosted transcription path.
 
 ## Phase 1: deploy a private hosted pilot
 

@@ -8,3 +8,5 @@ tests
 docs
 node_modules
 .private
+
+dist

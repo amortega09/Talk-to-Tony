@@ -3,7 +3,11 @@ from pathlib import Path
 import shutil
 root = Path(__file__).resolve().parents[1]
 out = root / 'dist'
-out.mkdir(exist_ok=True)
+if out.is_symlink():
+    raise SystemExit('Refusing to build into a symlink.')
+if out.exists():
+    shutil.rmtree(out)
+out.mkdir()
 for name in ['index.html', 'styles.css', 'app.js', 'voice.js', 'voice-draft.js', 'patterns.js', 'event-range.js', 'config.js', 'manifest.webmanifest', 'sw.js']:
     shutil.copy2(root / name, out / name)
 shutil.copytree(root / 'icons', out / 'icons', dirs_exist_ok=True)

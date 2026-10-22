@@ -87,6 +87,8 @@ Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md
 
 ### Hosted voice (no desktop helper)
 
+Production: https://talk-to-tony-nu.vercel.app. See [deployment status and login setup](docs/vercel-deployment.md).
+
 The repository includes Vercel endpoints at `/api/voice/status` and
 `/api/voice/draft`. Set these server environment variables before deploying:
 `OLLAMA_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and

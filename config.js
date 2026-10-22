@@ -7,3 +7,5 @@ window.APP_CONFIG = {
   GOOGLE_CLIENT_ID: "352941443105-84bmtinvo2ha4igtjqrcath4hmg2t92e.apps.googleusercontent.com"
 };
 
+
+window.APP_CONFIG.VOICE_API_URL = "https://talk-to-tony-nu.vercel.app";
