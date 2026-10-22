@@ -1,7 +1,7 @@
 /* Portable microphone transcription, independent of the browser's speech service. */
 (() => {
   const script = document.currentScript?.src || window.location.href;
-  const workerURL = new URL('speech-worker.js?v=78', script);
+  const workerURL = new URL('speech-worker.js?v=79', script);
   let worker = null, pending = null;
   const abortError = () => Object.assign(new Error('Transcription cancelled.'), { name: 'AbortError' });
   function supported() {

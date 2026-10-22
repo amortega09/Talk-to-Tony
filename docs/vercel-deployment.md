@@ -62,7 +62,7 @@ magic link; that was not automated or bypassed.
 - GitHub Pages CORS preflight is permitted; unrelated origins are rejected.
 - Secrets are not returned by the status response or included in public assets.
 - Frontend voice API resolves to Vercel (same origin on the Vercel build).
-- Automated tests: 42 JavaScript and 18 Python tests pass.
+- Automated tests: 55 JavaScript and 19 Python tests pass.
 
 A real signed-in voice request and cloud save from the Vercel origin still need
 verification after the Supabase redirect is enabled. No real diary entries or
@@ -89,3 +89,16 @@ The official Vercel plugin was installed for Codex at user scope. The shared
 login completed. New plugin tools may require a new session to load; authenticated
 MCP tool calls were not available for verification in this session. Deployment
 was performed and verified through the authenticated CLI instead.
+
+## Diary context release
+
+Voice now reads owner-scoped diary rows through the existing signed-in Supabase
+client and selects relevant history in the browser before drafting. No new
+server credentials, tables or migration are needed. The model context window
+is set to 32,768 and the selected history is capped at 18,000 JSON characters.
+The existing server request limit and explicit-save behavior still apply.
+
+Live synthetic checks passed for copying yesterday's Lab times, a recurring
+morning routine, explicit time overrides, missing historical references, and
+preventing unrelated historical activities from appearing in a new draft.
+The browser flow was verified with a synthetic diary and a real Ollama response.

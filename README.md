@@ -85,6 +85,32 @@ Voice drafts activities and reflections; it does not move/delete saved events.
 
 Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md).
 
+### Diary context for voice
+
+Each draft can now search your saved diary history without an export. The app
+loads the signed-in user's rows with pagination, then selects a bounded context:
+activity names/categories across the archive, exact intervals for referenced
+and recent days, recurring times, reflections, plans/check-ins, goals, and
+matching linked notes/project names. Yesterday, tomorrow, weekday references,
+last week/month and explicit ISO dates guide selection. Adjacent identical
+half-hour blocks are compressed; gaps remain unknown.
+
+The preview shows how many saved days were searched and which context types
+were included. Only the selected excerpts and computed summaries go to Ollama,
+not the entire archive. If retrieval fails or a date's activity list is truncated,
+the model is told to ask about missing details. Routine evidence needs at least
+three matching days, 60% consistency, and observations within the last 60 days.
+Old schedules do not establish today's usual routine. Plans are labelled as
+plans; historical entries are copied only on an explicit repeat/routine request.
+Current spoken times override historical ones. The draft still requires review
+and explicit save; history is never modified by retrieval.
+
+Cloud reads are scoped by user ID and existing Supabase permissions. Signed-in
+history does not merge unscoped local caches from another account. In local
+recovery mode, local diary/settings/notes are the source. Retrieval is cached in
+memory for 30 seconds within the dialog and cleared on close/save. There is no
+new database schema, vector service, persistent chat memory or service-role key.
+
 ### Hosted voice (no desktop helper)
 
 Production: https://talk-to-tony-nu.vercel.app. See [deployment status and login setup](docs/vercel-deployment.md).

@@ -1,0 +1,99 @@
+[
+  {
+    "case": "repeat_yesterday",
+    "passed": true,
+    "draft": {
+      "reply": "Copied Lab work from 2026-10-21.",
+      "questions": [],
+      "items": [
+        {
+          "date": "2026-10-22",
+          "start": "09:30",
+          "end_date": "2026-10-22",
+          "end": "12:00",
+          "category": "work",
+          "activity": "Lab",
+          "note": ""
+        }
+      ],
+      "reflections": [],
+      "model_used": "gemma4:31b"
+    }
+  },
+  {
+    "case": "usual_routine",
+    "passed": true,
+    "draft": {
+      "reply": "I've drafted your Morning routine based on your history (08:30-09:30).",
+      "questions": [],
+      "items": [
+        {
+          "date": "2026-10-22",
+          "start": "08:30",
+          "end_date": "2026-10-22",
+          "end": "09:30",
+          "category": "chores",
+          "activity": "Morning routine",
+          "note": ""
+        }
+      ],
+      "reflections": [],
+      "model_used": "gemma4:31b"
+    }
+  },
+  {
+    "case": "explicit_override",
+    "passed": true,
+    "draft": {
+      "reply": "I've added your morning routine for today.",
+      "questions": [],
+      "items": [
+        {
+          "date": "2026-10-22",
+          "start": "10:00",
+          "end_date": "2026-10-22",
+          "end": "11:00",
+          "category": "chores",
+          "activity": "Morning routine",
+          "note": "later than usual"
+        }
+      ],
+      "reflections": [],
+      "model_used": "gemma4:31b"
+    }
+  },
+  {
+    "case": "missing_reference",
+    "passed": true,
+    "draft": {
+      "reply": "I couldn't find any swimming activity for 2024-01-09 in your history.",
+      "questions": [
+        "What time did your swimming session start and end today?"
+      ],
+      "items": [],
+      "reflections": [],
+      "model_used": "gemma4:31b"
+    }
+  },
+  {
+    "case": "no_automatic_entries",
+    "passed": true,
+    "draft": {
+      "reply": "I've added your reading session for today.",
+      "questions": [],
+      "items": [
+        {
+          "date": "2026-10-22",
+          "start": "14:00",
+          "end_date": "2026-10-22",
+          "end": "15:00",
+          "category": "learn",
+          "activity": "read",
+          "note": ""
+        }
+      ],
+      "reflections": [],
+      "model_used": "gemma4:31b"
+    }
+  }
+]

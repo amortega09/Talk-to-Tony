@@ -1,14 +1,14 @@
 /* Voice capture + Ollama Cloud drafts. Provider keys stay on the server. */
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false };
+  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false, history: null, historyController: null };
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
   const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
   $('voiceSpeech').value = localStorage.getItem('day_voice_speech') || 'auto';
   const portableSpeech = () => state.hosted && ($('voiceSpeech').value === 'portable' || ($('voiceSpeech').value !== 'browser' && (state.browserSpeechFailed || !!navigator.brave || !speechRecognition())));
   const captureSupported = () => portableSpeech() ? !!window.DaySpeech?.supported() : !!speechRecognition();
   function privacy() {
-    $('voicePrivacy').textContent = !state.hosted || portableSpeech() ? 'Audio is transcribed on this device. Text is processed by Ollama. Nothing is saved until you choose.' : 'Your browser’s speech service transcribes audio. Text is processed by Ollama. Nothing is saved until you choose.';
+    $('voicePrivacy').textContent = !state.hosted || portableSpeech() ? 'Audio is transcribed on this device. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.' : 'Your browser’s speech service transcribes audio. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.';
   }
   const status = text => { $('voiceStatus').textContent = text; };
   function phase(value, message) {
@@ -131,9 +131,26 @@
     state.busy = true; $('voiceDraft').inert = true; phase('thinking', 'Finding the activities, times and thoughts in your words…'); buttons();
     try {
       const now = new Date();
+      phase('thinking', 'Finding the relevant parts of your diary…');
+      const owner = USER_ID;
+      const controller = new AbortController();state.historyController=controller;
+      const historyTimer=setTimeout(()=>controller.abort(),30000);
+      let history;
+      try {
+        history = state.history?.owner===owner && Date.now()-state.history.loadedAt<30000 ? state.history : await DayVoiceContext.load({client:sb,userId:owner,storage:localStorage,signal:controller.signal});
+      } catch(error) {
+        if(version!==state.version)return;
+        history={rows:[],source:sb?'cloud':'local',complete:false};
+      } finally {clearTimeout(historyTimer);if(state.historyController===controller)state.historyController=null;}
+      if(version!==state.version || USER_ID!==owner)return;
+      state.history={...history,owner,loadedAt:Date.now()};
+      const diary=DayVoiceContext.select(history,{today:ymd(now),viewedDate:ymd(current),transcript});
+      $('voiceContextStatus').textContent=diary.status==='ready' ? `Using ${diary.coverage.days_available} saved diary ${diary.coverage.days_available===1?'day':'days'} · ${diary.entries.length} relevant ${diary.entries.length===1?'activity':'activities'}${diary.routines.length?' · routines':''}${diary.day_notes.length+diary.notes.length?' · notes':''}${Object.values(diary.goals).some(Boolean)?' · goals':''}.` : 'Some diary history could not load. Missing details will need clarification.';
+      $('voiceContextStatus').hidden=false;
+      phase('thinking','Organising your words with your diary context…');
       const result = await api('/api/voice/draft', { transcript, model: $('voiceModel').value, previous: state.draft,
         context: { today: ymd(now), viewed_date: ymd(current), local_time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          activities: activityOptions().slice(0, 80).map(a => ({ activity: a.label, category: a.catId })) } });
+          activities: diary.activities.map(a=>({activity:a.activity,category:a.category})), diary } });
       if (version !== state.version) return;
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
       state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : 'Here’s what I heard. Change anything, then save.');
@@ -264,7 +281,7 @@
         rows.push({ user_id: USER_ID, date, start_time: slot, category: block.category, subcategory: block.sub || '', note: block.note || '', updated_at: new Date().toISOString() });
       }
       for (const date of dates) saveLocal(date, map[date]);
-      persisted = true; state.draft = null; renderDraft();
+      persisted = true; state.history = null; state.draft = null; renderDraft();
       if (map[ymd(current)]) { data = map[ymd(current)]; render(); }
       if (sb) for (let offset = 0; offset < rows.length; offset += 500) {
         const { error } = await sb.from('blocks').upsert(rows.slice(offset, offset + 500), { onConflict: 'user_id,date,start_time' });
@@ -284,6 +301,7 @@
     $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
+    state.historyController?.abort(); state.historyController=null; state.history=null;
     window.DaySpeech?.cancel();
     $('voiceRecordLabel').textContent = 'Start talking';
     $('voiceDialog').hidden = true; $('voiceOpen').focus();

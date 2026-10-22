@@ -1,5 +1,5 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const voice = require('../voice-draft'), range = require('../event-range');
+const voice = require('../voice-draft'), range = require('../event-range'), historyContext=require('../voice-context');
 const item = changes => ({ date:'2026-10-20',start:'09:00',end_date:'2026-10-20',end:'12:00',category:'work',activity:'CFD',note:'',...changes });
 const draft = items => ({ reply:'Review this draft.',questions:[],items,reflections:[] });
 test('valid drafts generate app-native slots and preserve activity names',()=>{
@@ -19,7 +19,7 @@ test('only exact loopback HTTP helper origins are accepted',()=>{
 const fs=require('node:fs'),vm=require('node:vm');
 function app({initial={},confirm=true,sb=null}={}) {
  const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,dataset:{},textContent:'',innerHTML:'',addEventListener(){},focus(){}};
- const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
+ const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,DayVoiceContext:historyContext,window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
  activityOptions:()=>[],SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
  vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open, build, recordInBrowser };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
 }
@@ -149,4 +149,26 @@ test('failed recordings never request transcription or draft partial microphone 
  ctx.MediaRecorder=ctx.window.MediaRecorder=Recorder;ctx.fetch=async()=>{requests++;};
  await ctx.testVoice.record();const recorder=ctx.testVoice.state.recorder;recorder.onerror();await recorder.done;
  assert.equal(requests,0);assert.equal(ctx.testVoice.state.phase,'error');assert.deepEqual(store,{});
+});
+
+test('draft requests include scoped history and explain its coverage without saving',async()=>{
+ const rows=[{user_id:'test',date:'2026-10-19',start_time:'09:00',category:'work',subcategory:'Lab',note:''}];const filters=[];
+ const sb={from(){const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},order(){return q;},range(){return Promise.resolve({data:rows});}};return q;}};
+ const {ctx,get,store}=app({sb});let payload;
+ get('voiceTranscript').value='Same lab work as yesterday';get('voiceModel').value='auto';
+ ctx.fetch=async(_url,options)=>{payload=JSON.parse(options.body);return {ok:true,json:async()=>draft([item()])};};
+ await ctx.testVoice.build();
+ assert.deepEqual(filters,[['user_id','test']]);assert.equal(payload.context.diary.entries[0].activity,'Lab');assert.equal(payload.context.diary.coverage.days_available,1);assert.match(get('voiceContextStatus').textContent,/1 saved diary day/);assert.deepEqual(store,{});
+});
+test('closing while history is loading cancels without sending the old context to Ollama',async()=>{
+ const {ctx,get}=app();let finish,requests=0;
+ ctx.DayVoiceContext={load:()=>new Promise(resolve=>finish=resolve),select:historyContext.select};
+ get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
+ const pending=ctx.testVoice.build();ctx.testVoice.close();finish({rows:[],source:'cloud',complete:true});await pending;
+ assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
+});
+test('switching accounts during history retrieval cannot send the previous user history',async()=>{
+ const {ctx,get}=app();let finish,requests=0;
+ ctx.DayVoiceContext={load:()=>new Promise(resolve=>finish=resolve),select:historyContext.select};get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
+ const pending=ctx.testVoice.build();ctx.USER_ID='other';finish({rows:[],source:'cloud',complete:true});await pending;assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
 });
