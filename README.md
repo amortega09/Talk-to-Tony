@@ -85,6 +85,15 @@ Voice drafts activities and reflections; it does not move/delete saved events.
 
 Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md).
 
+### Small diary agent
+
+A small `diary-agent.js` module coordinates read-only context lookup, Ollama
+drafting and one clarification at a time. It keeps the last three exchanges
+in memory so short answers retain their activity context. Memory is bounded,
+cleared on close/save, and never shared across accounts. The agent has no save
+or delete tool; the existing review/save flow remains in charge of diary writes.
+It makes one model request per user turn, with no autonomous background loop.
+
 ### Diary context for voice
 
 Each draft can now search your saved diary history without an export. The app

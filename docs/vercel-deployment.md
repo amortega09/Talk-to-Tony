@@ -62,7 +62,7 @@ magic link; that was not automated or bypassed.
 - GitHub Pages CORS preflight is permitted; unrelated origins are rejected.
 - Secrets are not returned by the status response or included in public assets.
 - Frontend voice API resolves to Vercel (same origin on the Vercel build).
-- Automated tests: 55 JavaScript and 19 Python tests pass.
+- Automated tests: 60 JavaScript and 19 Python tests pass.
 
 A real signed-in voice request and cloud save from the Vercel origin still need
 verification after the Supabase redirect is enabled. No real diary entries or
@@ -102,3 +102,9 @@ Live synthetic checks passed for copying yesterday's Lab times, a recurring
 morning routine, explicit time overrides, missing historical references, and
 preventing unrelated historical activities from appearing in a new draft.
 The browser flow was verified with a synthetic diary and a real Ollama response.
+
+A small in-app agent now retains three short exchanges during an open dialog,
+uses the prior topic during recall, and presents one clarification question at
+a time. It has no write tool or persistent conversation storage. A live synthetic
+two-turn test verified that an incomplete thesis entry followed by “Nine AM to
+noon” becomes one complete reviewed entry.

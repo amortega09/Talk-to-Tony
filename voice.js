@@ -1,6 +1,7 @@
 /* Voice capture + Ollama Cloud drafts. Provider keys stay on the server. */
 (() => {
   const $ = id => document.getElementById(id);
+  const agent = DayDiaryAgent.create();
   const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false, history: null, historyController: null };
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
   const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -32,8 +33,8 @@
     const plan = DayVoiceDraft.plan(state.draft, DayEventRange);
     $('voiceSave').hidden = !state.draft;
     $('voiceSaveBar').hidden = !state.draft;
-    $('voiceRecordLabel').textContent = state.stream || state.listening ? 'Finish talking' : state.busy ? 'One moment…' : state.draft ? 'Add a correction' : 'Start talking';
-    $('voiceBuild').textContent = state.draft ? 'Apply changes' : 'Organise my day';
+    $('voiceRecordLabel').textContent = state.stream || state.listening ? 'Finish talking' : state.busy ? 'One moment…' : state.draft?.questions?.length ? 'Answer by voice' : state.draft ? 'Add a correction' : 'Start talking';
+    $('voiceBuild').textContent = state.draft?.questions?.length ? 'Reply' : state.draft ? 'Apply changes' : 'Organise my day';
     $('voiceTranscriptLabel').textContent = $('voiceTranscript').value.trim() ? 'What I heard · edit text' : 'Prefer to type?';
     $('voiceRetry').hidden = state.busy || state.connected;
     $('voiceSaveSummary').textContent = state.draft ? `${plan.slots.length / 2}h · ${state.draft.items.length} ${state.draft.items.length === 1 ? 'activity' : 'activities'}${state.draft.reflections.length ? ' · reflection' : ''}` : '';
@@ -105,7 +106,7 @@
     const d = state.draft;
     $('voiceReply').hidden = !d;
     $('voiceReply').textContent = d?.reply || '';
-    $('voiceQuestions').textContent = d?.questions?.join(' ') || '';
+    $('voiceQuestions').textContent = d?.questions?.find(q=>q.trim()) || '';
     $('voiceDraft').innerHTML = !d ? '' : d.items.map((item, i) => {
       const range = DayEventRange.build(item.date, item.start, item.end_date, item.end);
       const timing = item.start && item.end ? `${to12(item.start)} – ${item.end === '24:00' ? 'midnight' : to12(item.end)}` : 'Add a time';
@@ -144,16 +145,21 @@
       } finally {clearTimeout(historyTimer);if(state.historyController===controller)state.historyController=null;}
       if(version!==state.version || USER_ID!==owner)return;
       state.history={...history,owner,loadedAt:Date.now()};
-      const diary=DayVoiceContext.select(history,{today:ymd(now),viewedDate:ymd(current),transcript});
-      $('voiceContextStatus').textContent=diary.status==='ready' ? `Using ${diary.coverage.days_available} saved diary ${diary.coverage.days_available===1?'day':'days'} · ${diary.entries.length} relevant ${diary.entries.length===1?'activity':'activities'}${diary.routines.length?' · routines':''}${diary.day_notes.length+diary.notes.length?' · notes':''}${Object.values(diary.goals).some(Boolean)?' · goals':''}.` : 'Some diary history could not load. Missing details will need clarification.';
-      $('voiceContextStatus').hidden=false;
-      phase('thinking','Organising your words with your diary context…');
-      const result = await api('/api/voice/draft', { transcript, model: $('voiceModel').value, previous: state.draft,
-        context: { today: ymd(now), viewed_date: ymd(current), local_time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          activities: diary.activities.map(a=>({activity:a.activity,category:a.category})), diary } });
-      if (version !== state.version) return;
+      const outcome=await agent.run({userId:owner,transcript,previous:state.draft,
+        context:{today:ymd(now),viewed_date:ymd(current),local_time:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone},
+        recall:async({query})=>{
+          const diary=DayVoiceContext.select(history,{today:ymd(now),viewedDate:ymd(current),transcript:query});
+          $('voiceContextStatus').textContent=diary.status==='ready' ? `Using ${diary.coverage.days_available} saved diary ${diary.coverage.days_available===1?'day':'days'} · ${diary.entries.length} relevant ${diary.entries.length===1?'activity':'activities'}${diary.routines.length?' · routines':''}${diary.day_notes.length+diary.notes.length?' · notes':''}${Object.values(diary.goals).some(Boolean)?' · goals':''}.` : 'Some diary history could not load. Missing details will need clarification.';
+          $('voiceContextStatus').hidden=false;
+          return diary;
+        },
+        think:payload=>{phase('thinking','Organising your words with your diary context…');return api('/api/voice/draft',payload);}
+      });
+      if(!outcome)return;
+      const result=outcome.draft;
+      if (version !== state.version || USER_ID!==owner) {agent.reset();return;}
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
-      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : 'Here’s what I heard. Change anything, then save.');
+      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale || !!outcome.question; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : outcome.question ? 'One quick question—reply by voice or edit the text below.' : 'Here’s what I heard. Change anything, then save.');
     } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Your words are still here—try again.' : error.message); }
     finally { if (version === state.version) { state.busy = false; $('voiceDraft').inert = false; buttons(); } }
   }
@@ -281,7 +287,7 @@
         rows.push({ user_id: USER_ID, date, start_time: slot, category: block.category, subcategory: block.sub || '', note: block.note || '', updated_at: new Date().toISOString() });
       }
       for (const date of dates) saveLocal(date, map[date]);
-      persisted = true; state.history = null; state.draft = null; renderDraft();
+      persisted = true; agent.reset(); state.history = null; state.draft = null; renderDraft();
       if (map[ymd(current)]) { data = map[ymd(current)]; render(); }
       if (sb) for (let offset = 0; offset < rows.length; offset += 500) {
         const { error } = await sb.from('blocks').upsert(rows.slice(offset, offset + 500), { onConflict: 'user_id,date,start_time' });
@@ -301,6 +307,7 @@
     $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
+    agent.reset();
     state.historyController?.abort(); state.historyController=null; state.history=null;
     window.DaySpeech?.cancel();
     $('voiceRecordLabel').textContent = 'Start talking';
