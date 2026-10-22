@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=75" />
+  <link rel="stylesheet" href="styles.css?v=76" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -330,25 +330,36 @@
 
   <div class="sheet-backdrop" id="voiceDialog" hidden>
     <section class="sheet voice-sheet" role="dialog" aria-modal="true" aria-labelledby="voiceTitle">
-      <div class="voice-heading"><h2 id="voiceTitle">Talk to Day</h2><button type="button" class="nav-btn" id="voiceClose" aria-label="Close voice logging">×</button></div>
-      <p class="voice-muted">Describe your day or correct the draft. Review everything before saving.</p>
-      <details id="voiceSettings">
-        <summary>Advanced settings</summary>
-        <label>Desktop helper<input id="voiceHelper" type="url" value="http://127.0.0.1:8765" /></label>
-        <button type="button" id="voiceConnect" class="ghost-btn">Retry connection</button>
-        <label>Ollama Cloud model<select id="voiceModel"><option value="">Connect to load models</option></select></label>
-        <p class="voice-muted">Start the helper with <code>python3 desktop.py</code>. Put <code>OLLAMA_API_KEY</code> in <code>.env</code>, never in browser config.</p>
+      <div class="voice-heading"><div><span class="voice-eyebrow">A LITTLE SPACE TO REFLECT</span><h2 id="voiceTitle">Tell me about your day.</h2></div><button type="button" class="nav-btn" id="voiceClose" aria-label="Close voice logging">×</button></div>
+      <p class="voice-intro">Talk freely. We’ll put the pieces together.</p>
+      <div class="voice-capture">
+        <span class="voice-phase" id="voicePhase">Getting ready</span>
+        <button type="button" id="voiceRecord" class="voice-mic" disabled>
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>
+          <span id="voiceRecordLabel">Start talking</span>
+        </button>
+        <div class="voice-meter" id="voiceMeter" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p id="voiceStatus" class="voice-status" role="status" aria-live="polite">Getting ready…</p>
+        <button type="button" id="voiceRetry" class="text-btn" hidden>Try again</button>
+      </div>
+      <details id="voiceCompose" class="voice-compose">
+        <summary id="voiceTranscriptLabel">Prefer to type?</summary>
+        <label class="sr-only" for="voiceTranscript">What happened?</label>
+        <textarea id="voiceTranscript" rows="3" maxlength="12000" placeholder="I worked on my project this morning, went for a walk after lunch…"></textarea>
+        <div class="voice-compose-actions"><small>⌘ / Ctrl + Enter to continue</small><button type="button" id="voiceBuild" class="primary-btn" disabled>Organise my day</button></div>
       </details>
-      <p id="voiceStatus" class="voice-status" role="status">Connecting…</p>
-      <label for="voiceTranscript">What happened?</label>
-      <textarea id="voiceTranscript" rows="4" maxlength="12000" placeholder="Yesterday I worked on CFD from 9 to 12. Then…"></textarea>
-      <div class="voice-actions"><button type="button" id="voiceRecord" class="ghost-btn" disabled>🎙 Record</button><button type="button" id="voiceBuild" class="primary-btn" disabled>Make draft</button></div>
-      <p class="voice-muted">Audio is transcribed on this computer. Make draft sends your text, activity names and draft to Ollama Cloud. Saved entries use your existing sync settings.</p>
       <div id="voiceReply" class="voice-reply" hidden></div>
-      <div id="voiceQuestions" class="voice-muted"></div>
+      <p id="voiceQuestions" class="voice-questions" aria-live="polite"></p>
       <div id="voiceDraft"></div>
-      <p id="voiceValidation" class="voice-status" role="status"></p>
-      <button type="button" id="voiceSave" class="primary-btn" hidden disabled>Save reviewed draft</button>
+      <p id="voiceValidation" class="voice-validation" role="status"></p>
+      <div class="voice-save-bar" id="voiceSaveBar" hidden><span id="voiceSaveSummary"></span><button type="button" id="voiceSave" class="primary-btn" hidden disabled>Save to my day</button></div>
+      <p id="voicePrivacy" class="voice-privacy">Nothing is added to your diary until you save.</p>
+      <details id="voiceSettings" class="voice-settings">
+        <summary>Voice settings</summary>
+        <label>Voice service<input id="voiceHelper" type="url" value="http://127.0.0.1:8765" /></label>
+        <button type="button" id="voiceConnect" class="text-btn">Reconnect</button>
+        <label>Model<select id="voiceModel"><option value="">Automatic</option></select></label>
+      </details>
     </section>
   </div>
 
@@ -441,9 +452,9 @@
   <script src="config.js?v=40"></script>
   <script src="patterns.js?v=70"></script>
   <script src="event-range.js?v=71"></script>
-  <script src="voice-draft.js?v=75"></script>
-  <script src="app.js?v=75"></script>
-  <script src="voice.js?v=75"></script>
+  <script src="voice-draft.js?v=76"></script>
+  <script src="app.js?v=76"></script>
+  <script src="voice.js?v=76"></script>
 
 
 </body>

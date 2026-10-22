@@ -75,17 +75,45 @@ boundaries, overwrite cancellation, cloud preflight failure and subcategories.
 
 ## Desktop voice + Ollama Cloud
 
-Open **Talk to Day**. Record locally (up to two minutes), edit the transcript,
-choose **Make draft**, then review/edit the dates, times, categories and notes
-before **Save reviewed draft**. You can describe corrections and make another
-draft. Missing times stay blank; overlapping/invalid entries cannot be saved.
+Open **Talk to Day**, choose **Start talking**, and speak naturally. Choose
+**Finish talking** to automatically transcribe and organise your words. Review
+compact activity cards, expand any card to edit it, then **Save to my day**.
+You can add spoken corrections or type instead (Cmd/Ctrl + Enter to organise).
+Missing times stay blank; overlapping/invalid entries cannot be saved.
 Reflections are appended. Existing time blocks require replacement confirmation.
-This first version drafts activities and reflections; it does not move/delete
-saved events or answer analytical questions. Use the timeline/Patterns for those.
+Voice drafts activities and reflections; it does not move/delete saved events.
+
+Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md).
+
+### Hosted voice (no desktop helper)
+
+The repository includes Vercel endpoints at `/api/voice/status` and
+`/api/voice/draft`. Set these server environment variables before deploying:
+`OLLAMA_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
+`DAY_ALLOWED_USER_IDS` (comma-separated Supabase user IDs permitted to use voice).
+Missing configuration fails closed. Each request verifies the signed-in user's
+Supabase token and checks that allowlist before calling Ollama. The service never
+writes diary records. `DAY_ALLOWED_ORIGINS` can add exact website origins; the
+existing GitHub Pages origin is allowed by default.
+
+Deploy with Vercel, then put its HTTPS origin in `VOICE_API_URL` in `config.js`.
+Keep using the existing GitHub Pages app and its existing Supabase sign-in.
+The included static build also uses the hosted API on its own origin; using that
+frontend requires adding its URL to Supabase's permitted auth redirects.
+The build copies only public app files, never `.env` or speech models.
+
+Hosted voice uses the browser's speech recognition where supported, which may
+send audio to the browser provider. Editable text goes to Ollama Cloud. Typing
+works if browser speech recognition is unavailable. No Ollama key reaches the
+browser. An empty `VOICE_API_URL` keeps local transcription via the helper below.
 
 ### Start the helper
 
-Run `python3 desktop.py` from this directory. No Python packages are needed.
+On macOS, run `python3 scripts/desktop-service.py install` once to start the
+helper in the background and automatically on login. Remove it with
+`python3 scripts/desktop-service.py remove`. Logs stay in ignored
+`.day-voice/logs/`. Alternatively run `python3 desktop.py` in a terminal.
+No Python packages are needed.
 The helper binds only to `127.0.0.1:8765` and creates `.env`.
 Open that file locally and put your Ollama Cloud API key after `OLLAMA_API_KEY=`.
 Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reopen Talk to Day after saving the key file. No local Ollama service or LLM download is needed.
@@ -95,7 +123,7 @@ default. For a different deployed website, run
 `python3 desktop.py --allow-origin https://your-exact-origin.example`.
 The origin has no path or trailing slash. Open your normal signed-in Day app and click **Talk to Day**. The helper
 connects automatically whenever the panel opens. Advanced settings stay hidden
-after a successful connection; if it fails, use **Retry connection** there. Browsers may require permission to access
+by default; if it fails, use **Try again**. Browsers may require permission to access
 the local helper. The helper URL must be an HTTP loopback address; no public
 proxy or wildcard CORS is used. You can also open `http://127.0.0.1:8765` but will
 need to sign in separately and allow that redirect URL in Supabase Auth.
@@ -122,7 +150,7 @@ transcribes English. The helper converts recordings with ffmpeg and runs
 whisper-cli, with timeouts and temporary files deleted after transcription.
 Audio is not sent to Ollama. Text input works without transcription installed.
 
-**Data flow:** audio → local transcription → editable transcript → Ollama Cloud
+**Data flow:** audio → local transcription → Ollama Cloud
 (text, up to 80 known activity names/categories, viewed date and prior draft)
 → validated preview → explicit save → existing local/Supabase storage.
 The helper never receives Supabase credentials or writes diary records itself.

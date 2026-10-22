@@ -28,7 +28,12 @@
     if (url.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use a local helper address such as http://127.0.0.1:8765.');
     return url.origin;
   }
-  const api = { plan, helperOrigin, categories };
+  function hostedOrigin(value) {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Invalid hosted voice address.');
+    return url.origin;
+  }
+  const api = { plan, helperOrigin, hostedOrigin, categories };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DayVoiceDraft = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

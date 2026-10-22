@@ -1,21 +1,35 @@
-/* Desktop voice capture + Ollama Cloud drafts. Keys live only in desktop.py. */
+/* Voice capture + Ollama Cloud drafts. Provider keys stay on the server. */
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null };
+  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false };
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
+  const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
   const status = text => { $('voiceStatus').textContent = text; };
+  function phase(value, message) {
+    state.phase = value;
+    $('voiceDialog').dataset.phase = value;
+    $('voicePhase').textContent = ({ idle: 'Ready when you are', connecting: 'Getting ready', listening: 'Listening', transcribing: 'Writing it down', thinking: 'Making sense of it', review: 'Ready to review', saved: 'All saved', error: 'Let’s try again' })[value] || value;
+    $('voiceMeter').hidden = value !== 'listening';
+    if (message) status(message);
+  }
   const escape = value => escapeHtml(String(value ?? ''));
   function buttons() {
-    $('voiceConnect').disabled = state.busy || state.saving || !!state.stream;
-    $('voiceBuild').disabled = state.busy || state.saving || !!state.stream || !state.connected || !state.keyReady || !$('voiceModel').value || !$('voiceTranscript').value.trim();
-    $('voiceRecord').disabled = state.busy || state.saving || !state.connected || !state.speechReady || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder;
+    $('voiceConnect').disabled = state.busy || state.saving || state.listening || !!state.stream;
+    $('voiceBuild').disabled = state.busy || state.saving || state.listening || !!state.stream || !state.connected || !state.keyReady || !$('voiceModel').value || !$('voiceTranscript').value.trim();
+    $('voiceRecord').disabled = state.busy || state.saving || !state.connected || !state.speechReady || (state.hosted ? !speechRecognition() : !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder);
     $('voiceModel').disabled = state.busy || state.saving;
-    $('voiceHelper').disabled = state.busy || state.saving || !!state.stream;
-    $('voiceTranscript').disabled = state.saving;
+    $('voiceHelper').disabled = state.hosted || state.busy || state.saving || state.listening || !!state.stream;
+    $('voiceTranscript').disabled = state.saving || state.listening || !!state.stream;
     $('voiceClose').disabled = state.saving;
     const plan = DayVoiceDraft.plan(state.draft, DayEventRange);
     $('voiceSave').hidden = !state.draft;
-    $('voiceSave').disabled = state.busy || state.saving || !!state.stream || state.stale || plan.errors.length > 0;
+    $('voiceSaveBar').hidden = !state.draft;
+    $('voiceRecordLabel').textContent = state.stream || state.listening ? 'Finish talking' : state.busy ? 'One moment…' : state.draft ? 'Add a correction' : 'Start talking';
+    $('voiceBuild').textContent = state.draft ? 'Apply changes' : 'Organise my day';
+    $('voiceTranscriptLabel').textContent = $('voiceTranscript').value.trim() ? 'What I heard · edit text' : 'Prefer to type?';
+    $('voiceRetry').hidden = state.busy || state.connected;
+    $('voiceSaveSummary').textContent = state.draft ? `${plan.slots.length / 2}h · ${state.draft.items.length} ${state.draft.items.length === 1 ? 'activity' : 'activities'}${state.draft.reflections.length ? ' · reflection' : ''}` : '';
+    $('voiceSave').disabled = state.busy || state.saving || state.listening || !!state.stream || state.stale || plan.errors.length > 0;
     $('voiceValidation').textContent = state.draft ? (state.stale ? 'Your description changed. Make a new draft before saving.' : plan.errors.join(' ')) : '';
   }
   async function api(path, body, timeout = 180000) {
@@ -24,37 +38,47 @@
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const audio = body instanceof Blob;
+      let authorization = {};
+      if (state.hosted) {
+        const session = await sb?.auth?.getSession();
+        const token = session?.data?.session?.access_token;
+        if (!token) throw new Error('Please sign in to Day to use voice.');
+        authorization = { Authorization: 'Bearer ' + token };
+      }
       const response = await fetch(state.origin + path, { method: body === undefined ? 'GET' : 'POST', cache: 'no-store', signal: controller.signal,
-        headers: { ...(body === undefined ? {} : { 'X-Day-Token': state.token, 'Content-Type': audio ? (body.type || 'application/octet-stream') : 'application/json' }) },
+        headers: { ...authorization, ...(body === undefined ? {} : { ...(state.hosted ? {} : { 'X-Day-Token': state.token }), 'Content-Type': audio ? (body.type || 'application/octet-stream') : 'application/json' }) },
         body: body === undefined ? undefined : audio ? body : JSON.stringify(body) });
       let result;
-      try { result = await response.json(); } catch { throw new Error('This address is not the Day desktop helper. Start python3 desktop.py and reconnect.'); }
-      if (!response.ok) throw new Error(result.error || 'The desktop helper could not complete the request.');
+      try { result = await response.json(); } catch { throw new Error('The voice service returned an unexpected response. Your words are safe—please reconnect.'); }
+      if (!response.ok) throw new Error(result.error || 'The voice service could not complete the request.');
       return result;
     } finally { clearTimeout(timer); if (state.controller === controller) state.controller = null; }
   }
   async function connect() {
-    if (state.busy || state.saving || state.stream) return;
+    if (state.busy || state.saving || state.stream || state.listening) return;
     const version = state.version;
-    state.connected = false; state.busy = true; buttons(); status('Connecting…');
+    state.connected = false; state.busy = true; phase('connecting', 'Getting your space ready…'); buttons();
     try {
-      state.origin = DayVoiceDraft.helperOrigin($('voiceHelper').value.trim());
+      const hosted = window.APP_CONFIG?.VOICE_API_URL;
+      state.hosted = !!hosted;
+      state.origin = hosted ? DayVoiceDraft.hostedOrigin(hosted) : DayVoiceDraft.helperOrigin($('voiceHelper').value.trim());
       const result = await api('/api/voice/status', undefined, 20000);
       if (version !== state.version) return;
-      if (!result.token || !Array.isArray(result.models)) throw new Error('Desktop helper returned an invalid connection response.');
-      state.token = result.token; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready;
+      if ((!state.hosted && !result.token) || !Array.isArray(result.models)) throw new Error('The voice service returned an invalid connection response.');
+      state.token = result.token || ''; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready && (!state.hosted || !!speechRecognition());
+      $('voicePrivacy').textContent = state.hosted ? 'Your browser transcribes speech. Text is processed by Ollama. Nothing is saved until you choose.' : 'Audio stays on this computer. Text is processed by Ollama. Nothing is saved until you choose.';
       const preferred = localStorage.getItem('day_voice_model_v2') || 'auto';
       const automatic = result.recommended_model ? `<option value="auto">Automatic · ${escape(result.recommended_model)} (recommended)</option>` : '<option value="">Choose a cloud model (recommendation unavailable)</option>';
       const models = [...result.models].sort((a, b) => (a === result.recommended_model ? -1 : b === result.recommended_model ? 1 : a.localeCompare(b)));
       $('voiceModel').innerHTML = automatic + models.map(model => `<option value="${escape(model)}">${escape(model)}</option>`).join('');
       $('voiceModel').value = preferred === 'auto' ? (result.recommended_model ? 'auto' : '') : result.models.includes(preferred) ? preferred : (result.recommended_model ? 'auto' : '');
-      localStorage.setItem('day_voice_helper', state.origin);
-      status(!state.keyReady ? 'Add your key to .env, then reconnect.' : result.ollama_error || (!$('voiceModel').value ? 'Recommended model unavailable. Choose a cloud model explicitly.' : state.speechReady ? 'Connected · local transcription + Ollama Cloud.' : 'Cloud connected. Type to begin; local transcription needs setup (see README).'));
-      $('voiceSettings').open = !state.keyReady || !result.models.length || !$('voiceModel').value;
+      if (!state.hosted) localStorage.setItem('day_voice_helper', state.origin);
+      phase(state.draft ? 'review' : 'idle', !state.keyReady ? 'Voice needs a one-time setup. Your text will stay here.' : result.ollama_error ? 'We couldn’t reach the voice service. Try again in a moment.' : !$('voiceModel').value ? 'Please choose an available model in Voice settings.' : state.speechReady ? 'Click the microphone. Stop whenever you’re done.' : 'You can type your day below while voice is unavailable.');
+      $('voiceSettings').open = false;
     } catch (error) {
       if (version === state.version) {
-        $('voiceSettings').open = true;
-        status(error.name === 'AbortError' ? 'Connection timed out. Retry when the helper is ready.' : `${error.message} Check the helper is running, then retry.`);
+        phase('error', 'Voice couldn’t connect. Your text is safe. Try again in a moment.');
+        $('voiceSettings').open = false;
       }
     } finally { if (version === state.version) { state.busy = false; buttons(); } }
   }
@@ -62,27 +86,41 @@
     const times = [...SLOTS, ...(end ? ['24:00'] : [])];
     return `<select data-group="items" data-index="${index}" data-field="${field}"><option value="">Choose time</option>${times.map(t => `<option value="${t}"${t === value ? ' selected' : ''}>${t === '24:00' ? 'Midnight (end of day)' : to12(t)}</option>`).join('')}</select>`;
   }
+  function draftDate(value) {
+    if (!value) return 'Choose a day';
+    const today = ymd(new Date());
+    if (value === today) return 'Today';
+    if (value === DayEventRange.shift(today, -1)) return 'Yesterday';
+    return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
   function renderDraft() {
     const d = state.draft;
     $('voiceReply').hidden = !d;
     $('voiceReply').textContent = d?.reply || '';
     $('voiceQuestions').textContent = d?.questions?.join(' ') || '';
-    $('voiceDraft').innerHTML = !d ? '' : d.items.map((item, i) => `<fieldset class="voice-entry"><legend>Activity ${i + 1}</legend>
+    $('voiceDraft').innerHTML = !d ? '' : d.items.map((item, i) => {
+      const range = DayEventRange.build(item.date, item.start, item.end_date, item.end);
+      const timing = item.start && item.end ? `${to12(item.start)} – ${item.end === '24:00' ? 'midnight' : to12(item.end)}` : 'Add a time';
+      const date = draftDate(item.date) + (item.end_date && item.end_date !== item.date ? ` → ${draftDate(item.end_date)}` : '');
+      return `<details class="voice-card"${range.error || !item.activity ? ' open' : ''}><summary><span class="voice-card-mark" aria-hidden="true">${i + 1}</span><span class="voice-card-title"><strong>${escape(item.activity || 'Untitled activity')}</strong><small>${escape(date)} · ${escape(timing)}</small></span><span class="voice-card-edit">Edit</span></summary>
+      <fieldset class="voice-entry"><legend class="sr-only">Activity ${i + 1}</legend>
       <div class="voice-grid"><label>Start date<input type="date" data-group="items" data-index="${i}" data-field="date" value="${escape(item.date)}" /></label><label>End date<input type="date" data-group="items" data-index="${i}" data-field="end_date" value="${escape(item.end_date)}" /></label>
       <label>Start${timeSelect(item.start, false, i, 'start')}</label><label>End${timeSelect(item.end, true, i, 'end')}</label></div>
       <label>Activity<input maxlength="200" data-group="items" data-index="${i}" data-field="activity" value="${escape(item.activity)}" /></label>
       <label>Category<select data-group="items" data-index="${i}" data-field="category">${DayVoiceDraft.categories.map(cat => `<option value="${cat}"${cat === item.category ? ' selected' : ''}>${escape(cat === 'gym' ? 'Gym' : catLabel(cat))}</option>`).join('')}</select></label>
       <label>Note<textarea maxlength="4000" rows="2" data-group="items" data-index="${i}" data-field="note">${escape(item.note)}</textarea></label>
-      <button type="button" class="text-btn" data-remove="items" data-index="${i}">Remove activity</button></fieldset>`).join('') + d.reflections.map((item, i) => `<fieldset class="voice-entry"><legend>Reflection ${i + 1}</legend>
-      <label>Date<input type="date" data-group="reflections" data-index="${i}" data-field="date" value="${escape(item.date)}" /></label>
+      <button type="button" class="text-btn" data-remove="items" data-index="${i}">Remove activity</button></fieldset></details>`;
+    }).join('') + d.reflections.map((item, i) => `<details class="voice-card"${!item.date ? ' open' : ''}><summary><span class="voice-card-mark" aria-hidden="true">✦</span><span class="voice-card-title"><strong>A thought about your day</strong><small>${escape(draftDate(item.date))} · ${escape(item.text.slice(0, 65))}${item.text.length > 65 ? '…' : ''}</small></span><span class="voice-card-edit">Edit</span></summary>
+      <fieldset class="voice-entry"><legend class="sr-only">Reflection ${i + 1}</legend><label>Date<input type="date" data-group="reflections" data-index="${i}" data-field="date" value="${escape(item.date)}" /></label>
       <label>Reflection<textarea maxlength="4000" rows="3" data-group="reflections" data-index="${i}" data-field="text">${escape(item.text)}</textarea></label>
-      <small>Appended to this day’s reflection.</small><button type="button" class="text-btn" data-remove="reflections" data-index="${i}">Remove reflection</button></fieldset>`).join('');
+      <small>Added to this day’s reflection.</small><button type="button" class="text-btn" data-remove="reflections" data-index="${i}">Remove reflection</button></fieldset></details>`).join('');
     buttons();
   }
   async function build() {
     const version = state.version;
     const transcript = $('voiceTranscript').value.trim();
-    state.busy = true; $('voiceDraft').inert = true; buttons(); status('Preparing your draft with Ollama Cloud…');
+    if (!transcript) return;
+    state.busy = true; $('voiceDraft').inert = true; phase('thinking', 'Finding the activities, times and thoughts in your words…'); buttons();
     try {
       const now = new Date();
       const result = await api('/api/voice/draft', { transcript, model: $('voiceModel').value, previous: state.draft,
@@ -90,13 +128,58 @@
           activities: activityOptions().slice(0, 80).map(a => ({ activity: a.label, category: a.catId })) } });
       if (version !== state.version) return;
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
-      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); status(state.stale ? 'Your description changed during drafting. Make a new draft before saving.' : `Draft ready${result.model_used ? ' · ' + result.model_used : ''}. Check the dates, times and activities before saving.`);
-    } catch (error) { if (version === state.version) status(error.name === 'AbortError' ? 'Request cancelled or timed out. Nothing was saved.' : error.message); }
+      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : 'Here’s what I heard. Change anything, then save.');
+    } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Your words are still here—try again.' : error.message); }
     finally { if (version === state.version) { state.busy = false; $('voiceDraft').inert = false; buttons(); } }
   }
+  async function recordInBrowser() {
+    if (state.recognition) { state.recognition.stop(); return; }
+    const Recognition = speechRecognition();
+    if (!Recognition) { $('voiceCompose').open = true; phase('error', 'Voice isn’t available in this browser. You can type your day below.'); return; }
+    const version = state.version;
+    const before = state.draft && !state.stale ? '' : $('voiceTranscript').value.trim();
+    const recognition = new Recognition();
+    let heard = '', failed = false;
+    state.recognition = recognition; state.listening = true;
+    recognition.lang = navigator.language || 'en-GB';
+    recognition.continuous = true; recognition.interimResults = true;
+    recognition.onresult = event => {
+      const words = [];
+      for (let i = 0; i < event.results.length; i++) words.push(event.results[i][0].transcript);
+      heard = words.join(' ').trim();
+      if (version === state.version) $('voiceTranscript').value = [before, heard].filter(Boolean).join('\n');
+    };
+    recognition.onerror = event => {
+      failed = true;
+      if (version === state.version) {
+        phase('error', event.error === 'not-allowed' ? 'Allow microphone access in your browser, or type below.' : 'I couldn’t catch that. Try again or type your day.');
+        $('voiceCompose').open = true;
+      }
+    };
+    recognition.onend = async () => {
+      if (state.recognition === recognition) { state.recognition = null; state.listening = false; clearTimeout(state.timer); }
+      if (version !== state.version) return;
+      state.busy = false; buttons();
+      if (failed) return;
+      if (!heard) { phase('error', 'I didn’t catch any speech. Try again or type below.'); return; }
+      state.stale = !!state.draft;
+      await build();
+    };
+    try {
+      recognition.start();
+      $('voiceCompose').open = true;
+      phase('listening', 'Take your time. Click again when you’re done.'); buttons();
+      state.timer = setTimeout(() => { if (state.recognition === recognition) recognition.stop(); }, 120000);
+    } catch {
+      state.recognition = null; state.listening = false;
+      phase('error', 'We couldn’t start voice. You can type your day instead.'); $('voiceCompose').open = true; buttons();
+    }
+  }
   async function record() {
+    if (state.hosted) return recordInBrowser();
     if (state.recorder?.state === 'recording') { state.recorder.stop(); return; }
     const version = state.version;
+    const before = state.draft && !state.stale ? '' : $('voiceTranscript').value.trim();
     state.busy = true; buttons();
     let stream;
     try {
@@ -111,21 +194,23 @@
       recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       recorder.onstop = async () => {
         clearTimeout(recordTimer); stream.getTracks().forEach(track => track.stop());
-        if (state.recorder === recorder) { state.stream = null; state.recorder = null; $('voiceRecord').textContent = '🎙 Record'; }
+        if (state.recorder === recorder) { state.stream = null; state.recorder = null; $('voiceRecordLabel').textContent = 'Start talking'; }
         if (version !== state.version) { buttons(); return; }
-        state.busy = true; buttons(); status('Transcribing on your computer…');
+        state.busy = true; phase('transcribing', 'Turning your words into a clear picture…'); buttons();
         try {
           const result = await api('/api/voice/transcribe', new Blob(chunks, { type: recorder.mimeType }));
           if (version !== state.version) return;
-          $('voiceTranscript').value = [$('voiceTranscript').value.trim(), result.text].filter(Boolean).join('\n');
-          state.stale = !!state.draft; buttons(); status('Transcript ready. Edit it if needed, then make a draft.');
-        } catch (error) { if (version === state.version) status(error.name === 'AbortError' ? 'Transcription cancelled or timed out.' : error.message); }
+          if (!result.text?.trim()) throw new Error('I didn’t catch any speech. Try again or type instead.');
+          $('voiceTranscript').value = [before, result.text].filter(Boolean).join('\n');
+          state.stale = !!state.draft; state.busy = false; buttons();
+          await build();
+        } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Try recording a shorter thought.' : error.message); }
         finally { if (version === state.version) { state.busy = false; buttons(); } }
       };
       recorder.onerror = () => { status('Recording failed. Try again or type your description.'); if (recorder.state !== 'inactive') recorder.stop(); else stream.getTracks().forEach(track => track.stop()); };
       recorder.start(); recordTimer = state.timer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 120000);
-      $('voiceRecord').textContent = '■ Stop recording'; status('Recording · click Stop when finished (2 minute limit).');
-    } catch (error) { stream?.getTracks().forEach(track => track.stop()); state.stream = null; status(error.name === 'NotAllowedError' ? 'Microphone permission was denied. Allow it in your browser, or type instead.' : 'Could not start the microphone. Type your description instead.'); }
+      $('voiceCompose').open = false; phase('listening', 'Take your time. Click again when you’re done.');
+    } catch (error) { stream?.getTracks().forEach(track => track.stop()); state.stream = null; phase('error', error.name === 'NotAllowedError' ? 'Allow microphone access in your browser, or type your day below.' : 'We couldn’t start the microphone. You can type your day instead.'); $('voiceCompose').open = true; }
     finally { if (version === state.version) { state.busy = false; buttons(); } }
   }
   async function save() {
@@ -133,7 +218,7 @@
     const plan = DayVoiceDraft.plan(state.draft, DayEventRange);
     if (plan.errors.length) return;
     if (RECOVERY_MODE) { status('Recovery mode is read-only. Open the normal signed-in app to save.'); return; }
-    state.saving = true; buttons(); $('voiceDraft').inert = true;
+    state.saving = true; status('Saving your day…'); buttons(); $('voiceDraft').inert = true;
     const map = {}, rows = [];
     let persisted = false;
     try {
@@ -165,7 +250,7 @@
         const { error } = await sb.from('blocks').upsert(rows.slice(offset, offset + 500), { onConflict: 'user_id,date,start_time' });
         if (error) throw new Error('Saved on this device, but cloud sync failed. Export a backup before switching devices.');
       }
-      status(`Saved ${plan.slots.length / 2} hours${plan.reflections.length ? ' and your reflection' : ''}.`);
+      phase('saved', `Saved ${plan.slots.length / 2} hours${plan.reflections.length ? ' and your reflection' : ''}. You’re all set.`);
       setStatus('ok', sb ? 'Synced' : 'Saved locally');
       $('voiceTranscript').value = '';
     } catch (error) { status(error.message || 'Could not save.'); if (persisted) setStatus('err', 'Saved locally · sync failed'); }
@@ -175,16 +260,18 @@
     if (state.saving) return;
     state.version++; state.controller?.abort(); clearTimeout(state.timer);
     state.busy = false; state.connected = false; state.token = '';
+    state.recognition?.abort(); state.recognition = null; state.listening = false;
     $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
-    $('voiceRecord').textContent = '🎙 Record';
+    $('voiceRecordLabel').textContent = 'Start talking';
     $('voiceDialog').hidden = true; $('voiceOpen').focus();
   }
   async function open() {
     $('voiceDialog').hidden = false;
-    buttons(); $('voiceTranscript').focus();
+    buttons(); $('voiceClose').focus();
     await connect();
+    if (!$('voiceDialog').hidden && !$('voiceRecord').disabled && document.activeElement === $('voiceClose')) $('voiceRecord').focus();
   }
   $('voiceOpen').addEventListener('click', open);
   $('voiceClose').addEventListener('click', close);
@@ -193,6 +280,8 @@
   $('voiceConnect').addEventListener('click', connect);
   $('voiceRecord').addEventListener('click', record);
   $('voiceBuild').addEventListener('click', build);
+  $('voiceRetry').addEventListener('click', connect);
+  $('voiceTranscript').addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !$('voiceBuild').disabled) { e.preventDefault(); build(); } });
   $('voiceSave').addEventListener('click', save);
   $('voiceHelper').addEventListener('input', () => { state.connected = false; buttons(); status('Reconnect to use the new helper address.'); });
   $('voiceModel').addEventListener('change', () => localStorage.setItem('day_voice_model_v2', $('voiceModel').value));
@@ -200,7 +289,17 @@
   $('voiceDraft').addEventListener('input', e => {
     const { group, index, field } = e.target.dataset;
     if (!group || !state.draft?.[group]?.[index]) return;
-    state.draft[group][index][field] = e.target.value || (['date', 'end_date', 'start', 'end'].includes(field) ? null : ''); buttons();
+    state.draft[group][index][field] = e.target.value || (['date', 'end_date', 'start', 'end'].includes(field) ? null : '');
+    const item = state.draft[group][index], card = e.target.closest('.voice-card');
+    if (card) {
+      const detail = card.querySelector('.voice-card-title small');
+      if (group === 'items') {
+        card.querySelector('.voice-card-title strong').textContent = item.activity || 'Untitled activity';
+        const date = draftDate(item.date) + (item.end_date && item.end_date !== item.date ? ` → ${draftDate(item.end_date)}` : '');
+        detail.textContent = `${date} · ${item.start && item.end ? `${to12(item.start)} – ${item.end === '24:00' ? 'midnight' : to12(item.end)}` : 'Add a time'}`;
+      } else detail.textContent = `${draftDate(item.date)} · ${item.text.slice(0, 65)}${item.text.length > 65 ? '…' : ''}`;
+    }
+    buttons();
   });
   $('voiceDraft').addEventListener('click', e => {
     const { remove, index } = e.target.dataset;

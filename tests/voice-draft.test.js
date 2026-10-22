@@ -18,10 +18,10 @@ test('only exact loopback HTTP helper origins are accepted',()=>{
 });
 const fs=require('node:fs'),vm=require('node:vm');
 function app({initial={},confirm=true,sb=null}={}) {
- const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,textContent:'',innerHTML:'',addEventListener(){},focus(){}};
+ const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,dataset:{},textContent:'',innerHTML:'',addEventListener(){},focus(){}};
  const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
- SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
- vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
+ activityOptions:()=>[],SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
+ vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open, build, recordInBrowser };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
 }
 test('saving reviewed draft preserves unrelated slots and appends reflections',async()=>{
  const {ctx,store}=app({initial:{'2026-10-20':{'08:00':{category:'food',note:'Breakfast'},__reflect__:{note:'Existing thought'}}}});
@@ -54,7 +54,7 @@ test('connecting does not choose an untested model when the recommendation is un
  const {ctx,get}=app();
  ctx.fetch=async()=>({ok:true,json:async()=>({token:'test-token',models:['different-model'],default_model:'',recommended_model:null,api_key_ready:true,transcription_ready:true})});
  await ctx.testVoice.connect();
- assert.equal(get('voiceModel').value,'');assert.equal(get('voiceBuild').disabled,true);assert.match(get('voiceStatus').textContent,/Choose a cloud model explicitly/);
+ assert.equal(get('voiceModel').value,'');assert.equal(get('voiceBuild').disabled,true);assert.match(get('voiceStatus').textContent,/choose an available model in Voice settings/);
 });
 
 const connectedResponse=()=>({ok:true,json:async()=>({token:'test-token',models:['gemma4:31b'],default_model:'gemma4:31b',recommended_model:'gemma4:31b',api_key_ready:true,transcription_ready:true})});
@@ -66,10 +66,10 @@ test('opening voice automatically connects, refreshes on reopen, and keeps setti
  assert.equal(calls,1);assert.equal(ctx.testVoice.state.connected,true);assert.equal(get('voiceSettings').open,false);
  ctx.testVoice.close();await ctx.testVoice.open();assert.equal(calls,2);assert.equal(ctx.testVoice.state.connected,true);
 });
-test('failed automatic connection reveals settings and permits retry',async()=>{
+test('failed automatic connection offers a simple retry without exposing setup',async()=>{
  const {ctx,get}=app();ctx.fetch=async()=>{throw new TypeError('Failed to fetch');};
  await ctx.testVoice.open();
- assert.equal(ctx.testVoice.state.connected,false);assert.equal(get('voiceSettings').open,true);assert.equal(get('voiceConnect').disabled,false);
+ assert.equal(ctx.testVoice.state.connected,false);assert.equal(get('voiceSettings').open,false);assert.equal(get('voiceRetry').hidden,false);assert.equal(get('voiceConnect').disabled,false);
  ctx.fetch=async()=>connectedResponse();await ctx.testVoice.connect();assert.equal(ctx.testVoice.state.connected,true);
 });
 test('closing and reopening during connection does not let the stale request change state',async()=>{
@@ -79,4 +79,35 @@ test('closing and reopening during connection does not let the stale request cha
  assert.equal(ctx.testVoice.state.busy,true);assert.equal(ctx.testVoice.state.connected,false);
  pending[1](connectedResponse());await second;
  assert.equal(ctx.testVoice.state.busy,false);assert.equal(ctx.testVoice.state.connected,true);
+});
+
+test('stopping a recording automatically transcribes and organises without saving',async()=>{
+ const {ctx,store,get}=app();const calls=[];
+ const stream={getTracks:()=>[{stop(){}}]};
+ class Recorder { static isTypeSupported(){return true;} constructor(){this.state='inactive';} start(){this.state='recording';} stop(){this.state='inactive';this.done=this.onstop();} }
+ ctx.MediaRecorder=Recorder;ctx.window.MediaRecorder=Recorder;ctx.navigator.mediaDevices={getUserMedia:async()=>stream};
+ ctx.fetch=async(url)=>{calls.push(url);return {ok:true,json:async()=>url.endsWith('/transcribe')?{text:'Worked on design from nine until twelve.'}:draft([item()])};};
+ const state=ctx.testVoice.state;state.draft=null;state.connected=true;state.keyReady=true;state.speechReady=true;state.origin='http://127.0.0.1:8765';
+ await ctx.testVoice.record();const recorder=state.recorder;recorder.stop();await recorder.done;
+ assert.equal(calls.length,2);assert.match(calls[0],/transcribe$/);assert.match(calls[1],/draft$/);assert.equal(state.phase,'review');assert.equal(state.draft.items.length,1);assert.deepEqual(store,{});assert.equal(get('voiceSave').disabled,false);
+});
+test('hosted browser speech processes on stop and sends only the signed-in session token',async()=>{
+ const sb={auth:{getSession:async()=>({data:{session:{access_token:'test-session'}}})}};
+ const {ctx,store}=app({sb});const calls=[];
+ class Recognition { start(){} stop(){this.done=this.onend();} abort(){this.onend();} }
+ ctx.window.SpeechRecognition=Recognition;ctx.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>draft([item()])};};
+ const state=ctx.testVoice.state;state.hosted=true;state.origin='https://voice.example';state.draft=null;
+ await ctx.testVoice.record();const recognition=state.recognition;
+ recognition.onresult({results:[[{transcript:'Worked from nine until twelve.'}]]});recognition.stop();await recognition.done;
+ assert.equal(calls.length,1);assert.match(calls[0].url,/draft$/);assert.equal(calls[0].options.headers.Authorization,'Bearer test-session');assert.equal(calls[0].options.headers['X-Day-Token'],undefined);assert.equal(state.phase,'review');assert.deepEqual(store,{});
+});
+test('closing browser speech aborts capture and does not process the transcript',async()=>{
+ const {ctx}=app();let aborted=false,calls=0;
+ class Recognition { start(){} abort(){aborted=true;this.onend();} }
+ ctx.window.SpeechRecognition=Recognition;ctx.fetch=async()=>{calls++;};ctx.testVoice.state.hosted=true;
+ await ctx.testVoice.record();ctx.testVoice.close();assert.equal(aborted,true);assert.equal(calls,0);assert.equal(ctx.testVoice.state.listening,false);
+});
+test('hosted API addresses require HTTPS and cannot contain credentials',()=>{
+ assert.equal(voice.hostedOrigin('https://voice.example'),'https://voice.example');
+ for(const url of ['http://voice.example','https://user:pass@voice.example','https://voice.example/?key=secret'])assert.throws(()=>voice.hostedOrigin(url));
 });

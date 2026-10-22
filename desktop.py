@@ -132,7 +132,7 @@ def clock_slots(include_end=False):
     return [f'{i // 2:02}:{30 if i % 2 else 0:02}' for i in range(48)] + (['24:00'] if include_end else [])
 
 
-def interpret(payload):
+def interpret(payload, timeout=180):
     transcript = payload.get('transcript')
     if not isinstance(transcript, str) or not transcript.strip() or len(transcript) > 12000:
         raise ValueError('Enter a description of up to 12,000 characters.')
@@ -159,7 +159,7 @@ def interpret(payload):
         'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 2500}}
     if model in MODEL_THINKING:
         request['think'] = MODEL_THINKING[model]
-    result = ollama('/api/chat', request, timeout=180)
+    result = ollama('/api/chat', request, timeout=timeout)
     draft = parse_model_draft(result)
     return {**draft, 'model_used': model}
 

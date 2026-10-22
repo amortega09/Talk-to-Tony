@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "python3 scripts/build-web.py",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/voice/*.py": { "maxDuration": 60, "includeFiles": "*.py" }
+  }
+}

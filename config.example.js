@@ -4,5 +4,6 @@ window.APP_CONFIG = {
   SUPABASE_URL: "",
   SUPABASE_ANON_KEY: "",
   GOOGLE_CLIENT_ID: "",
+  VOICE_API_URL: "", // HTTPS hosted voice origin; empty uses the desktop service.
 };
 

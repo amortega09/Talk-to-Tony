@@ -1,0 +1,10 @@
+.env
+.env.*
+.day-voice
+.git
+__pycache__
+**/__pycache__
+tests
+docs
+node_modules
+.private
