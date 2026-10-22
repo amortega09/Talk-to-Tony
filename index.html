@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=77" />
+  <link rel="stylesheet" href="styles.css?v=78" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -358,6 +358,7 @@
         <summary>Voice settings</summary>
         <label>Voice service<input id="voiceHelper" type="url" value="http://127.0.0.1:8765" /></label>
         <button type="button" id="voiceConnect" class="text-btn">Reconnect</button>
+        <label>Transcription<select id="voiceSpeech"><option value="auto">Automatic</option><option value="portable">Built-in · works in Brave</option><option value="browser">Browser speech service</option></select></label>
         <label>Model<select id="voiceModel"><option value="">Automatic</option></select></label>
       </details>
     </section>
@@ -452,9 +453,10 @@
   <script src="config.js?v=41"></script>
   <script src="patterns.js?v=70"></script>
   <script src="event-range.js?v=71"></script>
-  <script src="voice-draft.js?v=77"></script>
-  <script src="app.js?v=77"></script>
-  <script src="voice.js?v=77"></script>
+  <script src="voice-draft.js?v=78"></script>
+  <script src="app.js?v=78"></script>
+  <script src="speech-transcriber.js?v=78"></script>
+  <script src="voice.js?v=78"></script>
 
 
 </body>

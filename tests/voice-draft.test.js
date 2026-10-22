@@ -111,3 +111,42 @@ test('hosted API addresses require HTTPS and cannot contain credentials',()=>{
  assert.equal(voice.hostedOrigin('https://voice.example'),'https://voice.example');
  for(const url of ['http://voice.example','https://user:pass@voice.example','https://voice.example/?key=secret'])assert.throws(()=>voice.hostedOrigin(url));
 });
+
+test('Brave records locally and drafts through Ollama without the browser speech service or audio upload',async()=>{
+ const sb={auth:{getSession:async()=>({data:{session:{access_token:'test-session'}}})}};
+ const {ctx,store}=app({sb});let transcribed=0,recognitionStarted=0;const calls=[];
+ ctx.navigator.brave={};ctx.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ class Recorder { static isTypeSupported(){return true;} constructor(){this.state='inactive';} start(){this.state='recording';} stop(){this.state='inactive';this.done=this.onstop();} }
+ ctx.MediaRecorder=ctx.window.MediaRecorder=Recorder;
+ ctx.window.SpeechRecognition=class {start(){recognitionStarted++;}};
+ ctx.window.DaySpeech={supported:()=>true,transcribe:async()=>{transcribed++;return {text:'Worked from nine until twelve.'};},cancel(){}};
+ ctx.fetch=async(url)=>{calls.push(url);return {ok:true,json:async()=>draft([item()])};};
+ const state=ctx.testVoice.state;state.hosted=true;state.origin='https://voice.example';state.draft=null;
+ await ctx.testVoice.record();const recorder=state.recorder;recorder.stop();await recorder.done;
+ assert.equal(recognitionStarted,0);assert.equal(transcribed,1);assert.equal(calls.length,1);assert.match(calls[0],/draft$/);assert.equal(state.phase,'review');assert.deepEqual(store,{});
+});
+test('a native speech network failure selects the portable fallback and preserves the draft',async()=>{
+ const {ctx,get}=app();
+ class Recognition {start(){} stop(){this.onend();}}
+ ctx.window.SpeechRecognition=Recognition;ctx.window.DaySpeech={supported:()=>true};
+ ctx.testVoice.state.hosted=true;
+ await ctx.testVoice.record();const recognition=ctx.testVoice.state.recognition;
+ recognition.onerror({error:'network'});await recognition.onend();
+ assert.match(get('voiceStatus').textContent,/built-in transcription/);assert.equal(ctx.testVoice.state.browserSpeechFailed,true);assert.equal(ctx.testVoice.state.draft.items.length,1);assert.equal(ctx.testVoice.state.listening,false);
+});
+test('microphone permissions and capture errors have distinct recovery messages',async()=>{
+ for (const [code,message] of [['not-allowed',/access is blocked/],['audio-capture',/microphone isn’t available/],['no-speech',/No speech was detected/]]) {
+  const {ctx,get}=app();class Recognition {start(){}}
+  ctx.window.SpeechRecognition=Recognition;ctx.testVoice.state.hosted=true;
+  await ctx.testVoice.record();ctx.testVoice.state.recognition.onerror({error:code});await ctx.testVoice.state.recognition.onend();
+  assert.match(get('voiceStatus').textContent,message);
+ }
+});
+test('failed recordings never request transcription or draft partial microphone data',async()=>{
+ const {ctx,store}=app();let requests=0;
+ ctx.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ class Recorder { static isTypeSupported(){return true;} constructor(){this.state='inactive';} start(){this.state='recording';} stop(){this.state='inactive';this.done=this.onstop();} }
+ ctx.MediaRecorder=ctx.window.MediaRecorder=Recorder;ctx.fetch=async()=>{requests++;};
+ await ctx.testVoice.record();const recorder=ctx.testVoice.state.recorder;recorder.onerror();await recorder.done;
+ assert.equal(requests,0);assert.equal(ctx.testVoice.state.phase,'error');assert.deepEqual(store,{});
+});

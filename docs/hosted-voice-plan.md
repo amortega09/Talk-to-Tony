@@ -47,8 +47,9 @@ allowlist for the new frontend origin and a real signed-in end-to-end test remai
 to be confirmed. See [deployment details](vercel-deployment.md).
 
 Not yet done: a dedicated speech provider, durable quotas, draft recovery across
-reloads, or atomic/idempotent cloud saves. Browser speech recognition is the
-initial hosted transcription path.
+reloads, or atomic/idempotent cloud saves. Native browser speech is now supplemented by portable Whisper inference in a
+browser worker, used automatically for Brave and after native-service failures.
+This path needs no speech-provider key; audio stays on the device.
 
 ## Phase 1: deploy a private hosted pilot
 

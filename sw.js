@@ -1,9 +1,9 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v77";
+const CACHE = "day-v78";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=77", "./app.js?v=77", "./config.js?v=41",
+  "./", "./index.html", "./styles.css?v=78", "./app.js?v=78", "./config.js?v=41",
 
-  "./voice.js?v=77", "./voice-draft.js?v=77", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
+  "./speech-transcriber.js?v=78", "./speech-worker.js?v=78", "./voice.js?v=78", "./voice-draft.js?v=78", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
 
@@ -23,6 +23,7 @@ self.addEventListener("activate", (e) => {
 // Network-first: always try fresh, fall back to cache when offline.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return; // speech runtime/model manage their own cache
   if (url.hostname.endsWith("supabase.co")) return; // never touch API calls
   if (url.pathname.startsWith("/api/voice/")) return;
   if (e.request.method !== "GET") return;

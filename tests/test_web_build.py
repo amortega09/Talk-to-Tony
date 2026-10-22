@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ['index.html', 'styles.css', 'app.js', 'voice.js', 'voice-draft.js',
+ASSETS = ['index.html', 'styles.css', 'app.js', 'voice.js', 'voice-draft.js', 'speech-transcriber.js', 'speech-worker.js',
           'patterns.js', 'event-range.js', 'config.js', 'manifest.webmanifest', 'sw.js']
 
 

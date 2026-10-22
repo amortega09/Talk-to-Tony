@@ -41,11 +41,19 @@ unnecessary for hosted voice there too.
 
 ## Current speech support
 
-The hosted app uses browser SpeechRecognition. It has no local Whisper or Python
-process requirement, but only works in supporting browsers. It may use the
-browser vendor's speech service. Text entry remains available. A dedicated
-transcription API is a separate follow-up requiring a provider key and agreement
-on audio handling; it is not silently configured by this deployment.
+Brave and browsers without native SpeechRecognition use quantized Whisper tiny.en
+in a browser worker. Native speech-service network failures switch to that
+portable fallback for the next recording. The first use downloads the pinned
+runtime/model; audio stays on the device and the transcript goes to Ollama.
+No local Python helper or additional speech-provider key is required. Native
+speech remains available in other browsers; it may use the vendor's service.
+Voice settings allow explicit selection. Text input always remains available.
+A dedicated hosted transcription provider remains an optional follow-up.
+
+The Supabase redirect URL was verified on 22 October 2026 using deliberately
+invalid tokens: the Vercel URL was accepted, while an unrelated test origin fell
+back to the existing GitHub Pages Site URL. Full sign-in requires a real fresh
+magic link; that was not automated or bypassed.
 
 ## Verified on deployment
 
@@ -54,7 +62,7 @@ on audio handling; it is not silently configured by this deployment.
 - GitHub Pages CORS preflight is permitted; unrelated origins are rejected.
 - Secrets are not returned by the status response or included in public assets.
 - Frontend voice API resolves to Vercel (same origin on the Vercel build).
-- Automated tests: 34 JavaScript and 18 Python tests pass.
+- Automated tests: 42 JavaScript and 18 Python tests pass.
 
 A real signed-in voice request and cloud save from the Vercel origin still need
 verification after the Supabase redirect is enabled. No real diary entries or

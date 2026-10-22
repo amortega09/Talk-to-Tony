@@ -1,9 +1,15 @@
 /* Voice capture + Ollama Cloud drafts. Provider keys stay on the server. */
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false };
+  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false };
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
   const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+  $('voiceSpeech').value = localStorage.getItem('day_voice_speech') || 'auto';
+  const portableSpeech = () => state.hosted && ($('voiceSpeech').value === 'portable' || ($('voiceSpeech').value !== 'browser' && (state.browserSpeechFailed || !!navigator.brave || !speechRecognition())));
+  const captureSupported = () => portableSpeech() ? !!window.DaySpeech?.supported() : !!speechRecognition();
+  function privacy() {
+    $('voicePrivacy').textContent = !state.hosted || portableSpeech() ? 'Audio is transcribed on this device. Text is processed by Ollama. Nothing is saved until you choose.' : 'Your browser’s speech service transcribes audio. Text is processed by Ollama. Nothing is saved until you choose.';
+  }
   const status = text => { $('voiceStatus').textContent = text; };
   function phase(value, message) {
     state.phase = value;
@@ -16,8 +22,10 @@
   function buttons() {
     $('voiceConnect').disabled = state.busy || state.saving || state.listening || !!state.stream;
     $('voiceBuild').disabled = state.busy || state.saving || state.listening || !!state.stream || !state.connected || !state.keyReady || !$('voiceModel').value || !$('voiceTranscript').value.trim();
-    $('voiceRecord').disabled = state.busy || state.saving || !state.connected || !state.speechReady || (state.hosted ? !speechRecognition() : !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder);
-    $('voiceModel').disabled = state.busy || state.saving;
+    $('voiceRecord').disabled = state.busy || state.saving || !state.connected || !state.speechReady || (state.hosted ? !captureSupported() : !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder);
+    $('voiceModel').disabled = state.busy || state.saving || state.listening || !!state.stream;
+    $('voiceSpeech').disabled = state.busy || state.saving || state.listening || !!state.stream;
+    if ($('voiceSpeech').parentElement) $('voiceSpeech').parentElement.hidden = !state.hosted;
     $('voiceHelper').disabled = state.hosted || state.busy || state.saving || state.listening || !!state.stream;
     $('voiceTranscript').disabled = state.saving || state.listening || !!state.stream;
     $('voiceClose').disabled = state.saving;
@@ -65,8 +73,8 @@
       const result = await api('/api/voice/status', undefined, 20000);
       if (version !== state.version) return;
       if ((!state.hosted && !result.token) || !Array.isArray(result.models)) throw new Error('The voice service returned an invalid connection response.');
-      state.token = result.token || ''; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready && (!state.hosted || !!speechRecognition());
-      $('voicePrivacy').textContent = state.hosted ? 'Your browser transcribes speech. Text is processed by Ollama. Nothing is saved until you choose.' : 'Audio stays on this computer. Text is processed by Ollama. Nothing is saved until you choose.';
+      state.token = result.token || ''; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready && (!state.hosted || captureSupported());
+      privacy();
       const preferred = localStorage.getItem('day_voice_model_v2') || 'auto';
       const automatic = result.recommended_model ? `<option value="auto">Automatic · ${escape(result.recommended_model)} (recommended)</option>` : '<option value="">Choose a cloud model (recommendation unavailable)</option>';
       const models = [...result.models].sort((a, b) => (a === result.recommended_model ? -1 : b === result.recommended_model ? 1 : a.localeCompare(b)));
@@ -152,7 +160,17 @@
     recognition.onerror = event => {
       failed = true;
       if (version === state.version) {
-        phase('error', event.error === 'not-allowed' ? 'Allow microphone access in your browser, or type below.' : 'I couldn’t catch that. Try again or type your day.');
+        const messages = {
+          'not-allowed': 'Microphone access is blocked. Allow it in your browser’s site settings, then try again.',
+          'audio-capture': 'Your microphone isn’t available. Check your input device and close other apps using it.',
+          'no-speech': 'No speech was detected. Try speaking closer to your microphone.',
+          'language-not-supported': 'This speech service doesn’t support your language. Use built-in transcription in Voice settings.'
+        };
+        if (['network', 'service-not-allowed'].includes(event.error) && window.DaySpeech?.supported()) {
+          state.browserSpeechFailed = true; $('voiceSpeech').value = 'auto';
+          localStorage.setItem('day_voice_speech', 'portable'); privacy();
+          phase('error', 'Your browser’s speech service is unavailable. Click the microphone again to use built-in transcription.');
+        } else phase('error', messages[event.error] || `Speech recognition stopped (${event.error || 'unknown error'}). Try again or type below.`);
         $('voiceCompose').open = true;
       }
     };
@@ -176,7 +194,7 @@
     }
   }
   async function record() {
-    if (state.hosted) return recordInBrowser();
+    if (state.hosted && !portableSpeech()) return recordInBrowser();
     if (state.recorder?.state === 'recording') { state.recorder.stop(); return; }
     const version = state.version;
     const before = state.draft && !state.stale ? '' : $('voiceTranscript').value.trim();
@@ -190,15 +208,17 @@
       const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t));
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       state.recorder = recorder;
-      let recordTimer;
+      let recordTimer, failed = false;
       recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
       recorder.onstop = async () => {
         clearTimeout(recordTimer); stream.getTracks().forEach(track => track.stop());
         if (state.recorder === recorder) { state.stream = null; state.recorder = null; $('voiceRecordLabel').textContent = 'Start talking'; }
         if (version !== state.version) { buttons(); return; }
+        if (failed) { state.busy = false; phase('error', 'Recording failed. Your existing draft is safe. Please try again.'); buttons(); return; }
         state.busy = true; phase('transcribing', 'Turning your words into a clear picture…'); buttons();
         try {
-          const result = await api('/api/voice/transcribe', new Blob(chunks, { type: recorder.mimeType }));
+          const blob = new Blob(chunks, { type: recorder.mimeType });
+          const result = state.hosted ? await window.DaySpeech.transcribe(blob, message => { if (version === state.version) phase('transcribing', message); }) : await api('/api/voice/transcribe', blob);
           if (version !== state.version) return;
           if (!result.text?.trim()) throw new Error('I didn’t catch any speech. Try again or type instead.');
           $('voiceTranscript').value = [before, result.text].filter(Boolean).join('\n');
@@ -207,7 +227,7 @@
         } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Try recording a shorter thought.' : error.message); }
         finally { if (version === state.version) { state.busy = false; buttons(); } }
       };
-      recorder.onerror = () => { status('Recording failed. Try again or type your description.'); if (recorder.state !== 'inactive') recorder.stop(); else stream.getTracks().forEach(track => track.stop()); };
+      recorder.onerror = () => { failed = true; status('Recording failed. Try again or type your description.'); if (recorder.state !== 'inactive') recorder.stop(); else { stream.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null; state.busy = false; phase('error', 'Recording failed. Please try again.'); buttons(); } };
       recorder.start(); recordTimer = state.timer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 120000);
       $('voiceCompose').open = false; phase('listening', 'Take your time. Click again when you’re done.');
     } catch (error) { stream?.getTracks().forEach(track => track.stop()); state.stream = null; phase('error', error.name === 'NotAllowedError' ? 'Allow microphone access in your browser, or type your day below.' : 'We couldn’t start the microphone. You can type your day instead.'); $('voiceCompose').open = true; }
@@ -264,6 +284,7 @@
     $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
+    window.DaySpeech?.cancel();
     $('voiceRecordLabel').textContent = 'Start talking';
     $('voiceDialog').hidden = true; $('voiceOpen').focus();
   }
@@ -284,6 +305,7 @@
   $('voiceTranscript').addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !$('voiceBuild').disabled) { e.preventDefault(); build(); } });
   $('voiceSave').addEventListener('click', save);
   $('voiceHelper').addEventListener('input', () => { state.connected = false; buttons(); status('Reconnect to use the new helper address.'); });
+  $('voiceSpeech').addEventListener('change', () => { localStorage.setItem('day_voice_speech', $('voiceSpeech').value); state.speechReady = captureSupported(); privacy(); buttons(); });
   $('voiceModel').addEventListener('change', () => localStorage.setItem('day_voice_model_v2', $('voiceModel').value));
   $('voiceTranscript').addEventListener('input', () => { state.stale = !!state.draft; buttons(); });
   $('voiceDraft').addEventListener('input', e => {
