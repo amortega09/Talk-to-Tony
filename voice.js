@@ -43,6 +43,7 @@
   }
   async function api(path, body, timeout = 180000) {
     const controller = new AbortController();
+    const requestOwner=USER_ID;
     state.controller = controller;
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -51,6 +52,7 @@
       if (state.hosted) {
         const session = await sb?.auth?.getSession();
         const token = session?.data?.session?.access_token;
+        if(USER_ID!==requestOwner || (session?.data?.session?.user?.id && session.data.session.user.id!==requestOwner)) throw new Error('Your account changed. Close and reopen voice to continue.');
         if (!token) throw new Error('Please sign in to Day to use voice.');
         authorization = { Authorization: 'Bearer ' + token };
       }

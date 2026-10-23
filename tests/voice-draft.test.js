@@ -172,3 +172,10 @@ test('switching accounts during history retrieval cannot send the previous user 
  ctx.DayVoiceContext={load:()=>new Promise(resolve=>finish=resolve),select:historyContext.select};get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
  const pending=ctx.testVoice.build();ctx.USER_ID='other';finish({rows:[],source:'cloud',complete:true});await pending;assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
 });
+test('account changes during session refresh prevent old diary context being sent',async()=>{
+ let finish,requests=0;const sb={auth:{getSession:()=>new Promise(resolve=>finish=resolve)}};
+ const {ctx,get}=app({sb});ctx.DayVoiceContext={load:async()=>({rows:[],source:'cloud',complete:true}),select:historyContext.select};
+ ctx.testVoice.state.hosted=true;get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
+ const pending=ctx.testVoice.build();await new Promise(resolve=>setImmediate(resolve));ctx.USER_ID='other';finish({data:{session:{access_token:'old-owner-token',user:{id:'test'}}}});await pending;
+ assert.equal(requests,0);assert.match(get('voiceStatus').textContent,/account changed/);
+});
