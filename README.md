@@ -159,17 +159,17 @@ The included static build also uses the hosted API on its own origin; using that
 frontend requires adding its URL to Supabase's permitted auth redirects.
 The build copies only public app files, never `.env` or speech models.
 
-Hosted voice automatically uses built-in English transcription in Brave and
-browsers without a speech service. It also falls back after native speech-service
-network failures. The first recording downloads a quantized Whisper tiny.en
-model; inference runs in a worker on the device and audio is not uploaded.
-Other browsers can keep their native speech service. Choose the mode in the
-collapsed Voice settings if needed. Editable text goes to Ollama Cloud, and
-typing remains available. No Ollama key reaches the browser. An empty
-`VOICE_API_URL` keeps local transcription via the desktop helper below.
+Hosted voice defaults to built-in English transcription in all browsers, including
+Brave. The first recording downloads a quantized Whisper base.en model (larger
+than the previous tiny.en); inference runs in a worker and audio is not uploaded.
+This trades more download/processing time for a larger recogniser, without another
+cloud account. The browser speech service is an explicit option in Voice settings,
+with built-in fallback after service failures. Editable text and relevant diary
+context go to Ollama Cloud; typing remains available. No Ollama key reaches the
+browser. An empty `VOICE_API_URL` keeps desktop-helper transcription.
 
 The portable runtime is pinned to Transformers.js 3.8.1; the model is pinned to
-revision `79fb389fc764e7c395bd330e9531d9d32ada7049`. Public model/runtime downloads
+revision `95bf40a508535962c6483ead40270b2e32267508`. Public model/runtime downloads
 come from Hugging Face and jsDelivr. The model cache is managed by the runtime,
 not the app-shell service worker. Silence is rejected before inference; closing
 the dialog cancels decoding/inference. The download requires a connection;

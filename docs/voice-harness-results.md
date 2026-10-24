@@ -1,5 +1,35 @@
 # Voice harness results — 24 October 2026
 
+## Accuracy upgrade follow-up
+
+**14/14 scenarios passed (16 turns)** after the graduation fixes and targeted retests.
+
+The recogniser now uses pinned Whisper **base.en q8**, up from tiny.en. Automatic
+mode uses it in every browser; browser speech remains an explicit option.
+This needs no additional provider or API key. Ollama Cloud still processes text
+and relevant diary context; audio stays on the device.
+
+A larger small.en model was tried, but stalled during repeated browser inference.
+It is not the shipped default. Base.en completed the full speech suite; the first
+13 scenarios passed, with roughly 5–10 seconds per single-turn command in this run.
+
+The new graduation scenario transcribed the corrected sentence accurately,
+including “Yen”, 9:30am, 12:30am and 6pm. It exposed separate interpretation bugs:
+copying an extra sleep date from history and inventing departure at wake-up.
+The prompt now asks for departure, midnight normalisation preserves minutes,
+and a narrow clock-based safeguard aligns explicit early-morning bedtime with
+an explicit wake-up today. Previous-night, dated and numeric-duration statements
+are excluded from that safeguard.
+
+The Moeve scenario now actually says **“moo ay vay”**, and a pronunciation hint
+is supplied only when Moeve exists in that owner's activity vocabulary. It passes
+through browser audio, diary recall and the actual cloud model.
+
+These synthetic speech checks do not establish Wispr-level accuracy or verify
+the user's accent/microphone. No additional cloud speech provider or subscription was introduced; model calls use the existing Ollama allowance.
+
+## Original tiny.en baseline
+
 **13/13 scenarios passed across 15 turns**, after fixing the issues below.
 The harness used generated macOS Daniel speech, the real browser Whisper
 transcriber, the diary-context selector, the small agent, the actual Ollama

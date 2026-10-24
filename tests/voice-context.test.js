@@ -54,3 +54,10 @@ test('tomorrow and next weekday references retrieve plans without treating them 
 test('old schedules do not establish a current usual routine',()=>{
  const rows=['2023-01-01','2023-01-02','2023-01-03'].map(d=>row(d,'08:00',{subcategory:'Morning routine'}));assert.equal(select(rows,{transcript:'Usual morning routine'}).routines.length,0);
 });
+
+test('confirmed Moeve pronunciation is supplied only for an existing activity',()=>{
+ const known=select([row('2026-10-10','10:00',{subcategory:'Moeve'})],{transcript:'moo ay vay'});
+ assert.equal(known.activities.find(a=>a.activity==='Moeve').pronunciation,'moo-ay-vay');
+ const absent=select([row('2026-10-10','10:00',{subcategory:'CFD'})],{transcript:'moo ay vay'});
+ assert.ok(absent.activities.every(a=>!a.pronunciation));
+});

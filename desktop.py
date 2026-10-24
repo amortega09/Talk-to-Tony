@@ -35,9 +35,11 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {
     'reflections': {'type': 'array', 'maxItems': 8, 'items': {'type': 'object', 'additionalProperties': False,
         'properties': {'date': NULL_TEXT, 'text': {'type': 'string'}}, 'required': ['date', 'text']}}},
     'required': ['reply', 'questions', 'items', 'reflections']}
-SYSTEM = """You prepare editable drafts for Day, a half-hour activity diary. You NEVER save, execute commands, or change stored records.
+SYSTEM = """You prepare editable drafts for Day, a half-hour activity diary. You NEVER save, execute commands, or change stored records. Describe the result as a draft ready for review; never say you added, saved or logged it.
 Return only JSON matching the provided schema. Keep reply under 35 words. Items are activities; reflections are explicitly expressed thoughts about a day.
 Use context.today for 'today' and 'yesterday', context.viewed_date only when the user says 'this day'. Use context.local_time for 'last two hours'.
+Speech transcripts may contain misheard words or names. Use the supplied activity vocabulary and pronunciation hints to recognise plausible names, but never manufacture a person, event or timing from history. If speech is garbled enough to change meaning, retain clear details and ask ONE short question about the uncertain part. Never turn a nonsensical phrase into a confident invented fact. A stated wake-up time can end an explicitly stated sleep interval; it does not specify the start of a subsequent excursion. "Then" orders events but NEVER supplies a missing start boundary. "All day" without an explicit all-day calendar request does not supply midnight or wake-up as a start. Keep that start null and ask when the person left.
+Calendar example: "Today I woke at 8 am, went to sleep at 1 am, then went out until 5 pm" means sleep context.today 01:00 to context.today 08:00 (seven hours), plus going out with null start and 17:00 end. A bedtime after midnight is already on the wake-up calendar date; subtract a day only for a previous-evening bedtime or an explicit previous date. Never stretch this into 31 hours of sleep.
 Reuse known activity names and broad category IDs. Preserve specific project names as activity, not category. Do not invent times, durations, dates, ratings or activities.
 Dates/times may be resolved from an explicit repeat/routine request using supplied history. Otherwise unknown dates/times must be null and need a concise clarification question. When an activity is clear but its times are unknown or off-grid, retain an item for it with null times while asking for clarification; do not drop the activity. Day uses 30-minute slots: every :00 and :30 time is valid (including 08:30, 09:30 and 17:30). Do not question a valid half-hour time. An AM/PM hour must be 1 through 12: "13 am" or "13 pm" is invalid and ambiguous, not 13:00. Leave that start/end null and ask for the intended hour; do not ask only about the other missing boundary. Do not round unsupported times; leave those times null and ask the user to choose half-hour boundaries.
 Interpret explicit overnight intervals with their correct end_date. For same-day intervals set end_date equal to date. End is exclusive; 24:00 means midnight after end_date.
@@ -148,7 +150,28 @@ def normalize_spoken_times(transcript):
     transcript = re.sub(r'\b([0-2]?\d)\.([0-5]\d)(?=\s*' + meridiem + ')', r'\1:\2', transcript, flags=re.I)
     transcript = re.sub(r'\b([0-2]?\d)\.([0-5]\d)(?=\s*(?:to|until|through)\s+\d{1,2}(?:[.:]\d{2})?\s*' + meridiem + ')', r'\1:\2', transcript, flags=re.I)
     transcript = re.sub(r'(\b(?:at|from|until|to|by)\s+)([0-2]?\d)([0-5]\d)(?=\s*(?:' + meridiem + r'|this\s+(?:morning|afternoon|evening)\b))', r'\1\2:\3', transcript, flags=re.I)
+    # Twelve AM is midnight; preserve minutes instead of letting the model drop them.
+    transcript = re.sub(r'\b12:([0-5]\d)\s*a\.?m\.?\b', r'00:\1', transcript, flags=re.I)
     return transcript
+
+
+def align_explicit_morning_sleep(draft, transcript, today):
+    """An explicit early-morning bedtime and today's wake-up share a calendar date.
+    Restrict repair to a literal pair of clock times; never use diary routines.
+    """
+    if not valid_date(today) or re.search(r'\b(?:yesterday|overnight|last night)\b|\d+\s*(?:days?|hours?)\b|\d{4}-\d{2}-\d{2}', transcript, re.I):
+        return draft
+    wake = re.search(r"\btoday\b.*?\bwoke(?: up)? at (\d{1,2}):(\d{2})\s*(am|a\.m\.)", transcript, re.I)
+    bed = re.search(r"\b(?:went to sleep|fell asleep|went to bed|slept) (?:at|from) (0?[0-5]):([0-5]\d)(?!\d|\s*p\.?m)", transcript, re.I)
+    if not wake or not bed:
+        return draft
+    start=f'{int(bed[1]):02}:{bed[2]}'; end=f'{int(wake[1])%12:02}:{wake[2]}'
+    if start >= end:
+        return draft
+    for item in draft['items']:
+        if item['category']=='sleep' and item['start']==start and item['end']==end and item['end_date']==today:
+            item['date']=today
+    return draft
 
 
 def interpret(payload, timeout=180):
@@ -180,6 +203,7 @@ def interpret(payload, timeout=180):
         request['think'] = MODEL_THINKING[model]
     result = ollama('/api/chat', request, timeout=timeout)
     draft = parse_model_draft(result)
+    draft = align_explicit_morning_sleep(draft, normalize_spoken_times(transcript), payload.get('context', {}).get('today'))
     return {**draft, 'model_used': model}
 
 

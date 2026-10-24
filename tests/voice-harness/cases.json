@@ -54,7 +54,7 @@
   },
   {
     "id": "repeat_cfd",
-    "label": "Recall yesterday’s CFD intervals",
+    "label": "Recall yesterday\u2019s CFD intervals",
     "turns": [
       {
         "say": "Today I did the same C F D work as yesterday, at the same times.",
@@ -223,7 +223,7 @@
     "label": "Recognise the saved activity Moeve",
     "turns": [
       {
-        "say": "Today I worked on Moeve from ten AM until noon.",
+        "say": "Today I worked on moo ay vay from ten AM until noon.",
         "expected": {
           "items": [
             [
@@ -314,6 +314,36 @@
               "2026-10-14",
               "12:00"
             ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "yen_graduation",
+    "label": "Wake-up, sleep and Yen\u2019s graduation without invented departure",
+    "turns": [
+      {
+        "say": "Today I woke up at nine thirty AM. I went to sleep at twelve thirty AM. Then I was out all day on an excursion to Yen's graduation until six PM.",
+        "expected": {
+          "count": 2,
+          "question": true,
+          "partial_items": [
+            {
+              "category": "sleep",
+              "start": "00:30",
+              "end": "09:30",
+              "date": "2026-10-14",
+              "end_date": "2026-10-14"
+            },
+            {
+              "start": null,
+              "end": "18:00"
+            }
+          ],
+          "note_contains": [
+            "Yen",
+            "graduation"
           ]
         }
       }

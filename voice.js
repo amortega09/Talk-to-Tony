@@ -6,7 +6,7 @@
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
   const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
   $('voiceSpeech').value = localStorage.getItem('day_voice_speech') || 'auto';
-  const portableSpeech = () => state.hosted && ($('voiceSpeech').value === 'portable' || ($('voiceSpeech').value !== 'browser' && (state.browserSpeechFailed || !!navigator.brave || !speechRecognition())));
+  const portableSpeech = () => state.hosted && $('voiceSpeech').value !== 'browser';
   const captureSupported = () => portableSpeech() ? !!window.DaySpeech?.supported() : !!speechRecognition();
   function privacy() {
     $('voicePrivacy').textContent = !state.hosted || portableSpeech() ? 'Audio is transcribed on this device. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.' : 'Your browser’s speech service transcribes audio. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.';

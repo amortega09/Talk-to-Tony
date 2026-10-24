@@ -93,7 +93,7 @@ test('stopping a recording automatically transcribes and organises without savin
 });
 test('hosted browser speech processes on stop and sends only the signed-in session token',async()=>{
  const sb={auth:{getSession:async()=>({data:{session:{access_token:'test-session'}}})}};
- const {ctx,store}=app({sb});const calls=[];
+ const {ctx,store,get}=app({sb});get('voiceSpeech').value='browser';const calls=[];
  class Recognition { start(){} stop(){this.done=this.onend();} abort(){this.onend();} }
  ctx.window.SpeechRecognition=Recognition;ctx.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>draft([item()])};};
  const state=ctx.testVoice.state;state.hosted=true;state.origin='https://voice.example';state.draft=null;
@@ -102,7 +102,7 @@ test('hosted browser speech processes on stop and sends only the signed-in sessi
  assert.equal(calls.length,1);assert.match(calls[0].url,/draft$/);assert.equal(calls[0].options.headers.Authorization,'Bearer test-session');assert.equal(calls[0].options.headers['X-Day-Token'],undefined);assert.equal(state.phase,'review');assert.deepEqual(store,{});
 });
 test('closing browser speech aborts capture and does not process the transcript',async()=>{
- const {ctx}=app();let aborted=false,calls=0;
+ const {ctx,get}=app();get('voiceSpeech').value='browser';let aborted=false,calls=0;
  class Recognition { start(){} abort(){aborted=true;this.onend();} }
  ctx.window.SpeechRecognition=Recognition;ctx.fetch=async()=>{calls++;};ctx.testVoice.state.hosted=true;
  await ctx.testVoice.record();ctx.testVoice.close();assert.equal(aborted,true);assert.equal(calls,0);assert.equal(ctx.testVoice.state.listening,false);
@@ -112,10 +112,10 @@ test('hosted API addresses require HTTPS and cannot contain credentials',()=>{
  for(const url of ['http://voice.example','https://user:pass@voice.example','https://voice.example/?key=secret'])assert.throws(()=>voice.hostedOrigin(url));
 });
 
-test('Brave records locally and drafts through Ollama without the browser speech service or audio upload',async()=>{
+test('automatic voice records locally even with native speech available, without audio upload',async()=>{
  const sb={auth:{getSession:async()=>({data:{session:{access_token:'test-session'}}})}};
  const {ctx,store}=app({sb});let transcribed=0,recognitionStarted=0;const calls=[];
- ctx.navigator.brave={};ctx.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ ctx.navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
  class Recorder { static isTypeSupported(){return true;} constructor(){this.state='inactive';} start(){this.state='recording';} stop(){this.state='inactive';this.done=this.onstop();} }
  ctx.MediaRecorder=ctx.window.MediaRecorder=Recorder;
  ctx.window.SpeechRecognition=class {start(){recognitionStarted++;}};
@@ -126,7 +126,7 @@ test('Brave records locally and drafts through Ollama without the browser speech
  assert.equal(recognitionStarted,0);assert.equal(transcribed,1);assert.equal(calls.length,1);assert.match(calls[0],/draft$/);assert.equal(state.phase,'review');assert.deepEqual(store,{});
 });
 test('a native speech network failure selects the portable fallback and preserves the draft',async()=>{
- const {ctx,get}=app();
+ const {ctx,get}=app();get('voiceSpeech').value='browser';
  class Recognition {start(){} stop(){this.onend();}}
  ctx.window.SpeechRecognition=Recognition;ctx.window.DaySpeech={supported:()=>true};
  ctx.testVoice.state.hosted=true;
@@ -136,7 +136,7 @@ test('a native speech network failure selects the portable fallback and preserve
 });
 test('microphone permissions and capture errors have distinct recovery messages',async()=>{
  for (const [code,message] of [['not-allowed',/access is blocked/],['audio-capture',/microphone isn’t available/],['no-speech',/No speech was detected/]]) {
-  const {ctx,get}=app();class Recognition {start(){}}
+  const {ctx,get}=app();get('voiceSpeech').value='browser';class Recognition {start(){}}
   ctx.window.SpeechRecognition=Recognition;ctx.testVoice.state.hosted=true;
   await ctx.testVoice.record();ctx.testVoice.state.recognition.onerror({error:code});await ctx.testVoice.state.recognition.onend();
   assert.match(get('voiceStatus').textContent,message);

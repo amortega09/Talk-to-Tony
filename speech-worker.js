@@ -1,12 +1,13 @@
 /* Pinned browser inference. This worker sends no audio or text to external services. */
+// Accuracy first: the larger English model is cached after its first download.
 let transcriber;
 async function load() {
   if (!transcriber) transcriber = (async () => {
     const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js');
     env.allowLocalModels = false;
     env.backends.onnx.wasm.numThreads = 1;
-    return pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-      device: 'wasm', dtype: 'q8', revision: '79fb389fc764e7c395bd330e9531d9d32ada7049',
+    return pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+      device: 'wasm', dtype: 'q8', revision: '95bf40a508535962c6483ead40270b2e32267508',
       progress_callback: progress => {
         if (progress.status === 'progress') self.postMessage({ type: 'progress', percent: Math.round(progress.progress || 0) });
       }

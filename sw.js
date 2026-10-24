@@ -1,9 +1,9 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v80";
+const CACHE = "day-v81";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=80", "./app.js?v=80", "./config.js?v=41",
+  "./", "./index.html", "./styles.css?v=81", "./app.js?v=81", "./config.js?v=41",
 
-  "./speech-transcriber.js?v=80", "./speech-worker.js?v=80", "./diary-agent.js?v=80", "./voice-context.js?v=80", "./voice.js?v=80", "./voice-draft.js?v=80", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
+  "./speech-transcriber.js?v=81", "./speech-worker.js?v=81", "./diary-agent.js?v=81", "./voice-context.js?v=81", "./voice.js?v=81", "./voice-draft.js?v=81", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
 

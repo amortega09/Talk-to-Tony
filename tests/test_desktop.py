@@ -16,6 +16,13 @@ def draft():
 
 
 class DesktopTests(unittest.TestCase):
+    def test_explicit_morning_bedtime_keeps_wake_calendar_date(self):
+        def draft(): return {'items':[{'category':'sleep','start':'00:30','end':'09:30','date':'2026-10-13','end_date':'2026-10-14'}]}
+        speech='Today I woke up at 9:30am. I went to sleep at 00:30.'
+        self.assertEqual(desktop.align_explicit_morning_sleep(draft(),speech,'2026-10-14')['items'][0]['date'],'2026-10-14')
+        for phrase in ['Yesterday '+speech, speech+' for 33 hours', speech+' on 2026-10-13', 'Today I woke up at 9:30am.']:
+            self.assertEqual(desktop.align_explicit_morning_sleep(draft(),phrase,'2026-10-14')['items'][0]['date'],'2026-10-13')
+
     def test_validate_unknowns_and_reject_malformed_drafts(self):
         good = draft(); good['items'][0]['start'] = None
         self.assertEqual(desktop.validate_draft(good), good)
@@ -108,6 +115,8 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(desktop.normalize_spoken_times('from 9.10 AM until 10.40 AM'), 'from 9:10 AM until 10:40 AM')
         for value in ['I paid 8.30 for food', '830 steps this morning', '13am', 'Version 8.30', 'a 2026 date']:
             self.assertEqual(desktop.normalize_spoken_times(value), value)
+        self.assertEqual(desktop.normalize_spoken_times('sleep at 12.30am until 9.30am'), 'sleep at 00:30 until 9:30am')
+        self.assertEqual(desktop.normalize_spoken_times('12:30pm and 13am'), '12:30pm and 13am')
         self.assertIn('08:30', desktop.SCHEMA['properties']['items']['items']['properties']['start']['enum'])
         self.assertIn('17:30', desktop.SCHEMA['properties']['items']['items']['properties']['end']['enum'])
 

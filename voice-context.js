@@ -44,6 +44,8 @@
   function select(history, {today, viewedDate, transcript, maxChars=18000}) {
     const rows=history.rows || [], settings=parse(rows.find(r=>r.start_time==='__settings__')?.note);
     const labels=Object.fromEntries((Array.isArray(settings.customCats)?settings.customCats:[]).filter(c=>c && c.id).map(c=>[c.id,text(c.label,120)]));
+    // User-confirmed pronunciation; only relevant when this activity exists in this owner's diary.
+    const pronunciation = activity => activity.toLowerCase()==='moeve' ? 'moo-ay-vay' : '';
     const terms=words(transcript), match = value => {const hay=words(value);return terms.filter(w=>hay.includes(w)).length;};
     const anchors=new Set([today,shift(today,-1),viewedDate,shift(viewedDate,-1)]);
     for (const date of (String(transcript).match(/\d{4}-\d{2}-\d{2}/g) || []).slice(0,8)) if(validDate(date)) anchors.add(date);
@@ -102,7 +104,7 @@
     for(const [category,values] of Object.entries(settings.subs || {}))for(const label of Array.isArray(values)?values:[]) {
       const key=category+'\0'+String(label).toLowerCase();if(!catalog.has(key))catalog.set(key,{activity:text(label,160),category:categories.has(category)?category:'other',days:new Set(),hours:0,last_date:'',patterns:new Map()});
     }
-    const ranked=[...catalog.values()].sort((a,b)=>match(b.activity)-match(a.activity) || b.days.size-a.days.size || b.last_date.localeCompare(a.last_date));
+    const ranked=[...catalog.values()].sort((a,b)=>match(b.activity+' '+pronunciation(b.activity))-match(a.activity+' '+pronunciation(a.activity)) || b.days.size-a.days.size || b.last_date.localeCompare(a.last_date));
     const routines=ranked.map(a=>{
       const patterns=[...a.patterns].map(([time,dates])=>[time,dates.filter(d=>d>=shift(today,-60))]).filter(([,dates])=>dates.length);
       const observed=new Set(patterns.flatMap(([,dates])=>dates));
@@ -114,7 +116,7 @@
     const output={source:history.source,status:history.complete?'ready':'partial',coverage:{days_available:dated.length,first_date:dated[0] || null,last_date:dated.at(-1) || null,history_load_complete:history.complete,selection_limited:false},activities:[],routines:[],goals:{short_term:text(settings.shortTermObjectives,1200),long_term:text(settings.longTermObjectives,1200)},entries:[],day_notes:[],notes:[],day_coverage:[]};
     const fits=()=>JSON.stringify(output).length<=maxChars;
     function add(list,value){list.push(value);if(!fits()){list.pop();output.coverage.selection_limited=true;return false;}return true;}
-    for(const value of ranked.slice(0,80)) {if(JSON.stringify(output.activities).length>3500){output.coverage.selection_limited=true;break;}add(output.activities,{activity:value.activity,category:value.category,days_logged:value.days.size,hours_logged:value.hours,last_date:value.last_date || null});}
+    for(const value of ranked.slice(0,80)) {if(JSON.stringify(output.activities).length>3500){output.coverage.selection_limited=true;break;}add(output.activities,{activity:value.activity,...(pronunciation(value.activity)?{pronunciation:pronunciation(value.activity)}:{}),category:value.category,days_logged:value.days.size,hours_logged:value.hours,last_date:value.last_date || null});}
     for(const value of routines){if(JSON.stringify(output.routines).length>1800)break;add(output.routines,value);}
     const score = (date,value) => (anchors.has(date)?10000:period && date>=period[0] && date<=period[1]?8000:0)+match(value)*100+(date>=shift(today,-14) && date<=today?20:0);
     const dayNotes=[...days].flatMap(([date,day])=>day.metadata.map(n=>({date,...n}))).sort((a,b)=>score(b.date,b.text)-score(a.date,a.text)||b.date.localeCompare(a.date));

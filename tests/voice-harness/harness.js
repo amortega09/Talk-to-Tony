@@ -8,6 +8,8 @@ function evaluate(expected,draft,plan) {
     if(plan.errors.length)failures.push(...plan.errors);
     if(draft.questions.length)failures.push('Unexpected clarification');
   }
+  for(const fields of expected.partial_items || [])if(!items.some(item=>Object.entries(fields).every(([key,value])=>item[key]===value)))failures.push('Missing partial activity: '+JSON.stringify(fields));
+  for(const word of expected.note_contains || [])if(!items.some(item=>(item.activity+' '+item.note).toLowerCase().includes(word.toLowerCase())))failures.push('Lost detail: '+word);
   if(expected.count!==undefined && items.length!==expected.count)failures.push(`Expected ${expected.count} activities, got ${items.length}`);
   if(expected.question && !draft.questions.length)failures.push('Expected a clarification');
   if(expected.null_start && !items.every(i=>i.start===null))failures.push('Ambiguous start was invented');
@@ -41,7 +43,8 @@ async function run(failedOnly=false,ids=null){
   $('run').disabled=$('retry').disabled=$('targeted').disabled=true;
   const suite=await (await fetch('/suite')).json();
   const old=report.cases;
-  if(!failedOnly && !ids)report={started_at:new Date().toISOString(),engine:'Whisper tiny.en q8 / Transformers.js 3.8.1 / Ollama Gemma4:31b',history_source:suite.source,cases:[]};
+  const engine='Whisper base.en q8 / Transformers.js 3.8.1 / Ollama Gemma4:31b';
+  if((!failedOnly && !ids) || report.engine!==engine)report={started_at:new Date().toISOString(),engine,history_source:suite.source,cases:[]};
   delete report.finished_at;
   for(const scenario of suite.cases){
     if(ids && !ids.includes(scenario.id))continue;
@@ -66,5 +69,5 @@ async function run(failedOnly=false,ids=null){
 }
 $('run').onclick=()=>run().catch(e=>{$('status').textContent=e.message;$('run').disabled=$('retry').disabled=$('targeted').disabled=false;});$('retry').onclick=()=>run(true).catch(e=>$('status').textContent=e.message);
 
-$('targeted').onclick=()=>run(false,['ambiguous_time','recording_codec']).catch(e=>$('status').textContent=e.message);
+$('targeted').onclick=()=>run(false,['yen_graduation','custom_name','recording_codec']).catch(e=>$('status').textContent=e.message);
 fetch('/report').then(r=>r.ok?r.json():null).then(saved=>{if(saved?.cases){report=saved;display();}});

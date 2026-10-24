@@ -1,15 +1,15 @@
 /* Portable microphone transcription, independent of the browser's speech service. */
 (() => {
   const script = document.currentScript?.src || window.location.href;
-  const workerURL = new URL('speech-worker.js?v=80', script);
+  const workerURL = new URL('speech-worker.js?v=81', script);
   let worker = null, pending = null;
   const abortError = () => Object.assign(new Error('Transcription cancelled.'), { name: 'AbortError' });
   function supported() {
     return !!(window.Worker && window.WebAssembly && window.OfflineAudioContext && window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
   }
-  function cancel() {
+  function cancel(reason = abortError()) {
     worker?.terminate(); worker = null;
-    if (pending) { const old = pending; pending = null; old.reject(abortError()); }
+    if (pending) { const old = pending; pending = null; old.reject(reason); }
   }
   async function transcribe(blob, onProgress = () => {}) {
     if (!supported()) throw new Error('Built-in voice is unavailable in this browser. You can type your day below.');
@@ -18,7 +18,9 @@
     const operation = {};
     const result = new Promise((resolve, reject) => Object.assign(operation, { resolve, reject }));
     pending = operation;
-    const timer = setTimeout(() => cancel(), 240000);
+    const timer = setTimeout(() => {
+      cancel(new Error('Transcription took too long. Try a shorter recording or type below.'));
+    }, 240000);
     (async () => {
       const context = new window.OfflineAudioContext(1, 1, 16000);
       const decoded = await context.decodeAudioData(await blob.arrayBuffer());
@@ -33,7 +35,7 @@
       for (const sample of audio) { power += sample * sample; peak = Math.max(peak, Math.abs(sample)); }
       if (!audio.length || Math.sqrt(power / audio.length) < 0.0003 || peak < 0.003) throw new Error('No microphone audio was detected. Check your input device and try again.');
       if (!worker) worker = new window.Worker(workerURL, { type: 'module' });
-      onProgress('Preparing built-in voice. The first use downloads a speech model; later uses are faster.');
+      onProgress('Preparing accurate voice. The first use downloads a larger speech model; later uses are faster.');
       worker.onmessage = ({ data }) => {
         if (pending !== operation) return;
         if (data.type === 'progress') onProgress(`Preparing built-in voice · ${data.percent}% of a model file. Downloaded once, then reused.`);
