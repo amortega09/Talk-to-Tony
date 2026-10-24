@@ -1,0 +1,322 @@
+[
+  {
+    "id": "full_day",
+    "label": "Sleep, morning routine, CFD, lunch and walk",
+    "turns": [
+      {
+        "say": "Today I slept from midnight until eight thirty AM, did my weekday morning routine from eight thirty to nine thirty AM, then worked on C F D from nine thirty AM until noon. I had my lunchtime routine from noon until one PM and went for a walk from five thirty until six PM.",
+        "expected": {
+          "items": [
+            [
+              "Sleep",
+              "sleep",
+              "2026-10-14",
+              "00:00",
+              "2026-10-14",
+              "08:30"
+            ],
+            [
+              "Weekday Morning Routine",
+              "chores",
+              "2026-10-14",
+              "08:30",
+              "2026-10-14",
+              "09:30"
+            ],
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "09:30",
+              "2026-10-14",
+              "12:00"
+            ],
+            [
+              "Lunchtime routine",
+              "relax",
+              "2026-10-14",
+              "12:00",
+              "2026-10-14",
+              "13:00"
+            ],
+            [
+              "Walk",
+              "exercise",
+              "2026-10-14",
+              "17:30",
+              "2026-10-14",
+              "18:00"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "repeat_cfd",
+    "label": "Recall yesterday’s CFD intervals",
+    "turns": [
+      {
+        "say": "Today I did the same C F D work as yesterday, at the same times.",
+        "expected": {
+          "items": [
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "09:30",
+              "2026-10-14",
+              "12:00"
+            ],
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "13:00",
+              "2026-10-14",
+              "17:30"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "usual_routine",
+    "label": "Recognise usual weekday routine",
+    "turns": [
+      {
+        "say": "Today I did my usual weekday morning routine.",
+        "expected": {
+          "items": [
+            [
+              "Weekday Morning Routine",
+              "chores",
+              "2026-10-14",
+              "08:30",
+              "2026-10-14",
+              "09:30"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "clarification",
+    "label": "Ask for unknown times, then understand a short answer",
+    "turns": [
+      {
+        "say": "Today I worked on C F D but I cannot remember when I started or finished.",
+        "expected": {
+          "question": true,
+          "unknown": true,
+          "count": 1
+        }
+      },
+      {
+        "say": "Nine thirty AM until noon.",
+        "expected": {
+          "items": [
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "09:30",
+              "2026-10-14",
+              "12:00"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "correction",
+    "label": "Change CFD and preserve the walk",
+    "turns": [
+      {
+        "say": "Today I worked on C F D from nine thirty AM until noon, and walked from five thirty until six PM.",
+        "expected": {
+          "items": [
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "09:30",
+              "2026-10-14",
+              "12:00"
+            ],
+            [
+              "Walk",
+              "exercise",
+              "2026-10-14",
+              "17:30",
+              "2026-10-14",
+              "18:00"
+            ]
+          ]
+        }
+      },
+      {
+        "say": "Actually, change C F D to ten AM until noon, and keep the walk unchanged.",
+        "expected": {
+          "items": [
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "10:00",
+              "2026-10-14",
+              "12:00"
+            ],
+            [
+              "Walk",
+              "exercise",
+              "2026-10-14",
+              "17:30",
+              "2026-10-14",
+              "18:00"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "overnight",
+    "label": "Overnight sleep preserves dates",
+    "turns": [
+      {
+        "say": "Yesterday I slept from eleven PM until eight thirty this morning.",
+        "expected": {
+          "items": [
+            [
+              "Sleep",
+              "sleep",
+              "2026-10-13",
+              "23:00",
+              "2026-10-14",
+              "08:30"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "off_grid",
+    "label": "Do not silently round spoken times",
+    "turns": [
+      {
+        "say": "Today I worked on C F D from nine ten AM until ten forty AM.",
+        "expected": {
+          "question": true,
+          "unknown": true,
+          "count": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "custom_name",
+    "label": "Recognise the saved activity Moeve",
+    "turns": [
+      {
+        "say": "Today I worked on Moeve from ten AM until noon.",
+        "expected": {
+          "items": [
+            [
+              "Moeve",
+              "work",
+              "2026-10-14",
+              "10:00",
+              "2026-10-14",
+              "12:00"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "reflection",
+    "label": "Keep reflections separate from activities",
+    "turns": [
+      {
+        "say": "For today's reflection, I felt drained after doing C F D but better after my evening walk.",
+        "expected": {
+          "count": 0,
+          "reflections": 1,
+          "reflection_contains": [
+            "drained",
+            "walk"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "ambiguous_time",
+    "label": "Clarify the thirteen AM phrase from the screenshot",
+    "turns": [
+      {
+        "say": "Today my morning routine started at thirteen AM. I do not know the end time.",
+        "expected": {
+          "question": true,
+          "unknown": true,
+          "null_start": true,
+          "count": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "delete_request",
+    "label": "Refuse to pretend to delete saved entries",
+    "turns": [
+      {
+        "say": "Delete all my saved work entries from last week.",
+        "expected": {
+          "count": 0,
+          "reflections": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "silence",
+    "label": "Silence never reaches the model",
+    "silence": true,
+    "turns": [
+      {
+        "say": "",
+        "expected": {
+          "silence": true
+        }
+      }
+    ]
+  },
+  {
+    "id": "recording_codec",
+    "label": "Real browser MediaRecorder codec round-trip",
+    "record": true,
+    "turns": [
+      {
+        "say": "Today I worked on C F D from nine thirty AM until noon.",
+        "expected": {
+          "items": [
+            [
+              "CFD",
+              "work",
+              "2026-10-14",
+              "09:30",
+              "2026-10-14",
+              "12:00"
+            ]
+          ]
+        }
+      }
+    ]
+  }
+]

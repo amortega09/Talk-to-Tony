@@ -102,6 +102,15 @@ class DesktopTests(unittest.TestCase):
             (root / '.env').write_text('OLLAMA_API_KEY = "root-test"\n')
             self.assertEqual(desktop.api_key(), 'root-test')
 
+    def test_asr_time_formats_are_canonicalised_without_rounding_or_rewriting_amounts(self):
+        self.assertEqual(desktop.normalize_spoken_times('From 8.30 to 9.30 am, then 5.30 until 6 pm.'), 'From 8:30 to 9:30 am, then 5:30 until 6 pm.')
+        self.assertEqual(desktop.normalize_spoken_times('11pm until 830 this morning'), '11pm until 8:30 this morning')
+        self.assertEqual(desktop.normalize_spoken_times('from 9.10 AM until 10.40 AM'), 'from 9:10 AM until 10:40 AM')
+        for value in ['I paid 8.30 for food', '830 steps this morning', '13am', 'Version 8.30', 'a 2026 date']:
+            self.assertEqual(desktop.normalize_spoken_times(value), value)
+        self.assertIn('08:30', desktop.SCHEMA['properties']['items']['items']['properties']['start']['enum'])
+        self.assertIn('17:30', desktop.SCHEMA['properties']['items']['items']['properties']['end']['enum'])
+
     def handler(self, path, headers=None):
         handler = desktop.Handler.__new__(desktop.Handler)
         handler.headers = {'Host': '127.0.0.1:8765', **(headers or {})}

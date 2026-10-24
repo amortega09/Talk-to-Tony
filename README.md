@@ -85,6 +85,26 @@ Voice drafts activities and reflections; it does not move/delete saved events.
 
 Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md).
 
+### Full speech test harness
+
+Run `python3 scripts/voice-harness.py` and open the printed loopback URL. It
+synthesises test recordings with macOS `say`/ffmpeg, runs the actual browser
+Whisper model, recalls context through the agent, calls Ollama and checks the
+resulting draft. It also tests a real MediaRecorder WebM/Opus round-trip,
+clarifications, corrections, routines, custom names, overnight sleep, invalid
+times, reflections and silence. No microphone capture or diary saves occur.
+
+Use `--export "/path/to/day-export.json"` for private historical context; that
+mode requires the reference CFD day dated 2026-10-13. The copy oracle reconstructs
+actual intervals independently and preserves gaps. Without an export, the suite
+uses a synthetic diary. Customise `tests/voice-harness/cases.json` for other
+examples. `--voice` selects another installed macOS speech voice.
+
+This is an opt-in live evaluation and uses your existing Ollama allowance.
+Audio, private context and reports stay under ignored `.day-voice/harness/`.
+They are excluded from Git and Vercel. Use **Retry failed cases** for targeted
+reruns; the report includes recognized text and exact field assertions.
+
 ### Small diary agent
 
 A small `diary-agent.js` module coordinates read-only context lookup, Ollama

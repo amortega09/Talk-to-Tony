@@ -10,3 +10,5 @@ node_modules
 .private
 
 dist
+
+scripts/voice-harness.py

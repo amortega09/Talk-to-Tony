@@ -7,6 +7,7 @@ import datetime as dt
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -21,9 +22,11 @@ RECOMMENDED_MODEL = 'gemma4:31b'
 MODEL_THINKING = {'gemma4:31b': False, 'gpt-oss:120b': 'low', 'gpt-oss:20b': 'low'}
 
 CATEGORIES = ['sleep', 'work', 'exercise', 'gym', 'food', 'learn', 'social', 'chores', 'travel', 'relax', 'other']
+CLOCK_SLOTS = [f'{i // 2:02}:{30 if i % 2 else 0:02}' for i in range(48)]
 NULL_TEXT = {'type': ['string', 'null']}
 ITEM = {'type': 'object', 'additionalProperties': False, 'properties': {
     **{key: NULL_TEXT for key in ['date', 'start', 'end_date', 'end']},
+    'start': {'enum': [None, *CLOCK_SLOTS]}, 'end': {'enum': [None, *CLOCK_SLOTS, '24:00']},
     'category': {'type': 'string', 'enum': CATEGORIES}, 'activity': {'type': 'string'}, 'note': {'type': 'string'}},
     'required': ['date', 'start', 'end_date', 'end', 'category', 'activity', 'note']}
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {
@@ -36,7 +39,7 @@ SYSTEM = """You prepare editable drafts for Day, a half-hour activity diary. You
 Return only JSON matching the provided schema. Keep reply under 35 words. Items are activities; reflections are explicitly expressed thoughts about a day.
 Use context.today for 'today' and 'yesterday', context.viewed_date only when the user says 'this day'. Use context.local_time for 'last two hours'.
 Reuse known activity names and broad category IDs. Preserve specific project names as activity, not category. Do not invent times, durations, dates, ratings or activities.
-Dates/times may be resolved from an explicit repeat/routine request using supplied history. Otherwise unknown dates/times must be null and need a concise clarification question. Day uses 30-minute slots: do not round unsupported times; leave those times null and ask the user to choose half-hour boundaries.
+Dates/times may be resolved from an explicit repeat/routine request using supplied history. Otherwise unknown dates/times must be null and need a concise clarification question. When an activity is clear but its times are unknown or off-grid, retain an item for it with null times while asking for clarification; do not drop the activity. Day uses 30-minute slots: every :00 and :30 time is valid (including 08:30, 09:30 and 17:30). Do not question a valid half-hour time. An AM/PM hour must be 1 through 12: "13 am" or "13 pm" is invalid and ambiguous, not 13:00. Leave that start/end null and ask for the intended hour; do not ask only about the other missing boundary. Do not round unsupported times; leave those times null and ask the user to choose half-hour boundaries.
 Interpret explicit overnight intervals with their correct end_date. For same-day intervals set end_date equal to date. End is exclusive; 24:00 means midnight after end_date.
 For corrections, return the complete corrected previous draft, preserving entries not corrected. context.conversation contains up to three previous exchanges for this open dialog. Use the previous question to understand a short answer such as 'nine to ten'; the current transcript overrides earlier statements. Ask only ONE focused clarification question at a time. Answer clarification using previous draft. Do not repeat an unchanged activity twice.
 For requests to move/delete existing saved records or analytical questions, explain briefly that this screen drafts new activity entries; use the timeline or Patterns for those tasks. Never pretend to have changed saved data.
@@ -134,7 +137,18 @@ def validate_draft(draft):
 
 
 def clock_slots(include_end=False):
-    return [f'{i // 2:02}:{30 if i % 2 else 0:02}' for i in range(48)] + (['24:00'] if include_end else [])
+    return CLOCK_SLOTS + (['24:00'] if include_end else [])
+
+
+def normalize_spoken_times(transcript):
+    """Canonicalise common ASR clock punctuation only with explicit time cues.
+    No rounding, inferred meridiems, date changes or unrestricted number rewriting.
+    """
+    meridiem = r'(?:a\.?m\.?|p\.?m\.?)\b'
+    transcript = re.sub(r'\b([0-2]?\d)\.([0-5]\d)(?=\s*' + meridiem + ')', r'\1:\2', transcript, flags=re.I)
+    transcript = re.sub(r'\b([0-2]?\d)\.([0-5]\d)(?=\s*(?:to|until|through)\s+\d{1,2}(?:[.:]\d{2})?\s*' + meridiem + ')', r'\1:\2', transcript, flags=re.I)
+    transcript = re.sub(r'(\b(?:at|from|until|to|by)\s+)([0-2]?\d)([0-5]\d)(?=\s*(?:' + meridiem + r'|this\s+(?:morning|afternoon|evening)\b))', r'\1\2:\3', transcript, flags=re.I)
+    return transcript
 
 
 def interpret(payload, timeout=180):
@@ -155,7 +169,7 @@ def interpret(payload, timeout=180):
     previous = payload.get('previous')
     if previous is not None:
         validate_draft(previous)
-    data = {'transcript': transcript, 'context': context, 'previous_draft': previous}
+    data = {'transcript': normalize_spoken_times(transcript), 'context': context, 'previous_draft': previous}
     if len(json.dumps(data)) > 60000:
         raise ValueError('Draft is too large. Split this into a smaller request.')
     request = {'model': model, 'stream': False, 'messages': [
