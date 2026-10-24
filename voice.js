@@ -73,6 +73,7 @@
       const hosted = window.APP_CONFIG?.VOICE_API_URL;
       state.hosted = !!hosted;
       state.origin = hosted ? DayVoiceDraft.hostedOrigin(hosted) : DayVoiceDraft.helperOrigin($('voiceHelper').value.trim());
+      if (portableSpeech()) window.DaySpeech?.prepare?.().catch(() => {});
       const result = await api('/api/voice/status', undefined, 20000);
       if (version !== state.version) return;
       if ((!state.hosted && !result.token) || !Array.isArray(result.models)) throw new Error('The voice service returned an invalid connection response.');
@@ -224,6 +225,7 @@
     const version = state.version;
     const before = state.draft && !state.stale ? '' : $('voiceTranscript').value.trim();
     state.busy = true; buttons();
+    if (portableSpeech()) window.DaySpeech?.prepare?.().catch(() => {});
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });

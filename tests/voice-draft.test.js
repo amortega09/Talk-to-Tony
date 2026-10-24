@@ -179,3 +179,12 @@ test('account changes during session refresh prevent old diary context being sen
  const pending=ctx.testVoice.build();await new Promise(resolve=>setImmediate(resolve));ctx.USER_ID='other';finish({data:{session:{access_token:'old-owner-token',user:{id:'test'}}}});await pending;
  assert.equal(requests,0);assert.match(get('voiceStatus').textContent,/account changed/);
 });
+
+test('opening hosted voice prepares transcription without waiting for model loading',async()=>{
+ const sb={auth:{getSession:async()=>({data:{session:{access_token:'test-session'}}})}};
+ const {ctx}=app({sb});let warmed=0,finish;
+ ctx.window.APP_CONFIG={VOICE_API_URL:'https://voice.example'};
+ ctx.window.DaySpeech={supported:()=>true,prepare:()=>{warmed++;return new Promise(resolve=>finish=resolve);},cancel(){}};
+ ctx.fetch=async()=>connectedResponse();await ctx.testVoice.open();
+ assert.equal(warmed,1);assert.equal(ctx.testVoice.state.connected,true);assert.equal(ctx.testVoice.state.busy,false);finish();ctx.testVoice.close();
+});

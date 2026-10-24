@@ -162,6 +162,8 @@ The build copies only public app files, never `.env` or speech models.
 Hosted voice defaults to built-in English transcription in all browsers, including
 Brave. The first recording downloads a quantized Whisper base.en model (larger
 than the previous tiny.en); inference runs in a worker and audio is not uploaded.
+The model begins preparing as soon as the voice dialog connects, overlapping loading
+with recording instead of starting after Stop. Closing cancels preparation and inference.
 This trades more download/processing time for a larger recogniser, without another
 cloud account. The browser speech service is an explicit option in Voice settings,
 with built-in fallback after service failures. Editable text and relevant diary

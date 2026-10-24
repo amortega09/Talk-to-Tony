@@ -16,9 +16,10 @@ async function load() {
   return transcriber;
 }
 self.onmessage = async ({ data }) => {
-  if (data.type !== 'transcribe') return;
+  if (!['prepare', 'transcribe'].includes(data.type)) return;
   try {
     const pipeline = await load();
+    if (data.type === 'prepare') { self.postMessage({ type: 'ready' }); return; }
     self.postMessage({ type: 'transcribing' });
     const result = await pipeline(data.audio, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: false });
     self.postMessage({ type: 'result', text: result.text?.trim() || '' });

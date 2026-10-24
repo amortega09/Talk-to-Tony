@@ -28,6 +28,25 @@ through browser audio, diary recall and the actual cloud model.
 These synthetic speech checks do not establish Wispr-level accuracy or verify
 the user's accent/microphone. No additional cloud speech provider or subscription was introduced; model calls use the existing Ollama allowance.
 
+## Startup latency follow-up
+
+Preparation now starts when hosted voice opens and is reused when recording stops.
+It does not capture microphone audio or block the dialog. Closing terminates the
+worker; startup failures can retry and preparation has a timeout. The base.en model,
+precision and decoding options are unchanged.
+
+The harness now has a cold-versus-prepared benchmark. On the generated graduation
+clip, cold worker startup plus transcription took **6.74 seconds**; transcribing
+after preparation took **3.68 seconds**, with an identical transcript. Preparation
+itself took 0.60 seconds on the second worker and ran before the measured stop point.
+This single cached-model pair also benefits from runtime/browser caches; it is not
+an isolated causal estimate or a speed guarantee. First-time downloads and actual
+speech decoding still take time. Ollama drafting is excluded from these timings.
+
+The three focused speech/codec cases were rerun after the lifecycle changes.
+Unit checks cover preparing before recording, reuse, concurrent callers, cancellation,
+startup failure recovery and opening the dialog without waiting for preparation.
+
 ## Original tiny.en baseline
 
 **13/13 scenarios passed across 15 turns**, after fixing the issues below.

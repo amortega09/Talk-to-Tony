@@ -40,7 +40,7 @@ function display(){
   $('summary').textContent=`${report.cases.filter(c=>c.passed).length}/${report.cases.length} scenarios passed`;
 }
 async function run(failedOnly=false,ids=null){
-  $('run').disabled=$('retry').disabled=$('targeted').disabled=true;
+  $('benchmark').disabled=$('run').disabled=$('retry').disabled=$('targeted').disabled=true;
   const suite=await (await fetch('/suite')).json();
   const old=report.cases;
   const engine='Whisper base.en q8 / Transformers.js 3.8.1 / Ollama Gemma4:31b';
@@ -65,9 +65,26 @@ async function run(failedOnly=false,ids=null){
     }
     agent.reset();report.cases=report.cases.filter(c=>c.id!==out.id);report.cases.push(out);display();await post('/report',report);
   }
-  report.finished_at=new Date().toISOString();await post('/report',report);$('status').textContent='Finished. Report saved locally. No diary entries were written.';$('run').disabled=$('retry').disabled=$('targeted').disabled=false;
+  report.finished_at=new Date().toISOString();await post('/report',report);$('status').textContent='Finished. Report saved locally. No diary entries were written.';$('benchmark').disabled=$('run').disabled=$('retry').disabled=$('targeted').disabled=false;
 }
-$('run').onclick=()=>run().catch(e=>{$('status').textContent=e.message;$('run').disabled=$('retry').disabled=$('targeted').disabled=false;});$('retry').onclick=()=>run(true).catch(e=>$('status').textContent=e.message);
+$('run').onclick=()=>run().catch(e=>{$('status').textContent=e.message;$('benchmark').disabled=$('run').disabled=$('retry').disabled=$('targeted').disabled=false;});$('retry').onclick=()=>run(true).catch(e=>$('status').textContent=e.message);
 
 $('targeted').onclick=()=>run(false,['yen_graduation','custom_name','recording_codec']).catch(e=>$('status').textContent=e.message);
 fetch('/report').then(r=>r.ok?r.json():null).then(saved=>{if(saved?.cases){report=saved;display();}});
+
+$('benchmark').onclick=async()=>{
+ $('benchmark').disabled=$('run').disabled=$('retry').disabled=$('targeted').disabled=true;
+ try{
+  const blob=await(await fetch('/audio/yen_graduation-0.wav')).blob();
+  DaySpeech.cancel();let start=performance.now();
+  const cold=await DaySpeech.transcribe(blob,message=>$('speed').textContent='Cold run · '+message);
+  const cold_seconds=(performance.now()-start)/1000;
+  DaySpeech.cancel();start=performance.now();$('speed').textContent='Preparing model before recording…';await DaySpeech.prepare();
+  const preparation_seconds=(performance.now()-start)/1000;
+  start=performance.now();const warm=await DaySpeech.transcribe(blob,message=>$('speed').textContent='Prepared run · '+message);
+  const prepared_seconds=(performance.now()-start)/1000;
+  report.speed_benchmark={cold_seconds,preparation_seconds,prepared_seconds,same_transcript:cold.text===warm.text,transcript:warm.text};await post('/report',report);
+  $('speed').textContent=`After stop: cold ${cold_seconds.toFixed(2)}s → prepared ${prepared_seconds.toFixed(2)}s. Preparation ${preparation_seconds.toFixed(2)}s runs before stop. Same transcript: ${cold.text===warm.text}.`;
+ }catch(error){$('speed').textContent=error.message;}
+ finally{$('benchmark').disabled=$('run').disabled=$('retry').disabled=$('targeted').disabled=false;}
+};
