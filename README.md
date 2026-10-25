@@ -81,9 +81,57 @@ compact activity cards, expand any card to edit it, then **Save to my day**.
 You can add spoken corrections or type instead (Cmd/Ctrl + Enter to organise).
 Missing times stay blank; overlapping/invalid entries cannot be saved.
 Reflections are appended. Existing time blocks require replacement confirmation.
-Voice drafts activities and reflections; it does not move/delete saved events.
+Voice also prepares changes to saved activities, goals, plans, ratings and notes.
+Review the proposed changes, then say **save** or select **Apply changes**. Say
+**cancel** to discard a draft or **undo** to reverse the last voice save. Existing
+entries that a new recording would replace are listed in the preview.
 
 Full rollout plan and constraints: [hosted voice plan](docs/hosted-voice-plan.md).
+
+### Voice commands across the app
+
+The voice integration is isolated in `voice-actions.js` (planning/validation),
+`voice-store.js` (checked persistence/undo), and `voice-app.js` (adapter to existing
+formats and navigation). `app.js`, the normal controls, and the database schema
+are unchanged. Open voice from any screen with Ctrl/Command + Shift + Space;
+press it again to start/stop recording when voice is ready.
+
+Examples:
+
+- “Move my CFD session to tomorrow at eleven, keeping its duration.”
+- “Extend this activity until noon”, “rename it”, or “delete that session.”
+- “Add a goal to finish the report”, “mark that goal complete”, or “remove it.”
+- “Add a short-term goal to finish the paper.”
+- “Plan a walk tomorrow”, “today is a day off”, or “my energy is four out of five.”
+- “Append this idea to my Research note.”
+- “What did I record today?” (the app calculates totals, not the model).
+- “Show yesterday”, “open notes”, “open patterns”, “save”, “cancel”, and “undo”.
+
+Simple navigation and save/cancel/undo bypass the model. Other commands receive
+bounded, exact target IDs from saved records and the current screen/selection.
+Ambiguous targets require clarification. New activity drafts and action drafts
+are applied separately. Existing goals keep their linked completion metadata.
+Moves retain notes/categories and reject occupied destinations. Dates and times
+still use the half-hour grid. No model text is executed as code.
+
+Writes re-read affected dates, check both remote and local changes since the
+preview, and retain one undo snapshot for the current account/session. Cloud
+writes are confirmed before updating local data. A partial or uncertain cloud
+failure is shown explicitly; confirmed parts can be undone, and affected days
+must be refreshed before retrying an uncertain write. These are separate REST
+requests, not a database transaction: a simultaneous external edit after the
+preflight check cannot be atomically prevented without a database change.
+
+This covers diary activities/reflections, existing note appends, daily and
+short/long-term goals, rough plans, ratings, day labels, navigation, and daily
+recorded-time summaries. It does not edit external Google Calendar events,
+account settings, note projects, or individual gym exercise sets. Gym time blocks
+remain supported. Speech accuracy still depends on the recording/device.
+
+Validation: `node --test tests/*.test.js`,
+`python3 -m unittest discover -s tests -p 'test_*.py'`, and
+`python3 scripts/build-web.py`. See [voice action validation](docs/voice-actions-validation.md)
+for the live synthetic checks and validation boundaries.
 
 ### Full speech test harness
 
@@ -110,14 +158,16 @@ reruns; the report includes recognized text and exact field assertions.
 A small `diary-agent.js` module coordinates read-only context lookup, Ollama
 drafting and one clarification at a time. It keeps the last three exchanges
 in memory so short answers retain their activity context. Memory is bounded,
-cleared on close/save, and never shared across accounts. The agent has no save
-or delete tool; the existing review/save flow remains in charge of diary writes.
+cleared on close/save, and never shared across accounts. The model cannot write records itself; a separate voice-only action planner
+validates its proposed actions and the review/save flow controls diary writes.
 It makes one model request per user turn, with no autonomous background loop.
 
 ### Diary context for voice
 
 Each draft can now search your saved diary history without an export. The app
-loads the signed-in user's rows with pagination, then selects a bounded context:
+prefetches the current/recent days and settings while you speak. Requests about
+older history, routines, or saved-record changes load the signed-in user's archive
+with pagination, then select a bounded context:
 activity names/categories across the archive, exact intervals for referenced
 and recent days, recurring times, reflections, plans/check-ins, goals, and
 matching linked notes/project names. Yesterday, tomorrow, weekday references,
@@ -163,7 +213,9 @@ Hosted voice defaults to built-in English transcription in all browsers, includi
 Brave. The first recording downloads a quantized Whisper base.en model (larger
 than the previous tiny.en); inference runs in a worker and audio is not uploaded.
 The model begins preparing as soon as the voice dialog connects, overlapping loading
-with recording instead of starting after Stop. Closing cancels preparation and inference.
+with recording instead of starting after Stop. Closing cancels active preparation
+and inference and immediately stops microphone capture. An already idle recogniser
+stays warm for up to 60 seconds for a faster reopening, then is released.
 This trades more download/processing time for a larger recogniser, without another
 cloud account. The browser speech service is an explicit option in Voice settings,
 with built-in fallback after service failures. Editable text and relevant diary

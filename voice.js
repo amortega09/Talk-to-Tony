@@ -2,7 +2,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const agent = DayDiaryAgent.create();
-  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false, history: null, historyController: null };
+  const state = { token: '', origin: '', connected: false, keyReady: false, speechReady: false, busy: false, saving: false, draft: null, stale: false, version: 0, controller: null, recorder: null, stream: null, timer: null, phase: 'idle', hosted: false, recognition: null, listening: false, browserSpeechFailed: false, history: null, historyController: null, prefetch: null, snapshot: null, actionReview: null, undo: null, owner: null };
   $('voiceHelper').value = localStorage.getItem('day_voice_helper') || 'http://127.0.0.1:8765';
   const speechRecognition = () => window.SpeechRecognition || window.webkitSpeechRecognition;
   $('voiceSpeech').value = localStorage.getItem('day_voice_speech') || 'auto';
@@ -22,7 +22,8 @@
   const escape = value => escapeHtml(String(value ?? ''));
   function buttons() {
     $('voiceConnect').disabled = state.busy || state.saving || state.listening || !!state.stream;
-    $('voiceBuild').disabled = state.busy || state.saving || state.listening || !!state.stream || !state.connected || !state.keyReady || !$('voiceModel').value || !$('voiceTranscript').value.trim();
+    const local=DayVoiceActions.localCommand($('voiceTranscript').value,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift});
+    $('voiceBuild').disabled = state.busy || state.saving || state.listening || !!state.stream || (!local && (!state.connected || !state.keyReady || !$('voiceModel').value)) || !$('voiceTranscript').value.trim();
     $('voiceRecord').disabled = state.busy || state.saving || !state.connected || !state.speechReady || (state.hosted ? !captureSupported() : !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder);
     $('voiceModel').disabled = state.busy || state.saving || state.listening || !!state.stream;
     $('voiceSpeech').disabled = state.busy || state.saving || state.listening || !!state.stream;
@@ -30,15 +31,17 @@
     $('voiceHelper').disabled = state.hosted || state.busy || state.saving || state.listening || !!state.stream;
     $('voiceTranscript').disabled = state.saving || state.listening || !!state.stream;
     $('voiceClose').disabled = state.saving;
-    const plan = DayVoiceDraft.plan(state.draft, DayEventRange);
+    const plan = state.draft?.actions?.length ? {slots:[],errors:state.actionReview?[]:['Preparing action preview…']} : DayVoiceDraft.plan(state.draft, DayEventRange);
     $('voiceSave').hidden = !state.draft;
     $('voiceSaveBar').hidden = !state.draft;
     $('voiceRecordLabel').textContent = state.stream || state.listening ? 'Finish talking' : state.busy ? 'One moment…' : state.draft?.questions?.length ? 'Answer by voice' : state.draft ? 'Add a correction' : 'Start talking';
     $('voiceBuild').textContent = state.draft?.questions?.length ? 'Reply' : state.draft ? 'Apply changes' : 'Organise my day';
     $('voiceTranscriptLabel').textContent = $('voiceTranscript').value.trim() ? 'What I heard · edit text' : 'Prefer to type?';
     $('voiceRetry').hidden = state.busy || state.connected;
-    $('voiceSaveSummary').textContent = state.draft ? `${plan.slots.length / 2}h · ${state.draft.items.length} ${state.draft.items.length === 1 ? 'activity' : 'activities'}${state.draft.reflections.length ? ' · reflection' : ''}` : '';
-    $('voiceSave').disabled = state.busy || state.saving || state.listening || !!state.stream || state.stale || plan.errors.length > 0;
+    $('voiceSave').textContent = state.draft?.actions?.length ? 'Apply changes' : 'Save to my day';
+    $('voiceUndo').hidden = !state.undo || state.undo.owner!==USER_ID; $('voiceUndo').disabled=state.busy || state.saving || state.listening || !!state.stream;
+    $('voiceSaveSummary').textContent = state.draft?.actions?.length ? `${state.actionReview?.summaries.length || 0} actions · ${state.actionReview?.patches.length || 0} records changed` : state.draft ? `${plan.slots.length / 2}h · ${state.draft.items.length} ${state.draft.items.length === 1 ? 'activity' : 'activities'}${state.draft.reflections.length ? ' · reflection' : ''}` : '';
+    $('voiceSave').disabled = state.busy || state.saving || state.listening || !!state.stream || state.stale || !state.actionReview || !!state.draft?.questions?.length || plan.errors.length > 0;
     $('voiceValidation').textContent = state.draft ? (state.stale ? 'Your description changed. Make a new draft before saving.' : plan.errors.join(' ')) : '';
   }
   async function api(path, body, timeout = 180000) {
@@ -107,6 +110,7 @@
   }
   function renderDraft() {
     const d = state.draft;
+    $('voiceActions').innerHTML = (state.actionReview?.summaries || []).map(t=>`<p>${escape(t)}</p>`).join('') + (state.actionReview?.answers || []).map(t=>`<p>${escape(t)}</p>`).join('');
     $('voiceReply').hidden = !d;
     $('voiceReply').textContent = d?.reply || '';
     $('voiceQuestions').textContent = d?.questions?.find(q=>q.trim()) || '';
@@ -129,9 +133,11 @@
     buttons();
   }
   async function build() {
-    const version = state.version;
+    const version = state.version;++reviewVersion;clearTimeout(entryReviewTimer);
     const transcript = $('voiceTranscript').value.trim();
     if (!transcript) return;
+    if(state.owner!==USER_ID){clearAccount();state.owner=USER_ID;}
+    try{if(await localCommand(transcript)){buttons();return;}}catch(error){phase('error',error.message);return;}
     state.busy = true; $('voiceDraft').inert = true; phase('thinking', 'Finding the activities, times and thoughts in your words…'); buttons();
     try {
       const now = new Date();
@@ -141,28 +147,38 @@
       const historyTimer=setTimeout(()=>controller.abort(),30000);
       let history;
       try {
-        history = state.history?.owner===owner && Date.now()-state.history.loadedAt<30000 ? state.history : await DayVoiceContext.load({client:sb,userId:owner,storage:localStorage,signal:controller.signal});
+        const query=[...(state.draft?.actions || []).map(a=>`${a.type.replaceAll('_',' ')} ${a.target || ''} ${a.date || ''}`),transcript].join(' ');
+        const archive=DayVoiceApp.archiveNeeded(query);
+        history=state.history?.complete && state.history?.owner===owner && Date.now()-state.history.loadedAt<30000 && (!archive || state.history.scope==='archive') ? state.history : (!archive && state.prefetch ? await state.prefetch : await DayVoiceApp.history({transcript:query,owner,signal:controller.signal}));
       } catch(error) {
         if(version!==state.version)return;
-        history={rows:[],source:sb?'cloud':'local',complete:false};
+        state.prefetch=null;history={rows:[],source:sb?'cloud':'local',complete:false};
       } finally {clearTimeout(historyTimer);if(state.historyController===controller)state.historyController=null;}
       if(version!==state.version || USER_ID!==owner)return;
-      state.history={...history,owner,loadedAt:Date.now()};
+      state.history={...history,owner,loadedAt:Date.now()};state.prefetch=null;
+      const snapshot=DayVoiceApp.snapshot(history,transcript+' '+(state.draft?.actions || []).map(a=>a.target || '').join(' '));
+      if(history.complete && state.actionReview?.owner===owner && state.actionReview.patches.some(p=>(history.scope==='archive' || history.dates?.includes(p.date) || snapshot.days[p.date]) && !DayVoiceActions.same(snapshot.days[p.date]?.[p.slot],p.before)))throw Error('Records in the previous draft changed. Say “cancel” and describe the change again.');
+      state.snapshot=snapshot;
       const outcome=await agent.run({userId:owner,transcript,previous:state.draft,
-        context:{today:ymd(now),viewed_date:ymd(current),local_time:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone},
+        context:{today:ymd(now),viewed_date:ymd(current),local_time:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,app:snapshot.app},
         recall:async({query})=>{
           const diary=DayVoiceContext.select(history,{today:ymd(now),viewedDate:ymd(current),transcript:query});
           $('voiceContextStatus').textContent=diary.status==='ready' ? `Using ${diary.coverage.days_available} saved diary ${diary.coverage.days_available===1?'day':'days'} · ${diary.entries.length} relevant ${diary.entries.length===1?'activity':'activities'}${diary.routines.length?' · routines':''}${diary.day_notes.length+diary.notes.length?' · notes':''}${Object.values(diary.goals).some(Boolean)?' · goals':''}.` : 'Some diary history could not load. Missing details will need clarification.';
           $('voiceContextStatus').hidden=false;
           return diary;
         },
-        think:payload=>{phase('thinking','Organising your words with your diary context…');return api('/api/voice/draft',payload);}
+        think:payload=>{phase('thinking','Organising your words with your diary context…');return api('/api/voice/draft',{...payload,model:$('voiceModel').value});}
       });
       if(!outcome)return;
       const result=outcome.draft;
       if (version !== state.version || USER_ID!==owner) {agent.reset();return;}
       if (!Array.isArray(result.items) || !Array.isArray(result.reflections) || !Array.isArray(result.questions)) throw new Error('Invalid draft returned. Nothing was saved.');
-      state.draft = { reply: result.reply, questions: result.questions, items: result.items, reflections: result.reflections }; state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale || !!outcome.question; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : outcome.question ? 'One quick question—reply by voice or edit the text below.' : 'Here’s what I heard. Change anything, then save.');
+      const draft = {reply:result.reply,questions:result.questions,items:result.items,reflections:result.reflections,actions:result.actions || []};
+      const review=draft.actions.length ? await DayVoiceApp.review(draft,snapshot,owner) : await DayVoiceApp.reviewEntries(draft,owner);
+      if(version!==state.version || USER_ID!==owner)return;
+      state.draft=draft;state.actionReview=review;
+      if(state.draft.actions.length && !state.draft.questions.length && !state.actionReview.patches.length){state.busy=false;await applyActions();return;}
+      state.stale = transcript !== $('voiceTranscript').value.trim(); renderDraft(); $('voiceCompose').open = state.stale || !!outcome.question; phase('review', state.stale ? 'Your words changed while processing. Apply your changes to update the preview.' : outcome.question ? 'One quick question—reply by voice or edit the text below.' : 'Here’s what I heard. Change anything, then save.');
     } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Your words are still here—try again.' : error.message); }
     finally { if (version === state.version) { state.busy = false; $('voiceDraft').inert = false; buttons(); } }
   }
@@ -181,7 +197,7 @@
       const words = [];
       for (let i = 0; i < event.results.length; i++) words.push(event.results[i][0].transcript);
       heard = words.join(' ').trim();
-      if (version === state.version) $('voiceTranscript').value = [before, heard].filter(Boolean).join('\n');
+      if (version === state.version) $('voiceTranscript').value = DayVoiceActions.localCommand(heard,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift}) ? heard : [before, heard].filter(Boolean).join('\n');
     };
     recognition.onerror = event => {
       failed = true;
@@ -206,7 +222,7 @@
       state.busy = false; buttons();
       if (failed) return;
       if (!heard) { phase('error', 'I didn’t catch any speech. Try again or type below.'); return; }
-      state.stale = !!state.draft;
+      if(!DayVoiceActions.localCommand(heard,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift}))state.stale=!!state.draft;
       await build();
     };
     try {
@@ -248,8 +264,8 @@
           const result = state.hosted ? await window.DaySpeech.transcribe(blob, message => { if (version === state.version) phase('transcribing', message); }) : await api('/api/voice/transcribe', blob);
           if (version !== state.version) return;
           if (!result.text?.trim()) throw new Error('I didn’t catch any speech. Try again or type instead.');
-          $('voiceTranscript').value = [before, result.text].filter(Boolean).join('\n');
-          state.stale = !!state.draft; state.busy = false; buttons();
+          $('voiceTranscript').value = DayVoiceActions.localCommand(result.text,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift}) ? result.text : [before, result.text].filter(Boolean).join('\n');
+          if(!DayVoiceActions.localCommand(result.text,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift}))state.stale=!!state.draft; state.busy = false; buttons();
           await build();
         } catch (error) { if (version === state.version) phase('error', error.name === 'AbortError' ? 'That took too long. Try recording a shorter thought.' : error.message); }
         finally { if (version === state.version) { state.busy = false; buttons(); } }
@@ -261,68 +277,94 @@
     finally { if (version === state.version) { state.busy = false; buttons(); } }
   }
   async function save() {
-    if ($('voiceSave').disabled || !state.draft) return;
-    const plan = DayVoiceDraft.plan(state.draft, DayEventRange);
-    if (plan.errors.length) return;
-    if (RECOVERY_MODE) { status('Recovery mode is read-only. Open the normal signed-in app to save.'); return; }
-    state.saving = true; status('Saving your day…'); buttons(); $('voiceDraft').inert = true;
-    const map = {}, rows = [];
-    let persisted = false;
+    if($('voiceSave').disabled || !state.draft || !state.actionReview)return;
+    if(state.owner!==USER_ID){clearAccount();return;}
+    await applyActions();
+  }
+  let reviewVersion=0,entryReviewTimer=null;
+  function scheduleEntryReview() {
+    ++reviewVersion;clearTimeout(entryReviewTimer);state.actionReview=null;buttons();
+    entryReviewTimer=setTimeout(refreshEntryReview,250);
+  }
+  async function refreshEntryReview() {
+    const revision=++reviewVersion,version=state.version,owner=USER_ID;
+    state.actionReview=null;buttons();
+    if(!state.draft || state.draft.actions?.length)return;
     try {
-      const dates = [...new Set([...plan.slots.map(x => x.date), ...plan.reflections.map(x => x.date)])];
-      for (const date of dates) map[date] = loadLocal(date);
-      if (sb) for (let offset = 0; ; offset += 500) {
-        const { data: remote, error } = await sb.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id', USER_ID).in('date', dates).order('date').order('start_time').range(offset, offset + 499);
-        if (error) throw new Error('Could not check existing records. Nothing was saved; reconnect and retry.');
-        for (const r of remote || []) map[r.date][r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '' };
-        if (!remote || remote.length < 500) break;
-      }
-      const conflicts = plan.slots.filter(item => map[item.date][item.slot]).length;
-      if (conflicts && !window.confirm(`Replace ${conflicts} existing half-hour block${conflicts === 1 ? '' : 's'} with this reviewed draft?`)) return;
-      for (const item of plan.slots) map[item.date][item.slot] = item.block;
-      for (const item of plan.reflections) {
-        const old = map[item.date][REFLECT_KEY]?.note || '';
-        map[item.date][REFLECT_KEY] = { category: 'reflection', note: old === item.text ? old : [old, item.text].filter(Boolean).join('\n\n') };
-      }
-      const touched = new Map(plan.slots.map(item => [`${item.date}/${item.slot}`, { date: item.date, slot: item.slot }]));
-      for (const item of plan.reflections) touched.set(`${item.date}/${REFLECT_KEY}`, { date: item.date, slot: REFLECT_KEY });
-      for (const { date, slot } of touched.values()) {
-        const block = map[date][slot];
-        rows.push({ user_id: USER_ID, date, start_time: slot, category: block.category, subcategory: block.sub || '', note: block.note || '', updated_at: new Date().toISOString() });
-      }
-      for (const date of dates) saveLocal(date, map[date]);
-      persisted = true; agent.reset(); state.history = null; state.draft = null; renderDraft();
-      if (map[ymd(current)]) { data = map[ymd(current)]; render(); }
-      if (sb) for (let offset = 0; offset < rows.length; offset += 500) {
-        const { error } = await sb.from('blocks').upsert(rows.slice(offset, offset + 500), { onConflict: 'user_id,date,start_time' });
-        if (error) throw new Error('Saved on this device, but cloud sync failed. Export a backup before switching devices.');
-      }
-      phase('saved', `Saved ${plan.slots.length / 2} hours${plan.reflections.length ? ' and your reflection' : ''}. You’re all set.`);
-      setStatus('ok', sb ? 'Synced' : 'Saved locally');
-      $('voiceTranscript').value = '';
-    } catch (error) { status(error.message || 'Could not save.'); if (persisted) setStatus('err', 'Saved locally · sync failed'); }
-    finally { state.saving = false; $('voiceDraft').inert = false; buttons(); }
+      const review=await DayVoiceApp.reviewEntries(state.draft,owner);
+      if(revision!==reviewVersion || version!==state.version || owner!==USER_ID)return;
+      state.actionReview=review;$('voiceActions').innerHTML=(review?.summaries || []).map(t=>`<p>${escape(t)}</p>`).join('');buttons();
+    } catch(error){if(revision===reviewVersion && version===state.version)phase('error',error.message);}
+  }
+  function clearAccount() {
+    ++reviewVersion;clearTimeout(entryReviewTimer);agent.reset();state.history=null;state.prefetch=null;state.snapshot=null;state.actionReview=null;state.draft=null;state.undo=null;state.stale=false;
+    $('voiceTranscript').value='';renderDraft();
+  }
+  async function localCommand(transcript) {
+    const command=DayVoiceActions.localCommand(transcript,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift});
+    if(!command)return false;
+    if(command.control==='save'){if($('voiceSave').disabled){phase('review','Resolve the draft details before saving.');return true;}await save();}
+    else if(command.control==='cancel'){++reviewVersion;clearTimeout(entryReviewTimer);state.draft=null;state.actionReview=null;state.stale=false;agent.reset();$('voiceTranscript').value='';renderDraft();phase('idle','Draft discarded.');}
+    else if(command.control==='undo')await undo();
+    else {for(const action of command.actions)await DayVoiceApp.navigate(action);$('voiceTranscript').value='';phase('idle','Opened. You can keep talking.');}
+    return true;
+  }
+  async function applyActions() {
+    const review=state.actionReview;if(!review)return;
+    state.saving=true;buttons();$('voiceDraft').inert=true;
+    try {
+      if(review.owner!==USER_ID)throw Error('Your account changed. Reopen voice.');
+      const applied=review.patches.length?await DayVoiceApp.apply(review):[];
+      if(applied.length)state.undo={patches:applied,owner:review.owner};
+      for(const action of review.navigation)await DayVoiceApp.navigate(action);
+      const answer=review.answers.join(' ');
+      state.draft=null;state.actionReview=null;state.history=null;state.prefetch=null;agent.reset();$('voiceTranscript').value='';renderDraft();
+      phase('saved',answer || (applied.length ? 'Applied. Say “undo” to reverse the last change.' : 'Done.'));
+    } catch(error) {
+      if(error.applied?.length)state.undo={patches:error.applied,owner:review.owner};
+      state.stale=true;phase('error',error.message);
+    } finally {state.saving=false;$('voiceDraft').inert=false;buttons();}
+  }
+  async function undo() {
+    if(!state.undo || state.undo.owner!==USER_ID){phase('idle','There is no voice change to undo in this session.');return;}
+    state.saving=true;buttons();
+    try {
+      await DayVoiceApp.apply(DayVoiceApp.undoReview(state.undo.patches,state.undo.owner));
+      state.undo=null;state.draft=null;state.actionReview=null;state.history=null;state.prefetch=null;agent.reset();$('voiceTranscript').value='';renderDraft();phase('saved','Last voice change undone.');
+    } catch(error){
+      if(error.applied?.length && state.undo){const completed=new Set(error.applied.map(p=>p.date+'/'+p.slot));state.undo.patches=state.undo.patches.filter(p=>!completed.has(p.date+'/'+p.slot));if(!state.undo.patches.length)state.undo=null;}
+      phase('error',error.message);
+    }
+    finally{state.saving=false;buttons();}
   }
   function close() {
     if (state.saving) return;
-    state.version++; state.controller?.abort(); clearTimeout(state.timer);
+    state.version++;++reviewVersion;clearTimeout(entryReviewTimer); state.controller?.abort(); clearTimeout(state.timer);
     state.busy = false; state.connected = false; state.token = '';
     state.recognition?.abort(); state.recognition = null; state.listening = false;
     $('voiceDraft').inert = false;
     if (state.recorder?.state === 'recording') state.recorder.stop();
     state.stream?.getTracks().forEach(track => track.stop()); state.stream = null; state.recorder = null;
     agent.reset();
-    state.historyController?.abort(); state.historyController=null; state.history=null;
-    window.DaySpeech?.cancel();
+    state.historyController?.abort(); state.historyController=null; state.history=null;state.prefetch=null;
+    window.DaySpeech?.release?.();
     $('voiceRecordLabel').textContent = 'Start talking';
     $('voiceDialog').hidden = true; $('voiceOpen').focus();
   }
   async function open() {
+    if(state.owner!==USER_ID){clearAccount();state.owner=USER_ID;}
     $('voiceDialog').hidden = false;
+    const owner=USER_ID,version=state.version;
+    const controller=new AbortController();state.historyController=controller;
+    const timer=setTimeout(()=>controller.abort(),30000);
+    state.prefetch=DayVoiceApp.history({owner,signal:controller.signal}).then(history=>{if(version!==state.version || USER_ID!==owner)throw Error('Voice closed.');return history;}).finally(()=>clearTimeout(timer));
+    state.prefetch.catch(()=>{});
     buttons(); $('voiceClose').focus();
     await connect();
     if (!$('voiceDialog').hidden && !$('voiceRecord').disabled && document.activeElement === $('voiceClose')) $('voiceRecord').focus();
   }
+  sb?.auth?.onAuthStateChange?.((_event,session)=>{if(state.owner!==null && state.owner!==session?.user?.id){close();clearAccount();state.owner=null;}});
+  document.addEventListener('keydown',event=>{if((event.metaKey || event.ctrlKey) && event.shiftKey && event.code==='Space'){event.preventDefault();if($('voiceDialog').hidden)open();else if(!$('voiceRecord').disabled)record();}});
   $('voiceOpen').addEventListener('click', open);
   $('voiceClose').addEventListener('click', close);
   $('voiceDialog').addEventListener('click', e => { if (e.target === $('voiceDialog')) close(); });
@@ -333,10 +375,11 @@
   $('voiceRetry').addEventListener('click', connect);
   $('voiceTranscript').addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !$('voiceBuild').disabled) { e.preventDefault(); build(); } });
   $('voiceSave').addEventListener('click', save);
+  $('voiceUndo').addEventListener('click', undo);
   $('voiceHelper').addEventListener('input', () => { state.connected = false; buttons(); status('Reconnect to use the new helper address.'); });
   $('voiceSpeech').addEventListener('change', () => { localStorage.setItem('day_voice_speech', $('voiceSpeech').value); state.speechReady = captureSupported(); privacy(); buttons(); });
   $('voiceModel').addEventListener('change', () => localStorage.setItem('day_voice_model_v2', $('voiceModel').value));
-  $('voiceTranscript').addEventListener('input', () => { state.stale = !!state.draft; buttons(); });
+  $('voiceTranscript').addEventListener('input', () => { if(!DayVoiceActions.localCommand($('voiceTranscript').value,{today:ymd(new Date()),viewedDate:ymd(current),shift:DayEventRange.shift}))state.stale=!!state.draft; buttons(); });
   $('voiceDraft').addEventListener('input', e => {
     const { group, index, field } = e.target.dataset;
     if (!group || !state.draft?.[group]?.[index]) return;
@@ -350,10 +393,11 @@
         detail.textContent = `${date} · ${item.start && item.end ? `${to12(item.start)} – ${item.end === '24:00' ? 'midnight' : to12(item.end)}` : 'Add a time'}`;
       } else detail.textContent = `${draftDate(item.date)} · ${item.text.slice(0, 65)}${item.text.length > 65 ? '…' : ''}`;
     }
-    buttons();
+    if(state.draft.questions?.length && !DayVoiceDraft.plan(state.draft,DayEventRange).errors.length)state.draft.questions=[];
+    scheduleEntryReview();
   });
   $('voiceDraft').addEventListener('click', e => {
     const { remove, index } = e.target.dataset;
-    if (remove && state.draft?.[remove]) { state.draft[remove].splice(Number(index), 1); renderDraft(); }
+    if (remove && state.draft?.[remove]) { state.draft[remove].splice(Number(index), 1); renderDraft();scheduleEntryReview(); }
   });
 })();

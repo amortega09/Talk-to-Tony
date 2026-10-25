@@ -1,0 +1,60 @@
+[
+  {
+    "input": "Move my Sample task session to tomorrow at 11 am, keep its duration.",
+    "seconds": 1.23,
+    "passed": true,
+    "actions": [
+      {
+        "type": "activity_update",
+        "target": "activity:2026-10-25:09:00",
+        "date": "2026-10-26",
+        "start": "11:00",
+        "end_date": "2026-10-26",
+        "end": "12:00"
+      }
+    ],
+    "questions": [],
+    "items": []
+  },
+  {
+    "input": "Mark Sample goal complete.",
+    "seconds": 1.06,
+    "passed": true,
+    "actions": [
+      {
+        "type": "objective_complete",
+        "target": "objective:2026-10-25:daily:0",
+        "completed": true
+      }
+    ],
+    "questions": [],
+    "items": []
+  },
+  {
+    "input": "My energy today is four out of five.",
+    "seconds": 2.97,
+    "passed": true,
+    "actions": [
+      {
+        "type": "checkin",
+        "date": "2026-10-25",
+        "energy": 4
+      }
+    ],
+    "questions": [],
+    "items": []
+  },
+  {
+    "input": "Delete the Sample task session today.",
+    "seconds": 1.33,
+    "passed": true,
+    "actions": [
+      {
+        "type": "activity_delete",
+        "target": "activity:2026-10-25:09:00"
+      }
+    ],
+    "questions": [],
+    "items": []
+  }
+]

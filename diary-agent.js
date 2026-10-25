@@ -19,7 +19,7 @@
       const question=result.questions.find(q=>q.trim()) || '';
       turns.push({user:transcript.slice(0,1000),assistant:result.reply.slice(0,300),question:question.slice(0,400)});
       turns=turns.slice(-3);
-      return {draft:{reply:result.reply,questions:result.questions,items:result.items,reflections:result.reflections},diary,question};
+      return {draft:{reply:result.reply,questions:result.questions,items:result.items,reflections:result.reflections,actions:result.actions || []},diary,question};
     }
     return {run,reset};
   }

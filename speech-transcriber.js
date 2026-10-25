@@ -1,18 +1,24 @@
 /* Portable microphone transcription, independent of the browser's speech service. */
 (() => {
   const script = document.currentScript?.src || window.location.href;
-  const workerURL = new URL('speech-worker.js?v=82', script);
-  let worker = null, pending = null, warming = null, ready = false;
+  const workerURL = new URL('speech-worker.js?v=83', script);
+  let worker = null, pending = null, warming = null, ready = false, idleTimer = null;
   const abortError = () => Object.assign(new Error('Transcription cancelled.'), { name: 'AbortError' });
   function supported() {
     return !!(window.Worker && window.WebAssembly && window.OfflineAudioContext && window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
   }
   function cancel(reason = abortError()) {
+    clearTimeout(idleTimer);idleTimer=null;
     worker?.terminate(); worker = null; ready = false;
     if (warming) { const old = warming; warming = null; clearTimeout(old.timer); old.reject(reason); }
     if (pending) { const old = pending; pending = null; old.reject(reason); }
   }
+  function release() {
+    if(pending || warming){cancel();return;}
+    clearTimeout(idleTimer);idleTimer=setTimeout(()=>cancel(),60000);
+  }
   function prepare() {
+    clearTimeout(idleTimer);idleTimer=null;
     if (!supported()) return Promise.reject(new Error('Built-in voice is unavailable in this browser.'));
     if (ready) return Promise.resolve();
     if (warming) return warming.promise;
@@ -71,5 +77,5 @@
     });
     try { return await result; } finally { clearTimeout(timer); }
   }
-  window.DaySpeech = { supported, prepare, transcribe, cancel };
+  window.DaySpeech = { supported, prepare, transcribe, cancel, release };
 })();

@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=82" />
+  <link rel="stylesheet" href="styles.css?v=83" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -330,7 +330,7 @@
 
   <div class="sheet-backdrop" id="voiceDialog" hidden>
     <section class="sheet voice-sheet" role="dialog" aria-modal="true" aria-labelledby="voiceTitle">
-      <div class="voice-heading"><div><span class="voice-eyebrow">A LITTLE SPACE TO REFLECT</span><h2 id="voiceTitle">Tell me about your day.</h2></div><button type="button" class="nav-btn" id="voiceClose" aria-label="Close voice logging">×</button></div>
+      <div class="voice-heading"><div><span class="voice-eyebrow">YOUR DAY, BY VOICE</span><h2 id="voiceTitle">What would you like to do?</h2></div><button type="button" class="nav-btn" id="voiceClose" aria-label="Close voice logging">×</button></div>
       <p class="voice-intro">Talk freely. We’ll put the pieces together.</p>
       <div class="voice-capture">
         <span class="voice-phase" id="voicePhase">Getting ready</span>
@@ -350,8 +350,11 @@
       </details>
       <div id="voiceReply" class="voice-reply" hidden></div>
       <p id="voiceQuestions" class="voice-questions" aria-live="polite"></p>
+      <p class="voice-privacy">Try “move CFD to tomorrow”, “mark my goal complete”, or “show yesterday”. Say “save”, “cancel”, or “undo” after reviewing. Open voice from any screen with Ctrl/⌘ + Shift + Space.</p>
+      <div id="voiceActions" aria-live="polite"></div>
       <div id="voiceDraft"></div>
       <p id="voiceValidation" class="voice-validation" role="status"></p>
+      <button class="ghost-btn" id="voiceUndo" type="button" hidden>Undo last voice change</button>
       <div class="voice-save-bar" id="voiceSaveBar" hidden><span id="voiceSaveSummary"></span><button type="button" id="voiceSave" class="primary-btn" hidden disabled>Save to my day</button></div>
       <p id="voiceContextStatus" class="voice-privacy" role="status" hidden></p>
       <p id="voicePrivacy" class="voice-privacy">Nothing is added to your diary until you save.</p>
@@ -454,12 +457,15 @@
   <script src="config.js?v=41"></script>
   <script src="patterns.js?v=70"></script>
   <script src="event-range.js?v=71"></script>
-  <script src="voice-draft.js?v=82"></script>
-  <script src="app.js?v=82"></script>
-  <script src="speech-transcriber.js?v=82"></script>
-  <script src="voice-context.js?v=82"></script>
-  <script src="diary-agent.js?v=82"></script>
-  <script src="voice.js?v=82"></script>
+  <script src="voice-draft.js?v=83"></script>
+  <script src="app.js?v=83"></script>
+  <script src="speech-transcriber.js?v=83"></script>
+  <script src="voice-context.js?v=83"></script>
+  <script src="diary-agent.js?v=83"></script>
+  <script src="voice-actions.js?v=83"></script>
+  <script src="voice-store.js?v=83"></script>
+  <script src="voice-app.js?v=83"></script>
+  <script src="voice.js?v=83"></script>
 
 
 </body>

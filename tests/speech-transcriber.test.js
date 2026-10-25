@@ -42,3 +42,10 @@ test('failed preparation is recoverable without microphone capture',async()=>{
  const {speech,workers}=setup({autoReady:false});const first=speech.prepare();workers[0].onerror();await assert.rejects(first,/couldn’t start/);
  const retry=speech.prepare();workers[1].onmessage({data:{type:'ready'}});await retry;assert.equal(workers.length,2);speech.cancel();
 });
+test('closing an idle prepared recogniser keeps it warm for the next opening',async()=>{
+ const {speech,workers}=setup();await speech.prepare();speech.release();assert.notEqual(workers[0].terminated,true);
+ await speech.prepare();assert.equal(workers.length,1);speech.cancel();assert.equal(workers[0].terminated,true);
+});
+test('release during inference cancels audio processing instead of retaining it',async()=>{
+ const {speech,workers}=setup();const request=speech.transcribe(new Blob(['audio']));await tick();speech.release();await assert.rejects(request,{name:'AbortError'});assert.equal(workers[0].terminated,true);
+});

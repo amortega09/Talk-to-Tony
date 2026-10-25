@@ -19,19 +19,28 @@ test('only exact loopback HTTP helper origins are accepted',()=>{
 const fs=require('node:fs'),vm=require('node:vm');
 function app({initial={},confirm=true,sb=null}={}) {
  const elements={},store=structuredClone(initial);const get=id=>elements[id] ||= {value:'',disabled:false,hidden:false,inert:false,dataset:{},textContent:'',innerHTML:'',addEventListener(){},focus(){}};
- const ctx={document:{getElementById:get},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,DayVoiceContext:historyContext,DayDiaryAgent:require('../diary-agent'),window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
- activityOptions:()=>[],SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:{},REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
- vm.createContext(ctx);const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open, build, recordInBrowser };})();');vm.runInContext(source,ctx);ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
+ const ctx={document:{getElementById:get,addEventListener(){}},localStorage:{getItem(){return null;},setItem(){}},DayVoiceDraft:voice,DayEventRange:range,DayVoiceContext:historyContext,DayDiaryAgent:require('../diary-agent'),window:{confirm:()=>confirm},navigator:{},RECOVERY_MODE:false,USER_ID:'test',sb,
+ activityOptions:()=>[],SLOTS:[],to12:x=>x,catLabel:x=>x,escapeHtml:x=>x,loadLocal:date=>structuredClone(store[date]||{}),saveLocal:(date,day)=>store[date]=structuredClone(day),current:new Date('2026-10-20T12:00Z'),data:structuredClone(store['2026-10-20'] || {}),REFLECT_KEY:'__reflect__',ymd:()=> '2026-10-20',render(){},setStatus(){},setTimeout,clearTimeout,AbortController,Blob,URL,Intl};
+ Object.assign(ctx,{DayVoiceActions:require('../voice-actions'),DayVoiceStore:require('../voice-store'),notes:{},noteSaveTimers:new Map(),editing:null,diaryTargetSelected:-1,currentInsight:null,activeNoteId:null,activeObjectiveHorizon:'today',plannerSelectedTask:-1,
+ renderPlanner(){},renderCalendar(){},renderNotes(){},saveNotesLocal(){},shortTermObjectives:'',longTermObjectives:'',closeCalendar(){},closePlanner(){},closeInsight(){},closeInsightsMenu(){},closeStats(){},openCalendar(){},openPlanner(){},openInsight(){}});
+ if(sb && !sb.from)sb.from=()=>{const q={select(){return q;},eq(){return q;},in(){return q;},order(){return q;},range(){return Promise.resolve({data:[]});}};return q;};
+ ctx.localStorage={get length(){return Object.keys(store).length;},key:i=>'day_data_'+Object.keys(store)[i],getItem:key=>key.startsWith('day_data_')?JSON.stringify(store[key.slice(9)] || {}):null,setItem(){}};
+ vm.createContext(ctx);
+ const appSource=fs.readFileSync(require.resolve('../app.js'),'utf8');
+ for(const name of ['parseObjectiveLine','serializeObjectiveItem','serializeObjectiveItems','roughPlansForDay','roughPlanBlock']){const start=appSource.indexOf('function '+name+'('),end=appSource.indexOf('\n}',start)+2;vm.runInContext(appSource.slice(start,end),ctx);}
+ vm.runInContext("const ROUGH_PLAN_KEY='__rough_plan__'",ctx);
+ vm.runInContext(fs.readFileSync(require.resolve('../voice-app.js'),'utf8'),ctx);ctx.DayVoiceApp=ctx.window.DayVoiceApp;
+ const source=fs.readFileSync(require.resolve('../voice.js'),'utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testVoice = { state, save, buttons, close, record, connect, open, build, recordInBrowser, refreshEntryReview, localCommand };})();');vm.runInContext(source,ctx);ctx.testVoice.state.owner='test';ctx.testVoice.state.draft=draft([item()]);get('voiceSave').disabled=false;return {ctx,store,get};
 }
 test('saving reviewed draft preserves unrelated slots and appends reflections',async()=>{
  const {ctx,store}=app({initial:{'2026-10-20':{'08:00':{category:'food',note:'Breakfast'},__reflect__:{note:'Existing thought'}}}});
- ctx.testVoice.state.draft.reflections=[{date:'2026-10-20',text:'New thought'}];await ctx.testVoice.save();
+ ctx.testVoice.state.draft.reflections=[{date:'2026-10-20',text:'New thought'}];await ctx.testVoice.refreshEntryReview();await ctx.testVoice.save();
  assert.equal(store['2026-10-20']['08:00'].note,'Breakfast');assert.equal(store['2026-10-20']['11:30'].sub,'CFD');assert.equal(store['2026-10-20'].__reflect__.note,'Existing thought\n\nNew thought');assert.equal(ctx.testVoice.state.draft,null);
 });
 test('declining replacement and failed cloud preflight make no local changes',async()=>{
- const initial={'2026-10-20':{'09:00':{category:'sleep'}}};const cancelled=app({initial,confirm:false});await cancelled.ctx.testVoice.save();assert.deepEqual(cancelled.store,initial);
+ const initial={'2026-10-20':{'09:00':{category:'sleep'}}};const cancelled=app({initial});await cancelled.ctx.testVoice.refreshEntryReview();assert.match(cancelled.get('voiceActions').innerHTML,/replaces 1/);await cancelled.ctx.testVoice.localCommand('cancel');assert.deepEqual(cancelled.store,initial);
  const query={then(resolve){resolve({error:{message:'offline'}});}};for(const method of ['select','eq','in','order','range'])query[method]=()=>query;
- const failed=app({initial,sb:{from:()=>query}});await failed.ctx.testVoice.save();assert.deepEqual(failed.store,initial);assert.match(failed.get('voiceStatus').textContent,/Nothing was saved/);
+ const failed=app({initial,sb:{from:()=>query}});await failed.ctx.testVoice.refreshEntryReview();await failed.ctx.testVoice.save();assert.deepEqual(failed.store,initial);assert.match(failed.get('voiceStatus').textContent,/Could not check saved records/);
 });
 
 test('closing voice capture stops microphone tracks without requesting transcription',async()=>{
@@ -153,24 +162,24 @@ test('failed recordings never request transcription or draft partial microphone 
 
 test('draft requests include scoped history and explain its coverage without saving',async()=>{
  const rows=[{user_id:'test',date:'2026-10-19',start_time:'09:00',category:'work',subcategory:'Lab',note:''}];const filters=[];
- const sb={from(){const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},order(){return q;},range(){return Promise.resolve({data:rows});}};return q;}};
+ const sb={from(){const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},in(){return q;},order(){return q;},range(){return Promise.resolve({data:rows});}};return q;}};
  const {ctx,get,store}=app({sb});let payload;
  get('voiceTranscript').value='Same lab work as yesterday';get('voiceModel').value='auto';
  ctx.fetch=async(_url,options)=>{payload=JSON.parse(options.body);return {ok:true,json:async()=>draft([item()])};};
  await ctx.testVoice.build();
- assert.deepEqual(filters,[['user_id','test']]);assert.equal(payload.context.diary.entries[0].activity,'Lab');assert.equal(payload.context.diary.coverage.days_available,1);assert.match(get('voiceContextStatus').textContent,/1 saved diary day/);assert.deepEqual(store,{});
+ assert.ok(filters.length>=1 && filters.every(([key,value])=>key==='user_id' && value==='test'));assert.equal(payload.context.diary.entries[0].activity,'Lab');assert.equal(payload.context.diary.coverage.days_available,1);assert.match(get('voiceContextStatus').textContent,/1 saved diary day/);assert.deepEqual(store,{});
 });
 test('closing while history is loading cancels without sending the old context to Ollama',async()=>{
  const {ctx,get}=app();let finish,requests=0;
  ctx.DayVoiceContext={load:()=>new Promise(resolve=>finish=resolve),select:historyContext.select};
  get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
- const pending=ctx.testVoice.build();ctx.testVoice.close();finish({rows:[],source:'cloud',complete:true});await pending;
+ const pending=ctx.testVoice.build();await new Promise(resolve=>setImmediate(resolve));ctx.testVoice.close();finish({rows:[],source:'cloud',complete:true});await pending;
  assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
 });
 test('switching accounts during history retrieval cannot send the previous user history',async()=>{
  const {ctx,get}=app();let finish,requests=0;
  ctx.DayVoiceContext={load:()=>new Promise(resolve=>finish=resolve),select:historyContext.select};get('voiceTranscript').value='Same as yesterday';ctx.fetch=async()=>{requests++;};
- const pending=ctx.testVoice.build();ctx.USER_ID='other';finish({rows:[],source:'cloud',complete:true});await pending;assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
+ const pending=ctx.testVoice.build();await new Promise(resolve=>setImmediate(resolve));ctx.USER_ID='other';finish({rows:[],source:'cloud',complete:true});await pending;assert.equal(requests,0);assert.equal(ctx.testVoice.state.history,null);
 });
 test('account changes during session refresh prevent old diary context being sent',async()=>{
  let finish,requests=0;const sb={auth:{getSession:()=>new Promise(resolve=>finish=resolve)}};
