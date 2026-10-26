@@ -291,3 +291,16 @@ Manual model choices remain available. Automatic will ask for a manual choice
 if the recommended model is unavailable rather than silently switching models.
 See [the model comparison](docs/voice-model-selection.md) for methods, limitations
 and reproducible synthetic examples. Live evaluations use your Cloud allowance.
+
+### Optional Telegram text and voice bot
+
+A separate cloud adapter can turn Telegram text or voice notes into reviewed Day
+drafts, with explicit saving, conflict checks and undo. It reuses the existing
+command logic and diary formats; normal app controls are unchanged.
+
+The integration is disabled by default and requires private Telegram, Groq,
+QStash and database configuration. It has been tested locally, including real
+PostgreSQL transactions, but still needs deployment and live-provider validation.
+See [setup and release gates](docs/telegram-setup.md) and the
+[detailed plan](docs/telegram-integration-plan.md). Run `npm test` and
+`npm run test:telegram:db` for its automated checks.

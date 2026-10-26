@@ -4,6 +4,7 @@
   "buildCommand": "python3 scripts/build-web.py",
   "outputDirectory": "dist",
   "functions": {
-    "api/voice/*.py": { "maxDuration": 60, "includeFiles": "*.py" }
+    "api/voice/*.py": { "maxDuration": 60, "includeFiles": "*.py" },
+    "api/telegram/*.mjs": { "maxDuration": 60, "includeFiles": "server/telegram/**" }
   }
 }

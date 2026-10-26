@@ -1,0 +1,17 @@
+# Add missing fields to your existing .env (ignored by Git); preserve existing keys.
+# Also configure these values privately on the deployment; local files are not deployed.
+TELEGRAM_ENABLED=0
+TELEGRAM_PROCESSING_ENABLED=0
+TELEGRAM_WRITES_ENABLED=0
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_USERNAME=
+TELEGRAM_WEBHOOK_SECRET=
+TELEGRAM_PUBLIC_ORIGIN=https://your-deployment.example
+# Transaction pooler URL for day_telegram.PROJECTREF, never postgres/service_role.
+# URL-encode the password. TLS certificate verification is enforced.
+TELEGRAM_DATABASE_URL=
+GROQ_API_KEY=
+OLLAMA_API_KEY=
+QSTASH_TOKEN=
+QSTASH_CURRENT_SIGNING_KEY=
+QSTASH_NEXT_SIGNING_KEY=
