@@ -66,7 +66,7 @@ function context(rows,text,time,conversation=[]) {
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
   let formatBudget=7000;
   const activityFormats=formats.vocabulary(rows).filter(f=>f.label.length<=150&&f.note.length<=300).sort((a,b)=>score({activity:b.label})-score({activity:a.label})).filter(f=>{formatBudget-=JSON.stringify(f).length;return formatBudget>=0;}).slice(0,80);
-  return {...time,viewed_date:time.today,conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
+  return {...time,viewed_date:time.today,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
 }
 function plan(draft,rows,catalog,options={}) {
   validate(draft);

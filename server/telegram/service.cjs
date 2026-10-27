@@ -1,6 +1,7 @@
 'use strict';
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
+const {queryDate,summarize}=require('./day-summary.cjs');
 const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /status · /cancel · /undo · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
@@ -94,6 +95,11 @@ class Service {
         // A correction keeps the original date anchor, even after midnight.
         const effectiveTime=pending?.data.time || time;
         const rows=await this.store.readRows(job),conversation=await this.store.conversation(job);
+        const summaryDate=queryDate(text,time.today,conversation);
+        if(summaryDate){
+          await this.store.finish(job,chunks(summarize(rows,summaryDate)));
+          await this.queue.publish(id,'replies');await this.kick(id);return;
+        }
         const ctx=context(rows,text,effectiveTime,conversation);
         const allowedNew=/^(?:yes|yes please|confirm)[.!\s]*$/i.test(text.trim())?(pending?.data.review.formatProposals || []):[];
         const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);

@@ -241,3 +241,12 @@ test('overwrite transfers replace only reviewed destinations and roll back on st
     const blocks=await savedBlocks();assert.equal(blocks.length,1);assert.equal(blocks[0].date,'2026-10-25');assert.equal(blocks[0].note,'original');
   }finally{await c.query('reset role');await c.query('reset request.jwt.claim.sub');c.release();}
 });
+test('Telegram status uses fresh database rows even after remembered entries moved',async()=>{
+  await seed('09:00','moved off today');
+  const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async()=>{throw Error('Status must not use model memory');}}});
+  const n=++seq;const result=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:Math.floor(Date.parse('2026-10-27T20:26:00Z')/1000),text:'What is the status of my day so far? What have I filled in?'});
+  await service.process(result.id);
+  const answer=await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[result.id+':0']);
+  assert.equal(answer.text,'No activities are saved for Tuesday 27 October.');
+  assert.equal((await savedBlocks()).length,1);
+});
