@@ -181,3 +181,15 @@ input/transcript/draft JSON. The sweep recovers eligible jobs and undelivered
 replies; messages have finite retry limits. Check provider dashboards if retries
 are exhausted. A failed Telegram response after database commit does not mean
 the save failed. `/status` reads the receipt rather than executing it again.
+
+### Conversational mode
+Clear, validated requests now save automatically when writes are enabled. Unknown activity
+names, ambiguous requests and conflicts still require clarification. Saved replies offer
+Change and Undo. Recent chat and exact saved receipts are supplied as bounded context for
+24 hours, scoped to the current connection generation. Larger histories can require an
+explicit date/activity; the agent must not infer unrelated entries from “all”.
+
+Check-ins run through the existing recovery schedule at 09:00, 14:00 and 20:00
+Europe/London. `/pause` persists until `/resume`; unlinking stops delivery. Morning prompts
+skip recorded sleep/objectives. Each window sends at most one prompt; delayed prompts
+expire at the end of the hour. Check-ins use diary checks rather than a paid model call.

@@ -22,6 +22,7 @@ before(async()=>{
   await admin.query('grant usage on schema auth to authenticated; grant select,insert,update,delete on public.blocks to authenticated; grant usage on sequence public.blocks_id_seq to authenticated;');
   const file=readdirSync(join(__dirname,'../supabase/migrations')).find(f=>f.endsWith('_telegram_private_gateway.sql'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations',file),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027184503_telegram_checkins.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
@@ -127,8 +128,8 @@ test('text service uses real planning, durable correction, save and undo',async(
   await send('work nine to ten');assert.equal((await savedBlocks()).length,0);let d=(await store.status({connection,generation:1})).pending;assert.ok(d);
   targetStart='09:30';await send('actually half past nine');const corrected=(await store.status({connection,generation:1})).pending;assert.notEqual(corrected.id,d.id);assert.equal(calls,2);
   await send('save');assert.equal((await savedBlocks()).length,0);
-  await send('yes');assert.equal(calls,2);assert.equal((await store.status({connection,generation:1})).pending.data.review.questions.length,0);
-  await send('save');assert.equal((await savedBlocks()).length,1);assert.equal((await savedBlocks())[0].start_time,'09:30');await send('undo');assert.equal((await savedBlocks()).length,0);assert.equal(calls,2);assert.ok(replies.some(p=>p.text.startsWith('Saved')));
+  await send('yes');assert.equal(calls,2);assert.equal((await store.status({connection,generation:1})).pending,undefined);
+  await send('save');assert.equal((await savedBlocks()).length,1);assert.equal((await savedBlocks())[0].start_time,'09:30');await send('undo');assert.equal((await savedBlocks()).length,0);assert.equal(calls,2);assert.ok(replies.some(p=>p.text.startsWith('Done')));
 });
 test('voice stage checkpoints transcript and never retranscribes on retry',async()=>{
   let speech=0,model=0;const service=new Service({store,queue:{publish:async()=>{}},providers:{transcribe:async()=>{speech++;return 'my energy is four';},interpret:async()=>{model++;return {...empty(),actions:[{type:'checkin',date:day,energy:4}]};},send:async()=>({message_id:100}),acknowledge:async()=>{}}});
@@ -192,4 +193,18 @@ test('voice checkpoint survives a failed next-stage enqueue',async()=>{
 test('pre-format-fix previews cannot save old representations',async()=>{
   const id=await draft();await admin.query("update day_bot.drafts set data=jsonb_set(data,'{review}',(data->'review')-'formatVersion') where id=$1",[id]);
   await assert.rejects(store.apply(await job('save'),id,true),{code:'stale'});assert.equal((await savedBlocks()).length,0);
+});
+test('check-ins deduplicate, pause persists and inactive connections receive none',async()=>{
+  const now=Date.parse('2026-10-27T09:15:00Z');
+  await store.checkins(now);await store.checkins(now);
+  assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'checkin'='true'")).n,1);
+  const j=await job('/pause');await store.setReminders(j,false);
+  await store.checkins(Date.parse('2026-10-27T14:15:00Z'));
+  assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'checkin'='true'")).n,1);
+});
+test('saved conversation survives saving, exposes exact receipts, and is isolated by generation',async()=>{
+  const id=await draft();const j=await job('save');await store.apply(j,id,true);
+  const next=await job('actually yesterday');const memory=await store.conversation(next);
+  assert.ok(memory.some(x=>x.recent_changes?.some(r=>r.id===id)));
+  assert.deepEqual(await store.conversation({...next,generation:2}),[{recent_changes:[],changes_limited:false}]);
 });

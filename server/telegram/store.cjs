@@ -121,14 +121,43 @@ class Store {
     await c.query('update day_bot.connections set lease_until=null,lease_job=null,lease_token=null,last_message_id=case when $3 then greatest(last_message_id,$2) else last_message_id end where id=$1',[job.connection,job.message_id,!job.input.control && !job.input.callback]);
   }
   async finish(job,payloads) {await this.tx(async c=>{await this.guard(c,job);await this.finishIn(c,job,payloads);});}
-  async saveDraft(job,data,render) {
+  async saveDraft(job,data,render,autoSave=false) {
     return this.tx(async c=>{
       await this.guard(c,job);
       await c.query("update day_bot.drafts set status='superseded' where connection=$1 and status='pending'",[job.connection]);
       const id=randomUUID();
       await c.query('insert into day_bot.drafts(id,owner,connection,generation,data) values($1,$2,$3,$4,$5)',[id,job.owner,job.connection,job.generation,JSON.stringify(data)]);
-      await this.finishIn(c,job,render(id,data));return id;
+      if(autoSave && data.review.patches.length && !data.review.questions.length){
+        if(!(await this.owner(c)).writes_enabled)throw new UserError('Saving is currently disabled.');
+        const patches=await this.applyPatches(c,job.owner,data.review.patches);
+        await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[id,job.owner,job.connection,JSON.stringify(patches)]);
+        await c.query("update day_bot.drafts set status='saved' where id=$1",[id]);
+        await this.finishIn(c,job,[this.savedReply(id,data)]);
+      }else await this.finishIn(c,job,render(id,data));return id;
     });
+  }
+  savedReply(id,data){
+    const summary=data.review.summaries.map(line=>line.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) → (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}): (.*)$/,(_,date,start,endDate,end,name)=>{
+      const label=d=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));
+      return `${name.replace(/ \([a-z]+\)$/,'')} · ${label(date)}, ${start}–${date===endDate?'':label(endDate)+' '}${end}`;
+    })).join(' · ');
+    return {text:('Done — '+(summary || 'updated your diary.')).slice(0,3300),reply_markup:{inline_keyboard:[[button('Change','change',id),button('Undo','undo',id)]]}};
+  }
+  async conversation(job){
+    const recent=await rows(this.pool,`select j.input,j.transcript,
+      (select string_agg(o.payload->>'text',E'\\n' order by o.ordinal) from day_bot.outbox o where o.dedupe_key like j.id::text || ':%') as answer
+      from day_bot.jobs j where j.connection=$1 and j.generation=$2 and j.status='done' and j.created_at>now()-interval '24 hours'
+      order by j.update_id desc limit 8`,[job.connection,job.generation]);
+    const changes=await rows(this.pool,`select r.id,r.patches,r.undone from day_bot.receipts r join day_bot.drafts d on d.id=r.id where r.connection=$1 and d.generation=$2 and r.created_at>now()-interval '24 hours' order by r.created_at desc limit 8`,[job.connection,job.generation]);
+    let budget=10000;
+    const boundedChanges=changes.filter(change=>{budget-=JSON.stringify(change).length;return budget>=0;});
+    const prompt=await one(this.pool,"select payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and payload->>'checkin'='true' and created_at>now()-interval '12 hours' order by ordinal desc limit 1",[job.connection,job.generation]);
+    return [...(prompt?[{assistant:prompt.text}]:[]),...recent.reverse().map(r=>({user:(r.transcript || r.input.text || (r.input.callback?.verb==='change'?'Change saved change '+r.input.callback.id:'')).slice(0,2000),assistant:(r.answer || '').slice(0,2000)})),{recent_changes:boundedChanges,changes_limited:boundedChanges.length<changes.length}];
+  }
+  async change(job,id){
+    const d=await one(this.pool,"select * from day_bot.drafts where id=$1 and connection=$2 and generation=$3 and expires_at>now()",[id,job.connection,job.generation]);
+    if(!d)throw new UserError('That change is too old. Tell me the day and activity you want to change.');
+    await this.finish(job,[{text:'What would you like to change? Mention the new day, time or activity.'}]);
   }
   async cancel(job,id) {
     await this.tx(async c=>{
@@ -176,7 +205,7 @@ class Store {
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
       await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[d.id,job.owner,job.connection,JSON.stringify(patches)]);
       await c.query("update day_bot.drafts set status='saved' where id=$1",[d.id]);
-      await this.finishIn(c,job,[{text:`Saved ${patches.length} changed records. Refresh Day to see them.`,reply_markup:{inline_keyboard:[[button('Undo','undo',d.id)]]}}]);
+      await this.finishIn(c,job,[this.savedReply(d.id,d.data)]);
     });
   }
   async undo(job,id,writesEnabled) {
@@ -202,7 +231,7 @@ class Store {
     return this.tx(async c=>{
       const r=await one(c,`select o.*,c.chat_id from day_bot.outbox o join day_bot.connections c on c.id=o.connection
         where o.delivered_at is null and (o.lease_until is null or o.lease_until<now()) and o.attempts<8
-        and o.generation=c.generation and (c.active or o.payload->>'unlinked'='true') and o.created_at>now()-interval '24 hours'
+        and (o.payload->>'checkin' is distinct from 'true' or (c.reminders_enabled and (o.payload->>'validUntil')::bigint>extract(epoch from now()))) and o.generation=c.generation and (c.active or o.payload->>'unlinked'='true') and o.created_at>now()-interval '24 hours'
         and not exists (select 1 from day_bot.outbox earlier where earlier.connection=o.connection and earlier.generation=o.generation and earlier.ordinal<o.ordinal and earlier.delivered_at is null and earlier.attempts<8 and earlier.created_at>now()-interval '24 hours')
         order by o.ordinal for update of o skip locked limit 1`);
       if(!r)return null;
@@ -211,6 +240,21 @@ class Store {
   }
   async delivered(reply,messageId) {await this.pool.query('update day_bot.outbox set delivered_at=now(),message_id=$3,lease_until=null where id=$1 and lease_token=$2',[reply.id,reply.token,messageId]);}
   async retryReply(reply,delay=0) {await this.pool.query("update day_bot.outbox set lease_until=now()+$3*interval '1 second' where id=$1 and lease_token=$2",[reply.id,reply.token,Math.min(86400,Math.max(0,delay))]);}
+  async setReminders(job,enabled){
+    await this.tx(async c=>{await this.guard(c,job);await c.query('update day_bot.connections set reminders_enabled=$2 where id=$1',[job.connection,enabled]);await this.finishIn(c,job,[{text:enabled?'Check-ins are back on — 9am, 2pm and 8pm London time.':'Check-ins paused. Send /resume whenever you want them back.'}]);});
+  }
+  async checkins(now=Date.now()){
+    const connections=await rows(this.pool,'select * from day_bot.connections where active and reminders_enabled');
+    for(const connection of connections){
+      const job={connection:connection.id,owner:connection.owner,generation:connection.generation};
+      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and date=$2",[job.owner,require('./domain.cjs').anchor(Math.floor(now/1000)).today]);
+      const message=require('./checkins.cjs').checkin(diary,now);
+      if(message)await this.tx(async c=>{
+        const current=await one(c,'select active,reminders_enabled from day_bot.connections where id=$1 for update',[connection.id]);
+        if(current?.active && current.reminders_enabled)await this.enqueueReply(c,job,`checkin:${connection.id}:${connection.generation}:${message.key}`,{text:message.text,checkin:true,validUntil:Math.floor(now/3600000)*3600+3600});
+      });
+    }
+  }
   async recover() {
     // Keep idempotency keys; remove sensitive payloads after their useful lifetime.
     await this.pool.query("update day_bot.jobs set input='{}',transcript=null,status=case when status in ('pending','processing') then 'failed' else status end,error_code=case when status in ('pending','processing') then 'expired' else error_code end where created_at<now()-interval '24 hours' and input<>'{}'");

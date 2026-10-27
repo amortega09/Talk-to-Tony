@@ -1,7 +1,7 @@
 'use strict';
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
-const help='Send a text or a voice note (up to two minutes). I’ll show a draft before changing Day. Reply to a preview to correct it, then tap Save. /status · /cancel · /undo · /unlink\nVoice audio goes to Groq; text and selected diary context go to Ollama. Only confirmed changes are saved.';
+const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /status · /cancel · /undo · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
   const cb=u.callback_query,m=cb?.message || u.message,from=cb?.from || m?.from;
@@ -27,12 +27,12 @@ function chunks(lines) {
 }
 function preview(id,data) {
   const {draft,review,transcript}=data;
-  const lines=['Draft — nothing saved.',...(data.voice?['Heard: '+transcript]:[]),...review.summaries,...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`)];
+  const lines=[...review.summaries,...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`)];
   if(review.questions.length)lines.push(review.questions[0]);
   else if(!review.patches.length && !review.answers.length && !review.navigation.length)lines.push(draft.reply || 'No supported changes found.');
   const messages=chunks(lines).map(m=>({...m,draftId:id}));
   const buttons=review.patches.length && !review.questions.length?[button('Save','save',id),button('Change','change',id),button('Cancel','cancel',id)]:[button('Cancel','cancel',id)];
-  messages.push({text:review.questions.length?'Reply to clarify, or cancel.':'Reply to this preview to correct it. Save applies only this draft.',draftId:id,reply_markup:{inline_keyboard:[buttons]}});
+  if(!review.questions.length)messages.push({text:'Does this look right?',draftId:id,reply_markup:{inline_keyboard:[buttons]}});
   return messages;
 }
 class Service {
@@ -72,7 +72,8 @@ class Service {
       }
       const time=anchor(input.timestamp);
       const cmd=input.callback?{control:input.callback.verb}:control(text || '',time);
-      if(cmd?.control==='save')await this.store.apply(job,input.callback?.id,this.writesEnabled);
+      if(/^\/(?:pause|resume)$/.test(text || ''))await this.store.setReminders(job,text==='/resume');
+      else if(cmd?.control==='save')await this.store.apply(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='undo')await this.store.undo(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='cancel')await this.store.cancel(job,input.callback?.id);
       else if(cmd?.control==='unlink')await this.store.unlink(job);
@@ -83,17 +84,16 @@ class Service {
         if(status.waiting)messages.push({text:`${status.waiting} request(s) waiting or retrying. /cancel stops earlier unfinished work.`});
         await this.store.finish(job,messages);
       } else if(cmd?.control==='change'){
-        const pending=await this.store.pending(job);if(!pending || pending.id!==input.callback.id)throw new UserError('That preview is no longer current. Use /status.');
-        await this.store.finish(job,[{text:'Reply to the preview with your correction, by text or voice.',draftId:pending.id}]);
+        await this.store.change(job,input.callback.id);
       } else {
         if(job.late)throw new UserError('This message arrived after a newer one. Resend it so I can use the correct order.','late_message');
         const pending=await this.store.pending(job);
-        if(input.replyTo && !pending)throw new UserError('That preview is no longer pending. Send a new request or use /status.','stale');
+        if(input.replyTo && !pending && !this.writesEnabled)throw new UserError('That preview is no longer pending. Send a new request or use /status.','stale');
         if(input.replyTo && pending && !await this.store.isCurrentReply(job,input.replyTo,pending.id))throw new UserError('That reply belongs to an old preview. Use /status and reply to the current one.','stale');
         if(pending && !input.replyTo && !pending.data.review.questions.length && !/^(?:actually|change|make that|correct|instead|no\b)/i.test(text))throw new UserError('A draft is waiting. Reply to its preview to correct it, or /cancel before starting another.','pending_draft');
         // A correction keeps the original date anchor, even after midnight.
         const effectiveTime=pending?.data.time || time;
-        const rows=await this.store.readRows(job),conversation=pending?.data.conversation || [];
+        const rows=await this.store.readRows(job),conversation=await this.store.conversation(job);
         const ctx=context(rows,text,effectiveTime,conversation);
         const allowedNew=/^(?:yes|yes please|confirm)[.!\s]*$/i.test(text.trim())?(pending?.data.review.formatProposals || []):[];
         const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
@@ -101,7 +101,7 @@ class Service {
         const review=plan(draft,rows,ctx.app.targets,{strict:true,allowedNew,selectedCategory});
         if(!review.patches.length && !review.questions.length){
           await this.store.finish(job,chunks([...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`),...(!review.answers.length&&!review.navigation.length?[draft.reply || 'No supported changes found.']:[])]));
-        } else await this.store.saveDraft(job,{draft,review,transcript:text,voice:!!input.voice,time:effectiveTime,conversation:[...conversation,{user:text,assistant:draft.reply,question:review.questions[0] || ''}].slice(-3)},preview);
+        } else await this.store.saveDraft(job,{draft,review,transcript:text,voice:!!input.voice,time:effectiveTime,conversation:[...conversation,{user:text,assistant:draft.reply,question:review.questions[0] || ''}].slice(-3)},preview,this.writesEnabled);
       }
     } catch(e) {
       if(job.released)throw e;
@@ -115,6 +115,7 @@ class Service {
   }
   async kick(id){const next=await this.store.nextPending(id);if(next)await this.queue.publish(next.id,`wake-${id}`);}
   async recover(){
+    await this.store.checkins();
     const results=await Promise.allSettled((await this.store.recover()).map(job=>this.queue.publish(job.id)));
     await this.deliver(3);
     if(results.some(r=>r.status==='rejected'))throw new Error('Some jobs could not be requeued');
