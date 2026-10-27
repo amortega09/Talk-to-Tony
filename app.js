@@ -776,6 +776,7 @@ function openSheet(slotList, preferredCat) {
   document.getElementById("activityPickerLabel").textContent = "What did you do?";
   document.getElementById("activitySearch").placeholder = "Search or add an activity…";
   document.getElementById("movePreviousDay").hidden = !slotList.some(s => data[s]);
+  document.getElementById("discussTelegram").hidden = false;
   editing = slotList;
   highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
@@ -869,6 +870,7 @@ function selectEventPreset(preset) {
 function openEventSheet() {
   closeSheet();
   document.getElementById("movePreviousDay").hidden = true;
+  document.getElementById("discussTelegram").hidden = true;
   eventMode = true;
   document.getElementById('eventDatePicker').hidden = false;
   document.getElementById('eventStartDate').value = ymd(current);
@@ -1666,6 +1668,17 @@ async function saveSheet() {
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
   closeSheet();
 }
+async function shareAgentSelection(selection) {
+  if (!sb || !USER_ID || USER_ID === "local-recovery") { setStatus("err", "Sign in and sync first to share a selection."); return; }
+  const shared = {...selection, expiresAt:new Date(Date.now()+3600000).toISOString()};
+  try {
+    const {error} = await sb.from("blocks").upsert({user_id:USER_ID,date:SETTINGS_DATE,start_time:"__agent_selection__",category:"agent_selection",note:JSON.stringify(shared),subcategory:"",updated_at:new Date().toISOString()}, {onConflict:"user_id,date,start_time"});
+    if (error) throw error;
+    setStatus("ok", "Selection shared for one hour. Ask Tony about it in Telegram.");
+    window.open("https://t.me/Talk2tonybot", "_blank", "noopener,noreferrer");
+  } catch (error) { setStatus("err", "Could not share selection. Please try again."); }
+}
+
 async function moveSelectedPreviousDay() {
   if (!editing || eventMode) return;
   const sourceDay = ymd(current), slots = [...editing], source = structuredClone(data);
@@ -3710,6 +3723,7 @@ function openInsight(id) {
     document.getElementById("insightRangeSeg").hidden = true;
     document.getElementById("insightScreen").hidden = false;
     renderNotes();
+    pullNotes();
     return;
   }
   document.getElementById("insightRangeSeg").hidden = false;
@@ -3951,7 +3965,7 @@ function renderNoteEditor(note) {
   const backlinks = noteBacklinks(note);
   const tags = [...new Set((note.body.match(/#[\p{L}\p{N}_/-]+/gu) || []))];
   return `<section class="note-editor">
-    <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit note" : "Preview"}</button><button class="text-btn note-delete" id="noteDelete" type="button">Delete</button></div></div>
+    <div class="note-editor-head"><input id="noteTitle" value="${escapeHtml(note.title)}" placeholder="Untitled" aria-label="Note title"><div><button class="text-btn" id="noteDiscussTelegram" type="button">Discuss in Telegram</button><button class="text-btn" id="notePreviewToggle" type="button">${notesPreview ? "Edit note" : "Preview"}</button><button class="text-btn note-delete" id="noteDelete" type="button">Delete</button></div></div>
     <div class="note-location"><label for="noteProject">Project</label><select id="noteProject"><option value=""${!note.projectId ? " selected" : ""}>Unfiled</option>${noteProjects.map((project) => `<option value="${escapeHtml(project.id)}"${note.projectId === project.id ? " selected" : ""}>${escapeHtml(project.name)}</option>`).join("")}</select></div>
     ${notesPreview ? `<div class="note-preview">${renderMarkdown(note.body)}</div>` : `<textarea id="noteBody" spellcheck="true" placeholder="Write in Markdown. Link notes with [[Note title]]">${escapeHtml(note.body)}</textarea>`}
     ${tags.length ? `<div class="note-meta">${tags.map((tag) => `<button class="note-tag note-tag-button" type="button" data-note-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
@@ -4042,6 +4056,7 @@ function bindNotesControls() {
     }
   });
   body.addEventListener("click", (event) => {
+    if(event.target.closest("#noteDiscussTelegram")){if(activeNoteId)shareAgentSelection({kind:"note",id:activeNoteId});return;}
     const projectSelect = event.target.closest("[data-project-select]");
     const projectRename = event.target.closest("[data-project-rename]");
     const projectDelete = event.target.closest("[data-project-delete]");
@@ -4436,6 +4451,25 @@ document.getElementById('eventStartDate').addEventListener('change', () => {
 document.getElementById('eventPrevDay').addEventListener('click', () => moveEventDates(-1));
 document.getElementById('eventNextDay').addEventListener('click', () => moveEventDates(1));
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
+document.getElementById("agentHistoryClose").addEventListener("click",()=>{document.getElementById("agentHistoryDialog").hidden=true;});
+document.getElementById("agentHistoryBtn").addEventListener("click",async()=>{
+  const dialog=document.getElementById("agentHistoryDialog"),body=document.getElementById("agentHistoryBody");
+  dialog.hidden=false;body.textContent="Loading…";
+  if(!sb || !USER_ID || USER_ID==='local-recovery'){body.textContent='Sign in to see cloud agent changes.';return;}
+  const actor=USER_ID;
+  try{const {data:rows,error}=await sb.from('blocks').select('note').eq('user_id',actor).eq('date',SETTINGS_DATE).eq('start_time','__agent_history__');if(error)throw error;if(USER_ID!==actor)return;
+    const records=JSON.parse(rows[0]?.note || '[]');body.textContent=records.length?records.map(r=>`${new Date(r.createdAt).toLocaleString('en-GB')} · ${r.undone?'Undone':'Saved'}\n${(r.summaries || []).join('\n')}`).join('\n\n'):'No recent agent changes.';
+  }catch{body.textContent='Could not load agent changes. Please try again.';}
+});
+document.getElementById("discussTelegram").addEventListener("click", () => {
+  if (!editing || eventMode) return;
+  shareAgentSelection({kind:"activity_range",date:ymd(current),slots:[...editing]});
+});
+document.getElementById("discussObjectiveTelegram").addEventListener("click", () => {
+  const items=plannerItemsForDay(loadLocal(ymd(plannerDate))),item=items[plannerSelectedTask];
+  if (!item) { setStatus("err", "Select an objective first."); return; }
+  shareAgentSelection({kind:"objective",date:ymd(plannerDate),text:item.text});
+});
 document.getElementById("movePreviousDay").addEventListener("click", moveSelectedPreviousDay);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
@@ -4901,6 +4935,24 @@ function renderPatterns(map, range = insightRange) {
 }
 
 // Save only the selected blocks on each date; reminders belong to the start.
+
+let agentRefreshBusy=false;
+async function refreshAgentChanges(){
+  if(statusEl()?.classList.contains('syncing') || statusEl()?.classList.contains('err'))return;
+  if(agentRefreshBusy || !sb || !USER_ID || USER_ID==='local-recovery' || document.hidden)return;
+  const editingOpen=()=>['sheetBackdrop','gymBackdrop','plannerScreen','voiceDialog','calendarScreen','insightScreen'].some(id=>!document.getElementById(id)?.hidden) || (document.activeElement?.offsetParent!==null && document.activeElement?.matches('input,textarea,[contenteditable="true"]'));
+  if(editingOpen())return;
+  const actor=USER_ID,client=sb,date=ymd(current),snapshot=JSON.stringify(data);agentRefreshBusy=true;
+  try{
+    const result=await sb.from('blocks').select('start_time,category,note,subcategory').eq('user_id',USER_ID).eq('date',date);
+    if(result.error || USER_ID!==actor || sb!==client || editingOpen() || ymd(current)!==date || JSON.stringify(data)!==snapshot)return;
+    const remote=Object.fromEntries(result.data.map(r=>[r.start_time,{category:r.category,note:r.note || '',sub:r.subcategory || ''}]));
+    if(JSON.stringify(remote)!==snapshot){data=remote;saveLocal(date,data);render();setStatus('ok','Updated from cloud');}
+  }finally{agentRefreshBusy=false;}
+}
+setInterval(refreshAgentChanges,30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshAgentChanges();});
+
 async function savePlannedEvent(range, block, title, lead) {
   if (range.error || !range.days.length) return;
   const draft = eventDraftVersion;

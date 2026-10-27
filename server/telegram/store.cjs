@@ -22,7 +22,7 @@ function poolFromEnv(env=process.env) {
   return new Pool({connectionString:url.toString(),ssl,max:2,idleTimeoutMillis:10000,connectionTimeoutMillis:5000,statement_timeout:10000,application_name:'day-telegram'});
 }
 class Store {
-  constructor(pool){this.pool=pool;}
+  constructor(pool,{proactiveEnabled=true}={}){this.pool=pool;this.proactiveEnabled=proactiveEnabled;}
   async tx(fn) {
     const c=await this.pool.connect();
     try {await c.query('begin');const result=await fn(c);await c.query('commit');return result;}
@@ -47,7 +47,7 @@ class Store {
         if(!link)return null;
         await c.query('update day_bot.links set used_at=now() where hash=$1',[hash(input.link)]);
         conn=await one(c,`insert into day_bot.connections(id,owner,telegram_user,chat_id) values($1,$2,$3,$4)
-          on conflict(owner) do update set telegram_user=excluded.telegram_user,chat_id=excluded.chat_id,active=true,generation=day_bot.connections.generation+1,lease_job=null,lease_token=null,lease_until=null,last_message_id=0 returning *`,[randomUUID(),link.owner,input.userId,input.chatId]);
+          on conflict(owner) do update set telegram_user=excluded.telegram_user,chat_id=excluded.chat_id,active=true,generation=day_bot.connections.generation+1,lease_job=null,lease_token=null,lease_until=null,last_message_id=0,agent_context='{}',checkin_state='{}' returning *`,[randomUUID(),link.owner,input.userId,input.chatId]);
         await c.query("update day_bot.drafts set status='cancelled' where connection=$1 and status='pending'",[conn.id]);
         await c.query("update day_bot.jobs set status='failed',error_code='relinked',input='{}',transcript=null where connection=$1 and status in ('pending','processing')",[conn.id]);
         input={...input,link:undefined,text:'/help'};
@@ -83,7 +83,8 @@ class Store {
       const token=randomUUID();
       await c.query("update day_bot.connections set lease_job=$2,lease_token=$3,lease_until=now()+interval '90 seconds' where id=$1",[conn.id,id,token]);
       await c.query("update day_bot.jobs set status='processing',attempts=attempts+1 where id=$1",[id]);
-      return {...job,token,attempts:job.attempts+1,chatId:conn.chat_id,late:Number(job.message_id)<Number(conn.last_message_id)};
+      const agentContext=conn.agent_context?.expiresAt && Date.parse(conn.agent_context.expiresAt)<=Date.now()?{memorySince:conn.agent_context.memorySince}:conn.agent_context || {};
+      return {...job,token,attempts:job.attempts+1,chatId:conn.chat_id,agentContext,late:Number(job.message_id)<Number(conn.last_message_id)};
     });
   }
   async guard(c,job,{allowRevoked=false}={}) {
@@ -116,6 +117,8 @@ class Store {
     await c.query('insert into day_bot.outbox(id,owner,connection,generation,dedupe_key,payload) values($1,$2,$3,$4,$5,$6) on conflict(dedupe_key) do nothing',[randomUUID(),job.owner,job.connection,job.generation,key,JSON.stringify(payload)]);
   }
   async finishIn(c,job,payloads) {
+    await c.query('update day_bot.jobs set metrics=$2 where id=$1',[job.id,JSON.stringify({duration_ms:job.startedAt?Date.now()-job.startedAt:null,tools:job.toolNames || []})]);
+    if(job.nextContext)await c.query('update day_bot.connections set agent_context=$2 where id=$1',[job.connection,JSON.stringify(job.nextContext)]);
     for(let i=0;i<payloads.length;i++)await this.enqueueReply(c,job,`${job.id}:${i}`,payloads[i]);
     await c.query("update day_bot.jobs set status='done' where id=$1",[job.id]);
     await c.query('update day_bot.connections set lease_until=null,lease_job=null,lease_token=null,last_message_id=case when $3 then greatest(last_message_id,$2) else last_message_id end where id=$1',[job.connection,job.message_id,!job.input.control && !job.input.callback]);
@@ -132,32 +135,45 @@ class Store {
         const patches=await this.applyPatches(c,job.owner,data.review.patches);
         await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[id,job.owner,job.connection,JSON.stringify(patches)]);
         await c.query("update day_bot.drafts set status='saved' where id=$1",[id]);
+        await this.publishHistory(c,job,id,data.review.summaries);
         await this.finishIn(c,job,[this.savedReply(id,data)]);
       }else await this.finishIn(c,job,render(id,data));return id;
     });
+  }
+  async publishHistory(c,job,id,summaries,undone=false){
+    const old=await one(c,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time='__agent_history__' for update",[job.owner]);
+    let records=[];try{records=JSON.parse(old?.note || '[]');}catch{}
+    if(!Array.isArray(records))records=[];
+    const found=records.find(r=>r.id===id);
+    if(found)found.undone=undone;else records.unshift({id,createdAt:new Date().toISOString(),undone,summaries:summaries.slice(0,20).map(s=>s.slice(0,500))});
+    await c.query("insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,'2000-01-01','__agent_history__','agent_history',$2,'') on conflict(user_id,date,start_time) do update set note=excluded.note,updated_at=clock_timestamp()",[job.owner,JSON.stringify(records.slice(0,8))]);
   }
   savedReply(id,data){
     const summary=data.review.summaries.map(line=>line.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) → (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}): (.*)$/,(_,date,start,endDate,end,name)=>{
       const label=d=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));
       return `${name.replace(/ \([a-z]+\)$/,'')} · ${label(date)}, ${start}–${date===endDate?'':label(endDate)+' '}${end}`;
     })).join(' · ');
-    return {text:('Done — '+(summary || 'updated your diary.')).slice(0,3300),reply_markup:{inline_keyboard:[[button('Change','change',id),button('Undo','undo',id)]]}};
+    return {draftId:id,text:('Done — '+(summary || 'updated your diary.')).slice(0,3300),reply_markup:{inline_keyboard:[[button('Change','change',id),button('Undo','undo',id)]]}};
   }
-  async conversation(job){
+  async conversation(job,liveRows){
     const recent=await rows(this.pool,`select j.input,j.transcript,
       (select string_agg(o.payload->>'text',E'\\n' order by o.ordinal) from day_bot.outbox o where o.dedupe_key like j.id::text || ':%') as answer
-      from day_bot.jobs j where j.connection=$1 and j.generation=$2 and j.status='done' and j.created_at>now()-interval '24 hours'
-      order by j.update_id desc limit 8`,[job.connection,job.generation]);
-    const changes=await rows(this.pool,`select r.id,r.patches,r.undone from day_bot.receipts r join day_bot.drafts d on d.id=r.id where r.connection=$1 and d.generation=$2 and r.created_at>now()-interval '24 hours' order by r.created_at desc limit 8`,[job.connection,job.generation]);
-    let budget=10000;
+      from day_bot.jobs j where j.connection=$1 and j.generation=$2 and j.status='done' and j.created_at>now()-interval '24 hours' and j.created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz)
+      order by j.update_id desc limit 6`,[job.connection,job.generation]);
+    const changes=await rows(this.pool,`select r.id,r.patches,r.undone from day_bot.receipts r join day_bot.drafts d on d.id=r.id where r.connection=$1 and d.generation=$2 and r.created_at>now()-interval '24 hours' and r.created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz) order by r.created_at desc limit 8`,[job.connection,job.generation]);
+    liveRows ||= await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1",[job.owner]);
+    const live=new Map(liveRows.map(r=>[`${r.date}/${r.start_time}`,r]));
+    for(const change of changes)change.state=change.undone?'undone':change.patches.every(p=>A.same(live.get(`${p.date}/${p.slot}`),p.after))?'current':'changed_since';
+    let budget=8000;
     const boundedChanges=changes.filter(change=>{budget-=JSON.stringify(change).length;return budget>=0;});
-    const prompt=await one(this.pool,"select payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and payload->>'checkin'='true' and created_at>now()-interval '12 hours' order by ordinal desc limit 1",[job.connection,job.generation]);
-    return [...(prompt?[{assistant:prompt.text}]:[]),...recent.reverse().map(r=>({user:(r.transcript || r.input.text || (r.input.callback?.verb==='change'?'Change saved change '+r.input.callback.id:'')).slice(0,2000),assistant:(r.answer || '').slice(0,2000)})),{recent_changes:boundedChanges,changes_limited:boundedChanges.length<changes.length}];
+    const prompt=await one(this.pool,"select payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and payload->>'checkin'='true' and created_at>now()-interval '12 hours' and created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz) order by ordinal desc limit 1",[job.connection,job.generation]);
+    return [{focus:job.agentContext || {}},...(prompt?[{assistant:prompt.text}]:[]),...recent.reverse().map(r=>({user:(r.transcript || r.input.text || (r.input.callback?.verb==='change'?'Change saved change '+r.input.callback.id:'')).slice(0,900),assistant:(r.answer || '').slice(0,900)})),{recent_changes:boundedChanges,changes_limited:boundedChanges.length<changes.length}];
   }
   async change(job,id){
     const d=await one(this.pool,"select * from day_bot.drafts where id=$1 and connection=$2 and generation=$3 and expires_at>now()",[id,job.connection,job.generation]);
     if(!d)throw new UserError('That change is too old. Tell me the day and activity you want to change.');
-    await this.finish(job,[{text:'What would you like to change? Mention the new day, time or activity.'}]);
+    job.nextContext={...job.agentContext,selectedAction:id,focusDate:d.data.review.patches.find(p=>p.date!=='2000-01-01')?.date || job.agentContext?.focusDate,expiresAt:new Date(Date.now()+86400000).toISOString()};
+    await this.finish(job,[{text:'What would you like to change?',draftId:id}]);
   }
   async cancel(job,id) {
     await this.tx(async c=>{
@@ -205,6 +221,7 @@ class Store {
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
       await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[d.id,job.owner,job.connection,JSON.stringify(patches)]);
       await c.query("update day_bot.drafts set status='saved' where id=$1",[d.id]);
+      await this.publishHistory(c,job,d.id,d.data.review.summaries);
       await this.finishIn(c,job,[this.savedReply(d.id,d.data)]);
     });
   }
@@ -215,6 +232,7 @@ class Store {
       const r=id?await one(c,'select * from day_bot.receipts where id=$1 and connection=$2 for update',[id,job.connection]):await one(c,'select * from day_bot.receipts where connection=$1 order by created_at desc limit 1 for update',[job.connection]);
       if(!r || Date.now()-new Date(r.created_at).getTime()>7*86400000)throw new UserError('There is no recent bot change available to undo.');
       if(!r.undone){await this.applyPatches(c,job.owner,r.patches.map(p=>({...p,before:p.after,after:p.before,version:p.afterVersion})));await c.query('update day_bot.receipts set undone=true where id=$1',[r.id]);}
+      await this.publishHistory(c,job,r.id,[],true);
       await this.finishIn(c,job,[{text:r.undone?'This change was already undone.':'Undone. Refresh Day to see the restored records.'}]);
     });
   }
@@ -229,29 +247,85 @@ class Store {
   }
   async claimReply() {
     return this.tx(async c=>{
-      const r=await one(c,`select o.*,c.chat_id from day_bot.outbox o join day_bot.connections c on c.id=o.connection
-        where o.delivered_at is null and (o.lease_until is null or o.lease_until<now()) and o.attempts<8
-        and (o.payload->>'checkin' is distinct from 'true' or (c.reminders_enabled and (o.payload->>'validUntil')::bigint>extract(epoch from now()))) and o.generation=c.generation and (c.active or o.payload->>'unlinked'='true') and o.created_at>now()-interval '24 hours'
-        and not exists (select 1 from day_bot.outbox earlier where earlier.connection=o.connection and earlier.generation=o.generation and earlier.ordinal<o.ordinal and earlier.delivered_at is null and earlier.attempts<8 and earlier.created_at>now()-interval '24 hours')
-        order by o.ordinal for update of o skip locked limit 1`);
-      if(!r)return null;
-      const token=randomUUID();await c.query("update day_bot.outbox set lease_token=$2,lease_until=now()+interval '30 seconds',attempts=attempts+1 where id=$1",[r.id,token]);return {...r,token};
+      if(!this.proactiveEnabled)await c.query("update day_bot.outbox set delivered_at=now() where delivered_at is null and (payload->>'checkin'='true' or payload->>'reminder'='true')");
+      await c.query("update day_bot.outbox set delivered_at=now() where delivered_at is null and payload ? 'validUntil' and (payload->>'validUntil')::bigint<=extract(epoch from now())");
+      for(let attempt=0;attempt<10;attempt++){
+        const r=await one(c,`select o.*,c.chat_id,c.reminders_enabled,
+          (select b.note from public.blocks b where b.user_id=o.owner and b.date='2000-01-01' and b.start_time='__agent_preferences__') as preferences_note
+          from day_bot.outbox o join day_bot.connections c on c.id=o.connection
+          where o.delivered_at is null and (o.lease_until is null or o.lease_until<now()) and o.attempts<8
+          and o.generation=c.generation and (c.active or o.payload->>'unlinked'='true') and o.created_at>now()-interval '24 hours'
+          and not exists (select 1 from day_bot.outbox earlier where earlier.connection=o.connection and earlier.generation=o.generation and earlier.ordinal<o.ordinal and earlier.delivered_at is null and earlier.attempts<8 and earlier.created_at>now()-interval '24 hours')
+          order by o.ordinal for update of o skip locked limit 1`);
+        if(!r)return null;
+        let prefs={};try{prefs=JSON.parse(r.preferences_note || '{}');}catch{}
+        if(r.payload.checkin && ((prefs.enabled ?? r.reminders_enabled)===false || Date.parse(prefs.snooze_until || '')>Date.now())){
+          await c.query('update day_bot.outbox set delivered_at=now() where id=$1',[r.id]);continue;
+        }
+        const token=randomUUID();await c.query("update day_bot.outbox set lease_token=$2,lease_until=now()+interval '30 seconds',attempts=attempts+1 where id=$1",[r.id,token]);return {...r,token};
+      }
+      return null;
     });
   }
   async delivered(reply,messageId) {await this.pool.query('update day_bot.outbox set delivered_at=now(),message_id=$3,lease_until=null where id=$1 and lease_token=$2',[reply.id,reply.token,messageId]);}
   async retryReply(reply,delay=0) {await this.pool.query("update day_bot.outbox set lease_until=now()+$3*interval '1 second' where id=$1 and lease_token=$2",[reply.id,reply.token,Math.min(86400,Math.max(0,delay))]);}
+  async proactiveControl(job,verb){
+    await this.tx(async c=>{await this.guard(c,job);
+      if(verb==='pause')await c.query('update day_bot.connections set reminders_enabled=false where id=$1',[job.connection]);
+      {
+        const row=await one(c,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time='__agent_preferences__' for update",[job.owner]);
+        let prefs={};try{prefs=JSON.parse(row?.note || '{}');}catch{}
+        if(verb==='pause')prefs.enabled=false;
+        else if(verb==='snooze')prefs.snooze_until=new Date(Date.now()+3*3600000).toISOString();
+        else prefs.interval_hours=Math.min(8,(prefs.interval_hours || 3)+1);
+        await c.query("insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,'2000-01-01','__agent_preferences__','agent_preferences',$2,'') on conflict(user_id,date,start_time) do update set note=excluded.note,updated_at=clock_timestamp()",[job.owner,JSON.stringify(prefs)]);
+      }
+      await this.finishIn(c,job,[{text:verb==='pause'?'Check-ins paused. Send /resume whenever you want them back.':verb==='snooze'?'Of course — I’ll leave you to it for three hours.':'Got it — I’ll check in less often.'}]);
+    });
+  }
   async setReminders(job,enabled){
-    await this.tx(async c=>{await this.guard(c,job);await c.query('update day_bot.connections set reminders_enabled=$2 where id=$1',[job.connection,enabled]);await this.finishIn(c,job,[{text:enabled?'Check-ins are back on — 9am, 2pm and 8pm London time.':'Check-ins paused. Send /resume whenever you want them back.'}]);});
+    await this.tx(async c=>{await this.guard(c,job);await c.query('update day_bot.connections set reminders_enabled=$2 where id=$1',[job.connection,enabled]);
+      const old=await one(c,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time='__agent_preferences__' for update",[job.owner]);let prefs={};try{prefs=JSON.parse(old?.note || '{}');}catch{}prefs.enabled=enabled;if(enabled)delete prefs.snooze_until;
+      await c.query("insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,'2000-01-01','__agent_preferences__','agent_preferences',$2,'') on conflict(user_id,date,start_time) do update set note=excluded.note,updated_at=clock_timestamp()",[job.owner,JSON.stringify(prefs)]);
+      await this.finishIn(c,job,[{text:enabled?'Check-ins are back on during your waking hours.':'Check-ins paused. Send /resume whenever you want them back.'}]);
+    });
+  }
+  async history(job){
+    const recent=await rows(this.pool,"select r.id,r.created_at,r.undone,d.data from day_bot.receipts r join day_bot.drafts d on d.id=r.id where r.connection=$1 and d.generation=$2 and r.created_at>now()-interval '7 days' order by r.created_at desc limit 8",[job.connection,job.generation]);
+    const payloads=recent.map(r=>({text:`${new Date(r.created_at).toISOString().slice(0,16).replace('T',' ')} UTC · ${r.undone?'undone':'saved'}\n${(r.data.review?.summaries || ['Saved diary change']).join(' · ').slice(0,2500)}`,reply_markup:r.undone?undefined:{inline_keyboard:[[button('Undo','undo',r.id)]]}}));
+    await this.finish(job,payloads.length?payloads:[{text:'No recent agent changes.'}]);
+  }
+  async forget(job){
+    job.nextContext={memorySince:new Date().toISOString()};
+    await this.finish(job,[{text:'Conversation focus cleared. Your diary and saved preferences are unchanged.'}]);
+  }
+  async reference(job){
+    if(!job.input.replyTo)return null;
+    const reply=await one(this.pool,"select payload->>'draftId' as draft_id,payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3",[job.connection,job.generation,job.input.replyTo]);
+    return reply?{reply_to:reply.text,action_id:reply.draft_id || null}:null;
   }
   async checkins(now=Date.now()){
-    const connections=await rows(this.pool,'select * from day_bot.connections where active and reminders_enabled');
+    if(!this.proactiveEnabled)return;
+    const connections=await rows(this.pool,'select * from day_bot.connections where active');
     for(const connection of connections){
       const job={connection:connection.id,owner:connection.owner,generation:connection.generation};
-      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and date=$2",[job.owner,require('./domain.cjs').anchor(Math.floor(now/1000)).today]);
-      const message=require('./checkins.cjs').checkin(diary,now);
-      if(message)await this.tx(async c=>{
-        const current=await one(c,'select active,reminders_enabled from day_bot.connections where id=$1 for update',[connection.id]);
-        if(current?.active && current.reminders_enabled)await this.enqueueReply(c,job,`checkin:${connection.id}:${connection.generation}:${message.key}`,{text:message.text,checkin:true,validUntil:Math.floor(now/3600000)*3600+3600});
+      const today=require('./domain.cjs').anchor(Math.floor(now/1000)).today;
+      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or (date='2000-01-01' and start_time='__agent_preferences__'))",[job.owner,today]);
+      let prefs={};try{prefs=JSON.parse(diary.find(r=>r.start_time==='__agent_preferences__')?.note || '{}');}catch{}
+      const lastUser=await one(this.pool,"select created_at from day_bot.jobs where connection=$1 and generation=$2 and input ? 'text' order by created_at desc limit 1",[job.connection,job.generation]);
+      const state={...connection.checkin_state,lastUserAt:lastUser?.created_at};
+      const message=(prefs.enabled ?? connection.reminders_enabled)?require('./checkins.cjs').checkin(diary,now,prefs,state):null;
+      await this.tx(async c=>{
+        const current=await one(c,'select * from day_bot.connections where id=$1 for update',[connection.id]);
+        if(!current?.active || current.generation!==job.generation)return;
+        for(const reminder of require('./checkins.cjs').dueReminders(diary,now))await this.enqueueReply(c,job,`reminder:${job.connection}:${job.generation}:${reminder.key}`,{text:reminder.text,validUntil:reminder.validUntil,reminder:true});
+        if(message && (prefs.enabled ?? current.reminders_enabled)){
+          const key=`checkin:${connection.id}:${connection.generation}:${message.key}`;
+          if(await one(c,'select id from day_bot.outbox where dedupe_key=$1',[key]))return;
+          await this.enqueueReply(c,job,key,{text:message.text,checkin:true,topic:message.topic,validUntil:Math.floor(now/3600000)*3600+3600,reply_markup:{inline_keyboard:[[button('Snooze','snooze',connection.id),button('Less often','less',connection.id),button('Pause','pause',connection.id)]]}});
+          const unanswered=state.day===today && (!lastUser || Date.parse(lastUser.created_at)<Date.parse(state.lastPrompt || 0))?(state.unanswered || 0)+1:1;
+          await c.query('update day_bot.connections set checkin_state=$2 where id=$1',[job.connection,JSON.stringify({day:today,count:state.day===today?(state.count || 0)+1:1,lastPrompt:new Date(now).toISOString(),lastTopic:message.topic,unanswered})]);
+        }
       });
     }
   }

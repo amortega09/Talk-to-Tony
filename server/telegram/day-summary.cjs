@@ -1,5 +1,6 @@
 'use strict';
 function queryDate(text,today,conversation=[]){
+  if(/\b(?:at|from|between)\s+\d|\b(?:notes?|ideas?|thoughts?|workout|gym|objectives?|reminders?)\b/i.test(text))return null;
   if(/\b(?:add|move|delete|change|replace|log|record|save|set)\b/i.test(text) && !/\b(?:what|which|have|has|was|is)\b/i.test(text))return null;
   if(/\b(?:double[ -]?check|check again|are you sure)\b/i.test(text)){
     const previous=[...conversation].reverse().find(turn=>turn.user && /\b(?:status|filled|logged|summari[sz]e|recorded)\b/i.test(turn.user));
@@ -7,11 +8,10 @@ function queryDate(text,today,conversation=[]){
   }
   if(!/\b(?:what|show|summari[sz]e|summary|status|review)\b/i.test(text) || !/\b(?:day|today|yesterday|diary|filled|logged|recorded)\b/i.test(text))return null;
   if(/\b(?:tomorrow|last week|week|month)\b/i.test(text))return null;
-  const iso=text.match(/\b(\d{4}-\d{2}-\d{2})\b/);if(iso){const d=new Date(iso[1]+'T12:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===iso[1]?iso[1]:null;}
-  if(/\b\d{1,2}(?:st|nd|rd|th)\b/i.test(text))return null;
-  if(/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(text))return null;
-  const day=new Date(today+'T12:00:00Z');if(/\byesterday\b/i.test(text))day.setUTCDate(day.getUTCDate()-1);
-  return day.toISOString().slice(0,10);
+  const dates=require('./dates.cjs');
+  const resolved=dates.resolve(text,today);if(resolved)return resolved;
+  if(/\b\d{1,2}(?:st|nd|rd|th)\b/.test(text))return null;
+  return today;
 }
 function summarize(rows,date){
   const day=rows.filter(r=>r.date===date),timed=day.filter(r=>/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).sort((a,b)=>a.start_time.localeCompare(b.start_time));
@@ -32,4 +32,8 @@ function summarize(rows,date){
   if(timed.length)lines.push(`${timed.length/2} hours recorded. Unfilled time is still unknown.`);
   return lines;
 }
-module.exports={queryDate,summarize};
+function needsEvidence(text){
+  if(/\bwhat should\b/i.test(text))return false;
+  return /\b(?:what|which|show|list|find|read|summari[sz]e|how much|how many|have i|did i|tell me)\b/i.test(text)&&/\b(?:saved|recorded|logged|diary|objectives?|goals?|notes?|workouts?|gym|sleep|reminders?|entries|slots?|settings)\b/i.test(text);
+}
+module.exports={queryDate,summarize,needsEvidence};

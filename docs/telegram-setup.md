@@ -193,3 +193,19 @@ Check-ins run through the existing recovery schedule at 09:00, 14:00 and 20:00
 Europe/London. `/pause` persists until `/resume`; unlinking stops delivery. Morning prompts
 skip recorded sleep/objectives. Each window sends at most one prompt; delayed prompts
 expire at the end of the hour. Check-ins use diary checks rather than a paid model call.
+
+
+### Personal agent release
+See [the capability inventory and validation](personal-agent-rollout.md). Telegram now
+uses its own versioned tool registry and agent prompt. Clear additions still save
+automatically; destructive changes and overwrites wait for confirmation.
+
+Default check-ins are every three hours during 09:00–22:00 Europe/London, at most
+four/day, with recent-chat suppression and backoff after unanswered prompts. Ask
+Tony to change the interval, quiet hours or daily cap; use Snooze/Less often/Pause
+on a check-in, or /pause and /resume. Actual reminders are separate and checked
+by the existing 15-minute recovery schedule. They are not exact-minute alarms.
+
+The web app can share selected slots/objectives/notes for one hour. Its Agent
+changes view shows recent changes; /history in Telegram offers undo. /forget
+clears conversational focus without altering diary entries or preferences.

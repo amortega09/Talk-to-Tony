@@ -6,7 +6,9 @@ const entries = require('../../voice-draft');
 const range = require('../../event-range');
 const history = require('../../voice-context');
 const formats = require('./formats.cjs');
-const schemaCheck = new Ajv({strict:false, allowUnionTypes:true}).compile(contract.schema);
+const agentTools=require('./agent-tools.cjs');
+const agentSchema=agentTools.schema(contract.schema);
+const schemaCheck = new Ajv({strict:false, allowUnionTypes:true}).compile(agentSchema);
 class UserError extends Error {
   constructor(message, code='invalid_request') { super(message); this.code=code; }
 }
@@ -46,7 +48,7 @@ function validate(draft) {
     for(const value of Object.values(item))if(typeof value==='string' && value.length>4000)throw new UserError('The AI response was too long.','model_invalid');
     for(const k of ['date','end_date'])if(item[k]!=null && !actions.dateOK(item[k]))throw new UserError('Please specify a valid date.');
   }
-  if(draft.actions?.length && (draft.items.length || draft.reflections.length))throw new UserError('Please do existing-record changes and new entries separately.');
+
   return draft;
 }
 function alignSleep(draft,text,today) {
@@ -61,26 +63,44 @@ function alignSleep(draft,text,today) {
 function context(rows,text,time,conversation=[]) {
   const days=actions.daysFromRows(rows), all=actions.targets(days,helpers);
   const words=text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-  const score=t=>(t.date===time.today?3:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
+  let shared=null;try{const parsed=JSON.parse(rows.find(r=>r.start_time==='__agent_selection__')?.note || '{}');if(Date.parse(parsed.expiresAt)>Date.now())shared=parsed;}catch{}
+  const score=t=> (shared?.kind==='note'&&t.id==='note:'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===time.today?3:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
   let budget=12000;
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
   let formatBudget=7000;
   const activityFormats=formats.vocabulary(rows).filter(f=>f.label.length<=150&&f.note.length<=300).sort((a,b)=>score({activity:b.label})-score({activity:a.label})).filter(f=>{formatBudget-=JSON.stringify(f).length;return formatBudget>=0;}).slice(0,80);
-  return {...time,viewed_date:time.today,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
+  const explicitDate=require('./dates.cjs').resolve(text,time.today);
+  return {...time,resolved_date:explicitDate,viewed_date:time.today,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
 }
 function plan(draft,rows,catalog,options={}) {
   validate(draft);
   if(draft.questions.length)return {patches:[],summaries:[],answers:[],navigation:[],questions:[draft.questions[0]]};
+  if(draft.actions?.length && (draft.items.length || draft.reflections.length)){
+    const additions=plan({...draft,actions:[]},rows,catalog,options);
+    if(additions.questions.length)return additions;
+    const next=actions.daysFromRows(rows);
+    for(const p of additions.patches){const day=next[p.date] ||= {};if(p.after)day[p.slot]=p.after;else delete day[p.slot];}
+    const nextRows=Object.entries(next).flatMap(([date,day])=>Object.entries(day).map(([start_time,b])=>({date,start_time,...b,subcategory:b.sub})));
+    const edits=plan({...draft,items:[],reflections:[]},nextRows,catalog,options);
+    if(edits.questions.length)return edits;
+    for(const p of edits.patches){const day=next[p.date] ||= {};if(p.after)day[p.slot]=p.after;else delete day[p.slot];}
+    const original=actions.daysFromRows(rows),patches=[];
+    for(const date of new Set([...Object.keys(original),...Object.keys(next)]))for(const slot of new Set([...Object.keys(original[date] || {}),...Object.keys(next[date] || {})])){
+      const before=actions.normal(original[date]?.[slot]),after=actions.normal(next[date]?.[slot]);if(!actions.same(before,after))patches.push({date,slot,before,after,version:rows.find(r=>r.date===date&&r.start_time===slot)?.version || null});
+    }
+    if(patches.length>500)throw new UserError('Split this into smaller changes.');
+    return {...edits,patches,summaries:[...additions.summaries,...edits.summaries],requiresConfirmation:additions.requiresConfirmation || edits.requiresConfirmation};
+  }
   const days=actions.daysFromRows(rows); let result;
   const resolved=new Map();
-  for(const item of [...draft.items,...(draft.actions || []).filter(a=>a.type==='activity_update' && a.activity)]){
-    const match=formats.resolve(item.activity,item.category || catalog.find(t=>t.id===item.target)?.category,rows,options);
+  for(const item of [...draft.items,...(draft.actions || []).filter(a=>['activity_update','activity_slice'].includes(a.type) && a.activity)]){
+    const match=formats.resolve(item.activity,item.category || catalog.find(t=>t.id===item.target)?.category || rows.find(r=>r.date===item.date&&r.start_time===item.start)?.category,rows,options);
     if(match.question)return {patches:[],summaries:[],answers:[],navigation:[],questions:[match.question],formatProposals:match.proposal?[match.proposal]:[]};
     resolved.set(item,match.format);
   }
   try {
     if(draft.actions?.length){
-      result=actions.plan({draft,days,catalog,range,helpers});
+      result=agentTools.plan({draft,days,catalog,range,helpers});
       for(const action of draft.actions){const f=resolved.get(action);if(!f)continue;
         for(const patch of result.patches)if(patch.after && patch.after.sub===action.activity){patch.after={...patch.after,category:f.category,sub:f.sub,note:patch.after.note || f.note};}
       }
@@ -98,17 +118,17 @@ function plan(draft,rows,catalog,options={}) {
       for(const r of p.reflections){const day=next[r.date] ||= {}, old=day.__reflect__?.note || '';day.__reflect__={category:'reflection',note:old===r.text?old:[old,r.text].filter(Boolean).join('\n\n')};summaries.push(`Reflection ${r.date}: ${r.text}`);}
       const patches=[];
       for(const [date,day] of Object.entries(next))for(const [slot,after] of Object.entries(day))if(!actions.same(days[date]?.[slot],after))patches.push({date,slot,before:actions.normal(days[date]?.[slot]),after:actions.normal(after)});
-      result={patches,summaries,answers:[],navigation:[]};
+      result={patches,summaries,answers:[],navigation:[],requiresConfirmation:patches.some(p=>p.before && draft.items.some(i=>range.build(i.date,i.start,i.end_date,i.end).days.some(d=>d.date===p.date&&d.slots.includes(p.slot))))};
     } else result={patches:[],summaries:[],answers:[],navigation:[]};
   } catch(e) { if(e instanceof UserError)throw e; throw new UserError(e.message); }
   const versions=new Map(rows.map(r=>[`${r.date}/${r.start_time}`,r.version]));
   result.patches=result.patches.map(p=>({...p,version:versions.get(`${p.date}/${p.slot}`) || null}));
   if(result.patches.length>500)throw new UserError('Split this into smaller changes.');
-  return {...result,questions:[],formatVersion:1};
+  return {...result,questions:[],formatVersion:1,toolVersion:agentTools.VERSION};
 }
 function control(text,time) {
   const t=text.trim().replace(/^\/(save|cancel|undo|status|help|unlink)(?:@\w+)?$/i,'$1').toLowerCase().replace(/[.!?]+$/,'');
   if(['status','help','unlink'].includes(t))return {control:t};
   return actions.localCommand(t,{today:time.today,viewedDate:time.today,shift:range.shift});
 }
-module.exports={UserError,helpers,anchor,normalizeTimes,validate,alignSleep,context,plan,control,contract};
+module.exports={UserError,helpers,anchor,normalizeTimes,validate,alignSleep,context,plan,control,contract,agentSchema};

@@ -25,6 +25,7 @@ before(async()=>{
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027184503_telegram_checkins.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185056_move_selected_slots_previous_day.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185438_overwrite_previous_day_transfer.sql'),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027210936_agent_context_preferences.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
@@ -42,7 +43,7 @@ async function draft(value={...empty(),items:[{date:day,start:'09:00',end_date:d
   const j=await job(),r=await store.readRows(j),ctx=D.context(r,'sample',{today:day,local_time:'12:00'}),review=D.plan(value,r,ctx.app.targets);
   return store.saveDraft(j,{draft:value,review,time:{today:day,local_time:'12:00'},conversation:[],transcript:'sample'},preview);
 }
-async function savedBlocks(){return (await admin.query('select user_id,date::text,start_time,category,note,subcategory from public.blocks order by user_id,date,start_time')).rows;}
+async function savedBlocks(){return (await admin.query("select user_id,date::text,start_time,category,note,subcategory from public.blocks where start_time<>'__agent_history__' order by user_id,date,start_time")).rows;}
 test('RLS limits the login role to one owner and denies changing its authority',async()=>{
   await seed('09:00','ours');await seed('09:00','theirs',other);
   assert.equal((await scoped.query('select * from public.blocks')).rowCount,1);
@@ -208,7 +209,7 @@ test('saved conversation survives saving, exposes exact receipts, and is isolate
   const id=await draft();const j=await job('save');await store.apply(j,id,true);
   const next=await job('actually yesterday');const memory=await store.conversation(next);
   assert.ok(memory.some(x=>x.recent_changes?.some(r=>r.id===id)));
-  assert.deepEqual(await store.conversation({...next,generation:2}),[{recent_changes:[],changes_limited:false}]);
+  assert.deepEqual(await store.conversation({...next,generation:2}),[{focus:next.agentContext || {}},{recent_changes:[],changes_limited:false}]);
 });
 
 async function transferAs(who,expected){
@@ -249,4 +250,47 @@ test('Telegram status uses fresh database rows even after remembered entries mov
   const answer=await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[result.id+':0']);
   assert.equal(answer.text,'No activities are saved for Tuesday 27 October.');
   assert.equal((await savedBlocks()).length,1);
+});
+test('destructive tool waits for confirmation, then saves and undo restores data',async()=>{
+  await seed();const n=++seq;
+  const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async()=>({...empty(),actions:[{type:'activity_delete',target:'activity:'+day+':09:00'}]})}});
+  const r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:1793000000,text:'delete the work entry'});await service.process(r.id);
+  assert.equal((await savedBlocks()).length,1);assert.ok((await store.status({connection,generation:1})).pending.data.review.requiresConfirmation);
+  const yes=++seq,res=await service.ingest('42',{userId:123,chatId:123,updateId:yes,messageId:yes,timestamp:1793000000,text:'yes'});await service.process(res.id);assert.equal((await savedBlocks()).length,0);
+  const undo=await job('undo');await store.undo(undo,undefined,true);assert.equal((await savedBlocks()).length,1);
+});
+test('saved receipts are labelled stale after a web change',async()=>{
+ const id=await draft();const j=await job('save');await store.apply(j,id,true);
+ await admin.query("update public.blocks set note='web edit' where user_id=$1",[owner]);
+ const next=await job('what changed');const memory=await store.conversation(next);assert.equal(memory.at(-1).recent_changes[0].state,'changed_since');
+});
+test('persistent focus is reset by forget and relinking',async()=>{
+ const j=await job();j.nextContext={focusDate:day,expiresAt:'2099-01-01T00:00:00Z'};await store.finish(j,[{text:'ok'}]);
+ const next=await job('/forget');assert.equal(next.agentContext.focusDate,day);await store.forget(next);const conn=await one(admin,'select agent_context from day_bot.connections where id=$1',[connection]);assert.equal(conn.agent_context.focusDate,undefined);assert.ok(conn.agent_context.memorySince);
+});
+test('expired proactive messages cannot block normal replies',async()=>{
+ const j=await job();await store.finish(j,[{text:'old prompt',checkin:true,validUntil:1},{text:'current response'}]);const reply=await store.claimReply();assert.equal(reply.payload.text,'current response');
+});
+
+test('agent history is published atomically and reflects undo for the web view',async()=>{
+ const id=await draft();await store.apply(await job('save'),id,true);
+ let history=await one(admin,"select note from public.blocks where user_id=$1 and start_time='__agent_history__'",[owner]);assert.equal(JSON.parse(history.note)[0].id,id);
+ await store.undo(await job('undo'),id,true);history=await one(admin,"select note from public.blocks where user_id=$1 and start_time='__agent_history__'",[owner]);assert.equal(JSON.parse(history.note)[0].undone,true);
+});
+test('check-in buttons persist snooze and pace without changing diary activities',async()=>{
+ const j=await job();await store.proactiveControl(j,'snooze');let record=await one(admin,"select note from public.blocks where start_time='__agent_preferences__'");assert.ok(Date.parse(JSON.parse(record.note).snooze_until)>Date.now());
+ const less=await job();await store.proactiveControl(less,'less');record=await one(admin,"select note from public.blocks where start_time='__agent_preferences__'");assert.equal(JSON.parse(record.note).interval_hours,4);
+ const pause=await job();await store.proactiveControl(pause,'pause');assert.equal((await one(admin,'select reminders_enabled from day_bot.connections where id=$1',[connection])).reminders_enabled,false);
+});
+test('proactive kill switch stops production of reminders and queued proactive delivery',async()=>{
+ const disabled=new Store(scoped,{proactiveEnabled:false});const j=await job();await disabled.finish(j,[{text:'prompt',checkin:true,validUntil:9999999999},{text:'normal'}]);await disabled.checkins(Date.parse('2026-10-27T09:00Z'));const reply=await disabled.claimReply();assert.equal(reply.payload.text,'normal');
+});
+test('an ungrounded model answer to a factual query is refused',async()=>{
+ const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async()=>({...empty(),reply:'You did a workout.'})}});const n=++seq;const r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:1793000000,text:'What gym workouts are saved?'});await service.process(r.id);const reply=await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[r.id+':0']);assert.match(reply.text,/couldn’t verify/);
+});
+test('natural resume preferences override legacy pause without corrupting undo semantics',async()=>{
+ await admin.query('update day_bot.connections set reminders_enabled=false where id=$1',[connection]);
+ await admin.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,'2000-01-01','__agent_preferences__','agent_preferences','{\"enabled\":true}')",[owner]);
+ const j=await job();await store.finish(j,[{text:'check-in',checkin:true,validUntil:9999999999}]);assert.equal((await store.claimReply()).payload.text,'check-in');
+ const pause=await job('/pause');await store.setReminders(pause,false);const preferences=await one(admin,"select note from public.blocks where start_time='__agent_preferences__'");assert.equal(JSON.parse(preferences.note).enabled,false);
 });

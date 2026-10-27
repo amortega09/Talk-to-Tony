@@ -1,14 +1,35 @@
 'use strict';
 const {anchor}=require('./domain.cjs');
-function checkin(rows,now=Date.now()){
-  const time=anchor(Math.floor(now/1000)),hour=Number(time.local_time.slice(0,2));
-  const today=rows.filter(r=>String(r.date).slice(0,10)===time.today);
-  const hasSleep=today.some(r=>r.category==='sleep');
-  const hasGoals=today.some(r=>r.start_time==='__plan__' && r.note?.trim());
-  let text;
-  if(hour===9)text=!hasSleep?'Morning! How long did you sleep last night?':!hasGoals?'Morning! Anything you’d like to get done today?':null;
-  if(hour===14)text=!hasGoals?'Hey, how’s your day going? Any objectives you’d like to add?':'Hey, how are your objectives going? Anything you’d like to update?';
-  if(hour===20)text=today.some(r=>r.start_time==='__reflect__' && r.note?.trim())?null:'How was your day? Anything you’d like to record or reflect on?';
-  return text?{key:`${time.today}:${hour}`,text:text+'\n/pause to pause check-ins.'}:null;
+function checkin(rows,now=Date.now(),prefs={},state={}){
+ const time=anchor(Math.floor(now/1000)),hour=Number(time.local_time.slice(0,2));
+ const start=prefs.quiet_end ?? 9,end=prefs.quiet_start ?? 22;
+ const inQuiet=start<end?(hour<start||hour>=end):(hour<start&&hour>=end);
+ if(prefs.enabled===false || Date.parse(prefs.snooze_until || '')>now || inQuiet || start===end)return null;
+ const interval=prefs.interval_hours || 3,window=Math.floor(((hour-start+24)%24)/interval);
+ // Each scheduled window has one hour to deliver, avoiding delayed prompts.
+ if(((hour-start+24)%24)%interval!==0)return null;
+ const count=state.day===time.today?(state.count || 0):0;
+ if(count>=(prefs.daily_limit || 4))return null;
+ if(state.lastUserAt && now-Date.parse(state.lastUserAt)<45*60000)return null;
+ if(state.day===time.today && state.unanswered>=2)return null;
+ const today=rows.filter(r=>String(r.date).slice(0,10)===time.today);
+ const hasSleep=today.some(r=>r.category==='sleep'),goals=today.find(r=>r.start_time==='__plan__')?.note || '';
+ const pending=goals.split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&!/^\[x\]/i.test(x));
+ const reflection=today.some(r=>r.start_time==='__reflect__'&&r.note?.trim());
+ let topic,text;
+ if(hour<12&&!hasSleep){topic='sleep';text='Morning! How did you sleep? Want to add it to your diary?';}
+ else if(!goals&&hour<15){topic='objectives';text='How’s your day going? Anything you’d like to get done today?';}
+ else if(pending.length&&state.lastTopic!=='objectives'){topic='objectives';const name=pending[0].replace(/^\[ \]\s*/, '').replace(/<!--.*?-->/g,'').slice(0,120);text=`How’s “${name}” going? Anything you’d like to update?`;}
+ else if(hour>=18&&!reflection){topic='reflection';text='How has today felt? Anything on your mind you’d like to keep?';}
+ else {topic=state.lastTopic==='ideas'?'diary':'ideas';text=topic==='ideas'?'Any ideas or thoughts worth keeping today? You can just send a quick voice note.':'How’s the day unfolding? Anything since we last spoke you’d like to add to your diary?';}
+ if(topic===state.lastTopic && state.day===time.today)return null;
+ return {key:`${time.today}:${start}:${interval}:${window}`,topic,text};
 }
-module.exports={checkin};
+function dueReminders(rows,now=Date.now()){
+ const {localInstant}=require('./dates.cjs'),due=[];
+ for(const row of rows){if(row.start_time!=='__event_reminders__')continue;let list;try{list=JSON.parse(row.note);}catch{continue;}if(!Array.isArray(list))continue;
+ for(const item of list){if(item.dismissed || !item.id || !item.title)continue;const when=localInstant(row.date,item.start);if(when===null)continue;const dueAt=when-Math.max(0,Number(item.lead)||0)*60000;if(now>=dueAt&&now-dueAt<20*60000)due.push({key:`${row.date}:${item.id}`,text:`A little reminder: ${String(item.title).slice(0,2000)} · ${row.date}, ${item.start}`,validUntil:Math.floor((dueAt+20*60000)/1000)});}
+ }
+ return due;
+}
+module.exports={checkin,dueReminders};

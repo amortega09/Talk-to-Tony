@@ -2,17 +2,23 @@
   "name": "talk-to-tony",
   "private": true,
   "version": "1.0.0",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:telegram:db": "node scripts/test-telegram-db.cjs",
     "telegram:admin": "node scripts/telegram-admin.cjs",
-    "voice:contract": "python3 scripts/export-voice-contract.py"
+    "voice:contract": "python3 scripts/export-voice-contract.py",
+    "test:agent:web": "node scripts/test-agent-web.cjs",
+    "test:agent:eval": "node --env-file=.env scripts/eval-telegram-agent.cjs"
   },
   "dependencies": {
     "@upstash/qstash": "2.12.1",
     "ajv": "8.20.0",
     "pg": "8.23.1"
   },
-  "devDependencies": { "supabase": "2.122.0" }
+  "devDependencies": {
+    "supabase": "2.122.0"
+  }
 }

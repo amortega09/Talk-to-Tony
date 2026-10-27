@@ -117,10 +117,19 @@
       <button class="text-btn" id="todayBtn">Today</button>
       <button class="text-btn" id="exportBtn">Export</button>
       <button class="text-btn" id="helpBtn">Help</button>
+      <button class="text-btn" id="agentHistoryBtn">Agent changes</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden />
     </footer>
   </div>
 
+  <div class="sheet-backdrop" id="agentHistoryDialog" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="agentHistoryTitle">
+      <h2 id="agentHistoryTitle">Recent agent changes</h2>
+      <div id="agentHistoryBody" style="max-height:55vh;overflow:auto;white-space:pre-wrap"></div>
+      <p>Open Telegram and send /history to undo a recent change.</p>
+      <button class="primary-btn" id="agentHistoryClose" type="button">Close</button>
+    </section>
+  </div>
   <!-- Keyboard shortcuts -->
   <div class="sheet-backdrop" id="helpDialog" hidden>
     <div class="sheet help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -229,6 +238,7 @@
           </div>
           <div class="planner-progress-track"><div class="planner-progress-fill" id="plannerDayProgress"></div></div>
           <div class="planner-task-list" id="plannerTaskList"></div>
+          <button class="ghost-btn" id="discussObjectiveTelegram" type="button">Discuss selected objective in Telegram</button>
           <div class="planner-add-row">
             <input id="plannerTaskInput" type="text" autocomplete="off" placeholder="Add a concrete target…" />
             <button class="primary-btn" id="plannerAddTask" type="button">Add</button>
@@ -422,6 +432,7 @@
       </div>
       <input class="note-input" id="noteInput" type="text" placeholder="What are you doing? (optional)" autocomplete="off" />
       <div class="sub-row" id="noteSuggest" hidden></div>
+      <button class="ghost-btn" id="discussTelegram" type="button" style="width:100%;margin-top:12px">Discuss selection in Telegram</button>
       <button class="ghost-btn" id="movePreviousDay" type="button" style="width:100%;margin-top:12px">Move to previous day</button>
       <div class="sheet-actions">
         <button class="ghost-btn" id="clearBlock">Clear</button>
@@ -460,13 +471,13 @@
   <script src="event-range.js?v=71"></script>
   <script src="voice-draft.js?v=83"></script>
   <script src="slot-transfer.js?v=2"></script>
-  <script src="app.js?v=transfer2-83"></script>
+  <script src="app.js?v=agent1-83"></script>
   <script src="speech-transcriber.js?v=83"></script>
   <script src="voice-context.js?v=83"></script>
   <script src="diary-agent.js?v=83"></script>
   <script src="voice-actions.js?v=83"></script>
   <script src="voice-store.js?v=83"></script>
-  <script src="voice-app.js?v=transfer2-83"></script>
+  <script src="voice-app.js?v=agent1-83"></script>
   <script src="voice.js?v=83"></script>
 
 
