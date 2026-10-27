@@ -1681,9 +1681,18 @@ async function moveSelectedPreviousDay() {
       if (result.error) throw result.error;
       destination = Object.fromEntries(result.data.map(r => [r.start_time, {category:r.category,note:r.note || "",sub:r.subcategory || ""}]));
     }
-    const transfer = DaySlotTransfer.plan(sourceDay, source, destination, slots);
+    const conflicts = [...new Set(slots)].filter(slot => source[slot] && destination[slot]);
+    const overwrite = conflicts.length > 0;
+    if (overwrite) {
+      const details = conflicts.map(slot => `${to12(slot)}: ${destination[slot].sub || destination[slot].category}${destination[slot].note ? " — " + displayBlockNote(destination[slot]).slice(0,100) : ""}`).join("\n");
+      if (!window.confirm(`Replace these entries on ${prettyDate(previous)}?\n\n${details}\n\nThe selected entries will move here at the same times. Other entries stay as they are.`)) return;
+    }
+    const transfer = DaySlotTransfer.plan(sourceDay, source, destination, slots, {overwrite});
     if (sb) {
-      const result = await sb.rpc("move_day_slots_previous_day", {source_day:sourceDay,expected:transfer.expected});
+      const result = await sb.rpc(overwrite ? "overwrite_day_slots_previous_day" : "move_day_slots_previous_day", {
+        source_day:sourceDay,expected:transfer.expected,
+        ...(overwrite ? {destination_expected:transfer.destinationExpected} : {})
+      });
       if (result.error) throw result.error;
     }
     saveLocal(previousDay, transfer.to);

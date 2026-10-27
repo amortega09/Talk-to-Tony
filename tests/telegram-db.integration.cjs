@@ -24,6 +24,7 @@ before(async()=>{
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations',file),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027184503_telegram_checkins.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185056_move_selected_slots_previous_day.sql'),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185438_overwrite_previous_day_transfer.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
@@ -227,4 +228,16 @@ test('web transfer rejects occupied destinations, stale selections and other own
   await admin.query("insert into public.blocks(user_id,date,start_time,category) values($1,'2026-10-25','09:00','sleep')",[owner]);
   await assert.rejects(transferAs(owner,expected),/already has entries/);
   assert.equal((await savedBlocks()).filter(b=>b.date===day).length,1);
+});
+
+test('overwrite transfers replace only reviewed destinations and roll back on stale source',async()=>{
+  await seed();await admin.query("insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,'2026-10-25','09:00','sleep','','')",[owner]);
+  const c=await admin.connect();const expected={'09:00':{category:'work',note:'original',sub:'Sample'}},dest={'09:00':{category:'sleep',note:'',sub:''}};
+  try{await c.query('set role authenticated');await c.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);
+    await assert.rejects(c.query('select public.overwrite_day_slots_previous_day($1,$2,$3)',[day,expected,{'09:00':null}]),/Yesterday changed/);
+    await assert.rejects(c.query('select public.overwrite_day_slots_previous_day($1,$2,$3)',[day,{'09:00':{...expected['09:00'],note:'stale'}},dest]),/changed/);
+    assert.equal((await savedBlocks()).length,2);
+    await c.query('select public.overwrite_day_slots_previous_day($1,$2,$3)',[day,expected,dest]);
+    const blocks=await savedBlocks();assert.equal(blocks.length,1);assert.equal(blocks[0].date,'2026-10-25');assert.equal(blocks[0].note,'original');
+  }finally{await c.query('reset role');await c.query('reset request.jwt.claim.sub');c.release();}
 });

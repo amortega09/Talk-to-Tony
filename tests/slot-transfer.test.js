@@ -11,3 +11,10 @@ test('rejects destination collisions and empty selections without mutating eithe
  assert.throws(()=>plan('2026-10-26',source,{},['10:00']),/Select/);
  assert.equal(source['09:00'].category,'work');assert.equal(destination['09:00'].category,'sleep');
 });
+
+test('explicit overwrite preserves unrelated slots and captures reviewed destination state',()=>{
+ const source={'09:00':{category:'work',note:'new',sub:'Sample'}};
+ const destination={'09:00':{category:'sleep'},'10:00':{category:'food'}};
+ const result=plan('2026-10-27',source,destination,['09:00'],{overwrite:true});
+ assert.deepEqual(result.to['09:00'],source['09:00']);assert.deepEqual(result.to['10:00'],destination['10:00']);assert.deepEqual(result.destinationExpected['09:00'],{category:'sleep',note:'',sub:''});assert.equal(destination['09:00'].category,'sleep');
+});

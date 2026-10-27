@@ -1,7 +1,7 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v84";
+const CACHE = "day-v85";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=83", "./app.js?v=transfer1-83", "./config.js?v=41", "./slot-transfer.js?v=1",
+  "./", "./index.html", "./styles.css?v=83", "./app.js?v=transfer2-83", "./config.js?v=41", "./slot-transfer.js?v=2",
 
   "./speech-transcriber.js?v=83", "./speech-worker.js?v=83", "./diary-agent.js?v=83", "./voice-context.js?v=83", "./voice.js?v=83", "./voice-actions.js?v=83", "./voice-store.js?v=83", "./voice-app.js?v=83", "./voice-draft.js?v=83", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
