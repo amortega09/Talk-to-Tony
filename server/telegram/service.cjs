@@ -51,7 +51,7 @@ class Service {
     }
     // Continue large previews promptly in a fresh bounded delivery, rather than
     // waiting for the recovery sweep before showing their Save button.
-    await this.queue.publish(last.dedupe_key.split(':')[0],`reply-${last.ordinal}`);
+    if(!last.dedupe_key.startsWith('checkin:'))await this.queue.publish(last.dedupe_key.split(':')[0],`reply-${last.ordinal}`);
   }
   async process(id) {
     const job=await this.store.claim(id);
