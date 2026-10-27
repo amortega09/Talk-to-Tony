@@ -8,7 +8,7 @@ if out.is_symlink():
 if out.exists():
     shutil.rmtree(out)
 out.mkdir()
-for name in ['index.html', 'styles.css', 'app.js', 'voice.js', 'voice-actions.js', 'voice-store.js', 'voice-app.js', 'voice-draft.js', 'voice-context.js', 'diary-agent.js', 'speech-transcriber.js', 'speech-worker.js', 'patterns.js', 'event-range.js', 'config.js', 'manifest.webmanifest', 'sw.js']:
+for name in ['index.html', 'styles.css', 'app.js', 'slot-transfer.js', 'voice.js', 'voice-actions.js', 'voice-store.js', 'voice-app.js', 'voice-draft.js', 'voice-context.js', 'diary-agent.js', 'speech-transcriber.js', 'speech-worker.js', 'patterns.js', 'event-range.js', 'config.js', 'manifest.webmanifest', 'sw.js']:
     shutil.copy2(root / name, out / name)
 shutil.copytree(root / 'icons', out / 'icons', dirs_exist_ok=True)
 with (out / 'config.js').open('a') as config:

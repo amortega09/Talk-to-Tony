@@ -23,6 +23,7 @@ before(async()=>{
   const file=readdirSync(join(__dirname,'../supabase/migrations')).find(f=>f.endsWith('_telegram_private_gateway.sql'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations',file),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027184503_telegram_checkins.sql'),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185056_move_selected_slots_previous_day.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
@@ -207,4 +208,23 @@ test('saved conversation survives saving, exposes exact receipts, and is isolate
   const next=await job('actually yesterday');const memory=await store.conversation(next);
   assert.ok(memory.some(x=>x.recent_changes?.some(r=>r.id===id)));
   assert.deepEqual(await store.conversation({...next,generation:2}),[{recent_changes:[],changes_limited:false}]);
+});
+
+async function transferAs(who,expected){
+  const c=await admin.connect();
+  try{await c.query('set role authenticated');await c.query("select set_config('request.jwt.claim.sub',$1,false)",[who]);await c.query('select public.move_day_slots_previous_day($1,$2)',[day,expected]);}
+  finally{await c.query('reset role');await c.query('reset request.jwt.claim.sub');c.release();}
+}
+test('web transfer moves exact selected slots atomically with names and notes intact',async()=>{
+  await seed('09:00','my note');await seed('09:30','leave here');
+  await transferAs(owner,{'09:00':{category:'work',note:'my note',sub:'Sample'}});
+  const blocks=await savedBlocks();assert.equal(blocks.find(b=>b.start_time==='09:00').date,'2026-10-25');assert.equal(blocks.find(b=>b.start_time==='09:00').note,'my note');assert.equal(blocks.find(b=>b.start_time==='09:30').date,day);
+});
+test('web transfer rejects occupied destinations, stale selections and other owners',async()=>{
+  await seed();const expected={'09:00':{category:'work',note:'original',sub:'Sample'}};
+  await assert.rejects(transferAs(other,expected),/changed/);
+  await assert.rejects(transferAs(owner,{'09:00':{category:'work',note:'stale',sub:'Sample'}}),/changed/);
+  await admin.query("insert into public.blocks(user_id,date,start_time,category) values($1,'2026-10-25','09:00','sleep')",[owner]);
+  await assert.rejects(transferAs(owner,expected),/already has entries/);
+  assert.equal((await savedBlocks()).filter(b=>b.date===day).length,1);
 });

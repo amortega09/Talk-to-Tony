@@ -775,6 +775,7 @@ function openSheet(slotList, preferredCat) {
   document.getElementById("eventReminderField").hidden = true;
   document.getElementById("activityPickerLabel").textContent = "What did you do?";
   document.getElementById("activitySearch").placeholder = "Search or add an activity…";
+  document.getElementById("movePreviousDay").hidden = !slotList.some(s => data[s]);
   editing = slotList;
   highlightSlots(slotList);
   const first = slotList[0], last = slotList[slotList.length - 1];
@@ -867,6 +868,7 @@ function selectEventPreset(preset) {
 
 function openEventSheet() {
   closeSheet();
+  document.getElementById("movePreviousDay").hidden = true;
   eventMode = true;
   document.getElementById('eventDatePicker').hidden = false;
   document.getElementById('eventStartDate').value = ymd(current);
@@ -1664,6 +1666,36 @@ async function saveSheet() {
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
   closeSheet();
 }
+async function moveSelectedPreviousDay() {
+  if (!editing || eventMode) return;
+  const sourceDay = ymd(current), slots = [...editing], source = structuredClone(data);
+  const button = document.getElementById("movePreviousDay");
+  button.disabled = true;
+  try {
+    const previous = new Date(current); previous.setDate(previous.getDate() - 1);
+    const previousDay = ymd(previous);
+    let destination = loadLocal(previousDay);
+    if (sb) {
+      const result = await sb.from("blocks").select("start_time,category,note,subcategory")
+        .eq("user_id", USER_ID).eq("date", previousDay);
+      if (result.error) throw result.error;
+      destination = Object.fromEntries(result.data.map(r => [r.start_time, {category:r.category,note:r.note || "",sub:r.subcategory || ""}]));
+    }
+    const transfer = DaySlotTransfer.plan(sourceDay, source, destination, slots);
+    if (sb) {
+      const result = await sb.rpc("move_day_slots_previous_day", {source_day:sourceDay,expected:transfer.expected});
+      if (result.error) throw result.error;
+    }
+    saveLocal(previousDay, transfer.to);
+    saveLocal(sourceDay, transfer.from);
+    if (ymd(current) === sourceDay) data = transfer.from;
+    closeSheet(); render();
+    setStatus("ok", `Moved to ${prettyDate(previous)} at the same times`);
+  } catch (error) {
+    setStatus("err", error.message || "Could not move entries. Try again.");
+  } finally { button.disabled = false; }
+}
+
 function clearSheet() {
   if (!editing) return;
   if (eventMode) {
@@ -4395,6 +4427,7 @@ document.getElementById('eventStartDate').addEventListener('change', () => {
 document.getElementById('eventPrevDay').addEventListener('click', () => moveEventDates(-1));
 document.getElementById('eventNextDay').addEventListener('click', () => moveEventDates(1));
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
+document.getElementById("movePreviousDay").addEventListener("click", moveSelectedPreviousDay);
 document.getElementById("clearBlock").addEventListener("click", clearSheet);
 document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "sheetBackdrop") closeSheet();
