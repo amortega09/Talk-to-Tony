@@ -172,6 +172,7 @@ class Store {
       const d=await this.pending(job,c);
       if(!d || (id && d.id!==id))throw new UserError('That preview expired or was replaced. Use /status.','stale');
       if(d.data.review.questions.length)throw new UserError('Answer the clarification before saving.');
+      if(d.data.review.formatVersion!==1)throw new UserError('This preview predates the activity-format update. /cancel and send the request again; nothing was saved.','stale');
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
       await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[d.id,job.owner,job.connection,JSON.stringify(patches)]);
       await c.query("update day_bot.drafts set status='saved' where id=$1",[d.id]);

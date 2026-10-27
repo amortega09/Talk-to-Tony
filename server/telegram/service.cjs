@@ -95,8 +95,10 @@ class Service {
         const effectiveTime=pending?.data.time || time;
         const rows=await this.store.readRows(job),conversation=pending?.data.conversation || [];
         const ctx=context(rows,text,effectiveTime,conversation);
-        const draft=cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
-        const review=plan(draft,rows,ctx.app.targets);
+        const allowedNew=/^(?:yes|yes please|confirm)[.!\s]*$/i.test(text.trim())?(pending?.data.review.formatProposals || []):[];
+        const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
+        const selectedCategory=pending?.data.review.questions.length && /^[a-z]+$/.test(text.trim().toLowerCase())?text.trim().toLowerCase():undefined;
+        const review=plan(draft,rows,ctx.app.targets,{strict:true,allowedNew,selectedCategory});
         if(!review.patches.length && !review.questions.length){
           await this.store.finish(job,chunks([...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`),...(!review.answers.length&&!review.navigation.length?[draft.reply || 'No supported changes found.']:[])]));
         } else await this.store.saveDraft(job,{draft,review,transcript:text,voice:!!input.voice,time:effectiveTime,conversation:[...conversation,{user:text,assistant:draft.reply,question:review.questions[0] || ''}].slice(-3)},preview);

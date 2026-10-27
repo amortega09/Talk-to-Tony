@@ -175,3 +175,37 @@ test('Vercel entry points load without credentials and stay disabled by default'
   const {pathToFileURL}=require('node:url'),path=require('node:path');
   for(const name of ['webhook','worker']){const route=await import(pathToFileURL(path.join(__dirname,`../api/telegram/${name}.mjs`)));assert.equal(typeof route.default.fetch,'function');assert.equal((await route.default.fetch(new Request('https://test',{method:'POST'}))).status,503);}
 });
+test('Telegram format resolver follows category-only app formats across categories',()=>{
+  for(const category of D.helpers.categories){const d={...empty(),items:[{date,start:'00:00',end_date:date,end:'01:00',category,activity:category,note:''}]};const p=D.plan(d,[],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches.length,2);assert.ok(p.patches.every(p=>p.after.sub===''&&p.after.category===category));}
+});
+test('saved names retain exact spelling and stored category instead of model guess',()=>{
+  const r=[block('09:00','work','',{subcategory:'Sample Project'})];const d={...empty(),items:[{date,start:'11:00',end_date:date,end:'12:00',category:'other',activity:'sample   project',note:''}]};const p=D.plan(d,r,[],{strict:true});assert.ok(p.patches.every(p=>p.after.sub==='Sample Project'&&p.after.category==='work'));
+});
+test('note-only activities retain the app wire format without copying unrelated notes',()=>{
+  const r=[block('09:00','work','Prepare report',{subcategory:''}),block('10:00','work','Private historical detail',{subcategory:'Meeting'})];
+  for(const [activity,sub,note] of [['Prepare report','','Prepare report'],['Meeting','Meeting','']]){const p=D.plan({...empty(),items:[{date,start:'11:00',end_date:date,end:'11:30',category:'work',activity,note:''}]},r,[],{strict:true});assert.equal(p.patches[0].after.sub,sub);assert.equal(p.patches[0].after.note,note);}
+});
+test('unknown names require explicit confirmation and conflicting names require a category',()=>{
+  const d={...empty(),items:[{date,start:'11:00',end_date:date,end:'11:30',category:'work',activity:'New project',note:''}]};const p=D.plan(d,[],[],{strict:true});assert.equal(p.patches.length,0);assert.deepEqual(p.formatProposals,['New project']);assert.equal(D.plan(d,[],[],{strict:true,allowedNew:['New project']}).patches.length,1);
+  const r=[block('09:00','work','',{subcategory:'Meeting'}),block('10:00','social','',{subcategory:'Meeting'})];d.items[0].activity='Meeting';assert.equal(D.plan(d,r,[],{strict:true}).patches.length,0);assert.equal(D.plan(d,r,[],{strict:true,selectedCategory:'social'}).patches[0].after.category,'social');
+});
+test('saved activity settings override historical area and canonicalize names',()=>{
+  const r=[block('__settings__','settings',JSON.stringify({subs:{work:['Project X']},activityAreas:{'project x':'learn'}}),{date:'2000-01-01'}),block('09:00','work','',{subcategory:'project x'})];
+  const p=D.plan({...empty(),items:[{date,start:'12:00',end_date:date,end:'12:30',category:'other',activity:'project x',note:''}]},r,[],{strict:true});assert.equal(p.patches[0].after.category,'learn');assert.equal(p.patches[0].after.sub,'Project X');
+});
+test('repeating an existing activity preserves notes and does not invent duplicate subcategories',()=>{
+  const r=[block('00:00','sleep','Existing detail',{subcategory:''})];const p=D.plan({...empty(),items:[{date,start:'00:00',end_date:date,end:'00:30',category:'sleep',activity:'Sleep',note:''}]},r,[],{strict:true});assert.equal(p.patches.length,0);
+});
+test('category labels match the base app and legacy custom activities remain reusable',()=>{
+  const src=readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');const builtins=src.slice(src.indexOf('const BUILTIN_CATEGORIES'),src.indexOf('// Palette'));
+  const vocabulary=require('../server/telegram/formats.cjs').vocabulary([]);
+  for(const m of builtins.matchAll(/id: "([^"]+)"\s*,\s*label: "([^"]+)"/g))assert.ok(vocabulary.some(f=>f.category===m[1]&&f.label===m[2]&&f.sub===''));
+  const r=[block('__settings__','settings',JSON.stringify({customCats:[{id:'c_project',label:'Legacy Project'}]}),{date:'2000-01-01'}),block('09:00','c_project','',{subcategory:''})];
+  const f=require('../server/telegram/formats.cjs').resolve('legacy project','other',r,{strict:true}).format;assert.equal(f.sub,'Legacy Project');assert.equal(f.category,'other');
+});
+test('moves preserve exact original fields while explicit renames reuse a saved format',()=>{
+  const r=[block('09:00','sleep','Keep this',{subcategory:''}),block('12:00','work','',{subcategory:'Project X'})],c=A.targets(A.daysFromRows(r),D.helpers),target=c.find(t=>t.category==='sleep').id;
+  const move={...empty(),actions:[{type:'activity_update',target,start:'10:00',end:'10:30'}]};
+  const p=D.plan(move,r,c,{strict:true});assert.deepEqual(p.patches.find(p=>p.after).after,{category:'sleep',sub:'',note:'Keep this'});
+  move.actions[0].activity='project x';const renamed=D.plan(move,r,c,{strict:true}).patches.find(p=>p.after).after;assert.deepEqual(renamed,{category:'work',sub:'Project X',note:'Keep this'});
+});

@@ -126,6 +126,8 @@ test('text service uses real planning, durable correction, save and undo',async(
   async function send(text,extra={}){const n=++seq,result=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,text,timestamp:1793000000,...extra});await service.process(result.id);await service.process(result.id);return result;}
   await send('work nine to ten');assert.equal((await savedBlocks()).length,0);let d=(await store.status({connection,generation:1})).pending;assert.ok(d);
   targetStart='09:30';await send('actually half past nine');const corrected=(await store.status({connection,generation:1})).pending;assert.notEqual(corrected.id,d.id);assert.equal(calls,2);
+  await send('save');assert.equal((await savedBlocks()).length,0);
+  await send('yes');assert.equal(calls,2);assert.equal((await store.status({connection,generation:1})).pending.data.review.questions.length,0);
   await send('save');assert.equal((await savedBlocks()).length,1);assert.equal((await savedBlocks())[0].start_time,'09:30');await send('undo');assert.equal((await savedBlocks()).length,0);assert.equal(calls,2);assert.ok(replies.some(p=>p.text.startsWith('Saved')));
 });
 test('voice stage checkpoints transcript and never retranscribes on retry',async()=>{
@@ -186,4 +188,8 @@ test('voice checkpoint survives a failed next-stage enqueue',async()=>{
   let speech=0,model=0,publications=0;
   const service=new Service({store,queue:{publish:async()=>{if(++publications===2)throw new Error('queue unavailable');}},providers:{transcribe:async()=>{speech++;return 'energy four';},interpret:async()=>{model++;return {...empty(),actions:[{type:'checkin',date:day,energy:4}]};}}});
   const n=++seq,r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:1793000000,voice:{fileId:'sample',duration:1}});await assert.rejects(service.process(r.id),/queue unavailable/);await service.process(r.id);assert.equal(speech,1);assert.equal(model,1);assert.ok(await store.pending({connection,generation:1}));
+});
+test('pre-format-fix previews cannot save old representations',async()=>{
+  const id=await draft();await admin.query("update day_bot.drafts set data=jsonb_set(data,'{review}',(data->'review')-'formatVersion') where id=$1",[id]);
+  await assert.rejects(store.apply(await job('save'),id,true),{code:'stale'});assert.equal((await savedBlocks()).length,0);
 });

@@ -121,3 +121,18 @@ by the 32 isolated PostgreSQL integration tests, which passed again.
 Production saving is enabled for the configured owner. Actual phone Save → app
 refresh → Undo remains the final user-facing smoke check. Broader voice accuracy
 and cold/warm performance evaluation are not complete.
+
+## Existing activity formats — 27 October 2026
+
+Telegram now resolves activity names against saved rows and cloud activity
+settings, using canonical category-only, named-subcategory and note-only formats.
+Unknown names require confirmation; ambiguous saved names require clarification.
+Moves preserve original fields; explicit renames reuse the resolved format.
+Old previews without the format-version marker cannot be saved.
+
+A local, read-only comparison with the supplied export covered 3,923 blocks and
+147 distinct formats: 144 resolved, three required clarification. The 16 sleep
+slots created on 26 October resolve to the existing blank-subcategory format.
+This was a dry run; existing diary records were not rewritten. Private export
+content is not included in the repository or sent to providers for these tests.
+The base app and shared browser voice code are unchanged.

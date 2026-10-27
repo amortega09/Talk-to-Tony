@@ -72,6 +72,7 @@ function providers(env=process.env,fetch=globalThis.fetch) {
       const transcript=normalizeTimes(text),data={transcript,context,previous_draft:previous || null};
       if(JSON.stringify(data).length>60000)throw new UserError('This request is too large. Split it into smaller changes.');
       const model=contract.model;
+      data.format_rule='Reuse exact labels from context.app.activity_formats. Category-only entries such as Sleep or Gym use their category label. Do not invent a new label when a saved one fits. Preserve existing names on edits unless explicitly asked to rename.';
       const result=await jsonRequest(fetch,'https://ollama.com/api/chat',{model,stream:false,messages:[{role:'system',content:contract.system+'\nRequired JSON schema: '+JSON.stringify(contract.schema)},{role:'user',content:JSON.stringify(data)}],options:{temperature:0,num_ctx:32768,num_predict:2500},think:contract.thinking[model]}, {Authorization:`Bearer ${env.OLLAMA_API_KEY}`},40000);
       let draft;
       try{let content=result.message.content.trim();if(content.startsWith('```')&&content.endsWith('```'))content=content.split('\n').slice(1,-1).join('\n');draft=JSON.parse(content);}catch{throw new UserError('The AI returned an invalid draft. Please retry.','model_invalid');}

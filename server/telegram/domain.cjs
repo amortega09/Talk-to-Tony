@@ -5,6 +5,7 @@ const actions = require('../../voice-actions');
 const entries = require('../../voice-draft');
 const range = require('../../event-range');
 const history = require('../../voice-context');
+const formats = require('./formats.cjs');
 const schemaCheck = new Ajv({strict:false, allowUnionTypes:true}).compile(contract.schema);
 class UserError extends Error {
   constructor(message, code='invalid_request') { super(message); this.code=code; }
@@ -63,19 +64,37 @@ function context(rows,text,time,conversation=[]) {
   const score=t=>(t.date===time.today?3:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
   let budget=12000;
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
-  return {...time,viewed_date:time.today,conversation:conversation.slice(-3),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
+  let formatBudget=7000;
+  const activityFormats=formats.vocabulary(rows).filter(f=>f.label.length<=150&&f.note.length<=300).sort((a,b)=>score({activity:b.label})-score({activity:a.label})).filter(f=>{formatBudget-=JSON.stringify(f).length;return formatBudget>=0;}).slice(0,80);
+  return {...time,viewed_date:time.today,conversation:conversation.slice(-3),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
 }
-function plan(draft,rows,catalog) {
+function plan(draft,rows,catalog,options={}) {
   validate(draft);
   if(draft.questions.length)return {patches:[],summaries:[],answers:[],navigation:[],questions:[draft.questions[0]]};
   const days=actions.daysFromRows(rows); let result;
+  const resolved=new Map();
+  for(const item of [...draft.items,...(draft.actions || []).filter(a=>a.type==='activity_update' && a.activity)]){
+    const match=formats.resolve(item.activity,item.category || catalog.find(t=>t.id===item.target)?.category,rows,options);
+    if(match.question)return {patches:[],summaries:[],answers:[],navigation:[],questions:[match.question],formatProposals:match.proposal?[match.proposal]:[]};
+    resolved.set(item,match.format);
+  }
   try {
-    if(draft.actions?.length)result=actions.plan({draft,days,catalog,range,helpers});
+    if(draft.actions?.length){
+      result=actions.plan({draft,days,catalog,range,helpers});
+      for(const action of draft.actions){const f=resolved.get(action);if(!f)continue;
+        for(const patch of result.patches)if(patch.after && patch.after.sub===action.activity){patch.after={...patch.after,category:f.category,sub:f.sub,note:patch.after.note || f.note};}
+      }
+    }
     else if(draft.items.length || draft.reflections.length) {
       const p=entries.plan(draft,range); if(p.errors.length)throw new UserError(p.errors[0]);
       const next=structuredClone(days), summaries=[];
-      for(const i of draft.items)summaries.push(`${i.date} ${i.start} → ${i.end_date} ${i.end}: ${i.activity} (${i.category})${i.note?' · '+i.note:''}`);
-      for(const s of p.slots){(next[s.date] ||= {})[s.slot]=s.block; if(days[s.date]?.[s.slot])summaries.push(`Replace ${s.date} ${s.slot}: ${days[s.date][s.slot].sub || days[s.date][s.slot].category}`);}
+      for(const i of draft.items){const f=resolved.get(i);summaries.push(`${i.date} ${i.start} → ${i.end_date} ${i.end}: ${f.label} (${f.category})${i.note?' · '+i.note:''}`);}
+      for(const item of draft.items){const f=resolved.get(item),interval=range.build(item.date,item.start,item.end_date,item.end);for(const d of interval.days)for(const slot of d.slots){
+        const existing=days[d.date]?.[slot];
+        const note=item.note || (existing && existing.category===f.category && formats.key(existing.sub)===formats.key(f.sub)?existing.note:'') || f.note;
+        (next[d.date] ||= {})[slot]={category:f.category,sub:f.sub,note};
+        if(existing)summaries.push(`Replace ${d.date} ${slot}: ${existing.sub || existing.category}`);
+      }}
       for(const r of p.reflections){const day=next[r.date] ||= {}, old=day.__reflect__?.note || '';day.__reflect__={category:'reflection',note:old===r.text?old:[old,r.text].filter(Boolean).join('\n\n')};summaries.push(`Reflection ${r.date}: ${r.text}`);}
       const patches=[];
       for(const [date,day] of Object.entries(next))for(const [slot,after] of Object.entries(day))if(!actions.same(days[date]?.[slot],after))patches.push({date,slot,before:actions.normal(days[date]?.[slot]),after:actions.normal(after)});
@@ -85,7 +104,7 @@ function plan(draft,rows,catalog) {
   const versions=new Map(rows.map(r=>[`${r.date}/${r.start_time}`,r.version]));
   result.patches=result.patches.map(p=>({...p,version:versions.get(`${p.date}/${p.slot}`) || null}));
   if(result.patches.length>500)throw new UserError('Split this into smaller changes.');
-  return {...result,questions:[]};
+  return {...result,questions:[],formatVersion:1};
 }
 function control(text,time) {
   const t=text.trim().replace(/^\/(save|cancel|undo|status|help|unlink)(?:@\w+)?$/i,'$1').toLowerCase().replace(/[.!?]+$/,'');
