@@ -2,17 +2,17 @@
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
 const {queryDate,summarize}=require('./day-summary.cjs');
-const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
+const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /today · /plan · /memory · /priorities · /settings · /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
   const cb=u.callback_query,m=cb?.message || u.message,from=cb?.from || m?.from;
   if(!m || !from || from.is_bot || m.chat?.type!=='private' || !Number.isSafeInteger(from.id)||from.id<=0 || m.chat.id!==from.id || !Number.isSafeInteger(m.message_id))return null;
   if(m.forward_origin || m.via_bot)return null;
   if(cb){
-    const match=/^(save|cancel|undo|change|pause|snooze|less):([a-f0-9]{32})$/.exec(cb.data || '');
+    const match=/^(save|cancel|undo|change|pause|snooze|less|mdone|msnooze|mstop|mforget|medit|mwhy|mnex|cnex):([a-f0-9]{32})(?::([0-9a-z]{1,8}))?$/.exec(cb.data || '');
     if(!match || typeof cb.id!=='string'||cb.id.length>200)return null;
     const h=match[2],id=`${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
-    return {updateId:u.update_id,userId:from.id,chatId:m.chat.id,messageId:m.message_id,callback:{verb:match[1],id,queryId:cb.id},timestamp:Math.floor(now/1000)};
+    return {updateId:u.update_id,userId:from.id,chatId:m.chat.id,messageId:m.message_id,callback:{verb:match[1],id,queryId:cb.id,revision:match[3]?parseInt(match[3],36):undefined},timestamp:Math.floor(now/1000)};
   }
   if(!Number.isSafeInteger(m.date) || Math.abs(now/1000-m.date)>86400)return null;
   const base={updateId:u.update_id,userId:from.id,chatId:m.chat.id,messageId:m.message_id,timestamp:m.date,replyTo:m.reply_to_message?.message_id || null};
@@ -52,7 +52,7 @@ class Service {
     }
     // Continue large previews promptly in a fresh bounded delivery, rather than
     // waiting for the recovery sweep before showing their Save button.
-    if(!/^(?:checkin|reminder):/.test(last.dedupe_key))await this.queue.publish(last.dedupe_key.split(':')[0],`reply-${last.ordinal}`);
+    if(!/^(?:checkin|reminder|commitment):/.test(last.dedupe_key))await this.queue.publish(last.dedupe_key.split(':')[0],`reply-${last.ordinal}`);
   }
   async process(id) {
     const job=await this.store.claim(id);
@@ -65,6 +65,7 @@ class Service {
       if(input.text==='/limit')throw new UserError('Daily pilot allowance reached. Use Day directly or try tomorrow. This request was not saved.','daily_limit');
       if(input.text==='/audio-limit')throw new UserError('Send a voice note of up to two minutes and 10 MB.');
       let text=job.transcript || input.text;
+      const menus={Today:'/today',Plan:'/plan',Memory:'/memory',Settings:'/settings'};if(menus[text])text=menus[text];
       if(input.voice && !text){
         text=await this.providers.transcribe(input.voice);await this.store.checkpoint(job,text);
         // A second delivery handles interpretation, leaving each stage within the
@@ -74,7 +75,12 @@ class Service {
       }
       const time=anchor(input.timestamp);
       const cmd=input.callback?{control:input.callback.verb}:control(text || '',time);
-      if(input.callback && ['pause','snooze','less'].includes(input.callback.verb))await this.store.proactiveControl(job,input.callback.verb);
+      if(input.callback && ['mdone','msnooze','mstop','mforget','medit','mwhy','mnex','cnex'].includes(input.callback.verb))await this.store.memoryControl(job,input.callback.verb,input.callback.id,input.callback.revision,this.writesEnabled);
+      else if(text==='/memory'||text==='/plan')await this.store.memoryMenu(job,text==='/memory'?'memory':'commitment');
+      else if(text==='/today'){const rows=await this.store.readRows(job);await this.store.finish(job,chunks(summarize(rows,time.today)));}
+      else if(text==='/priorities'&&(this.store.prioritySuggestionsEnabled===false||this.store.memoryEnabled===false))await this.store.finish(job,[{text:'Priority suggestions are temporarily disabled.'}]);
+      else if(text==='/settings'||text==='/priorities'){const rows=await this.store.readRows(job),D=require('./domain.cjs'),ctx=D.context(rows,text,time),review=D.plan({reply:'',questions:[],items:[],reflections:[],actions:[text==='/settings'?{type:'query_settings'}:{type:'query_priorities',date:time.today}]},rows,ctx.app.targets);await this.store.finish(job,chunks(review.answers));}
+      else if(input.callback && ['pause','snooze','less'].includes(input.callback.verb))await this.store.proactiveControl(job,input.callback.verb);
       else if(text==='/history')await this.store.history(job);
       else if(text==='/forget')await this.store.forget(job);
       else if(/^\/(?:pause|resume)$/.test(text || ''))await this.store.setReminders(job,text==='/resume');
@@ -83,7 +89,7 @@ class Service {
       else if(cmd?.control==='undo')await this.store.undo(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='cancel')await this.store.cancel(job,input.callback?.id);
       else if(cmd?.control==='unlink')await this.store.unlink(job);
-      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help}]);
+      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{keyboard:[[{text:'Today'},{text:'Plan'}],[{text:'Memory'},{text:'Settings'}]],resize_keyboard:true}}]);
       else if(cmd?.control==='status'){
         const status=await this.store.status(job);
         const messages=status.pending?preview(status.pending.id,status.pending.data):[{text:status.receipt?`Latest bot change: ${status.receipt.undone?'undone':'saved'}. No pending draft.`:'No pending draft or saved bot changes.'}];
@@ -112,6 +118,7 @@ class Service {
           await this.queue.publish(id,'replies');await this.kick(id);return;
         }
         const ctx=context(rows,text,effectiveTime,conversation);
+        if(this.store.memoryEnabled===false){ctx.lasting_memory=[];ctx.app.targets=ctx.app.targets.filter(t=>!['memory','commitment'].includes(t.kind));}
         ctx.discussion_date=discussionDate;ctx.reply_reference=reference;
         const shared=rows.find(r=>r.date==='2000-01-01'&&r.start_time==='__agent_selection__');
         if(shared){try{const selection=JSON.parse(shared.note);if(Date.parse(selection.expiresAt)>Date.now())ctx.app.web_selection=selection;}catch{}}
@@ -121,6 +128,8 @@ class Service {
         const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
         const selectedCategory=pending?.data.review.questions.length && /^[a-z]+$/.test(text.trim().toLowerCase())?text.trim().toLowerCase():undefined;
         if(!this.extendedTools && draft.actions?.some(a=>require('./agent-tools.cjs').tools[a.type]))throw new UserError('That agent feature is temporarily unavailable.');
+        if(this.store.memoryEnabled===false && draft.actions?.some(a=>/^(?:memory_|commitment_|query_memory|query_commitments|query_priorities)/.test(a.type)))throw new UserError('Lasting memory is temporarily disabled.');
+        if(this.store.prioritySuggestionsEnabled===false&&draft.actions?.some(a=>a.type==='query_priorities'))throw new UserError('Priority suggestions are temporarily disabled.');
         job.toolNames=(draft.actions || []).map(a=>a.type).concat(draft.items.length?['activity_add']:[],draft.reflections.length?['reflection_append']:[]);
         const review=plan(draft,rows,ctx.app.targets,{strict:true,allowedNew,selectedCategory});
         if(!review.patches.length && !review.questions.length && !review.answers.length && !review.navigation.length && require('./day-summary.cjs').needsEvidence(text))throw new UserError('I couldn’t verify that from the saved records. Which date or item should I look up?','ungrounded_answer');

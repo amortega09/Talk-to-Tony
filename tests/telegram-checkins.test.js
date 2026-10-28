@@ -27,3 +27,9 @@ test('actual reminders use London time, lead minutes and expiration rather than 
  assert.equal(dueReminders(rows,Date.parse('2026-07-01T07:45Z')).length,1);
  assert.equal(dueReminders(rows,Date.parse('2026-07-01T08:30Z')).length,0);
 });
+test('regular check-ins can mention an explicit priority without inventing an appointment',()=>{
+ const now=Date.parse('2026-10-28T12:00Z'),record={id:'task',title:'Application',priority:'high',nextAction:'Draft headings'};
+ const message=checkin([],now,{}, {},{priorities:[{record,reason:'You marked this as a high priority'}]});assert.equal(message.record.id,'task');assert.match(message.text,/Draft headings/);assert.doesNotMatch(message.text,/due|deadline|check back/);
+ assert.notEqual(checkin([],now,{}, {lastTopic:'commitment'},{priorities:[{record,reason:'high priority'}]}).topic,'commitment');
+ assert.equal(checkin([],now,{enabled:false},{},{priorities:[{record,reason:'high priority'}]}),null);
+});

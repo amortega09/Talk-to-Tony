@@ -26,11 +26,12 @@ before(async()=>{
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185056_move_selected_slots_previous_day.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185438_overwrite_previous_day_transfer.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027210936_agent_context_preferences.sql'),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261028090222_agent_change_events.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
 beforeEach(async()=>{
-  await admin.query('truncate day_bot.outbox,day_bot.receipts,day_bot.drafts,day_bot.jobs,day_bot.links,day_bot.connections,day_bot.usage,public.blocks restart identity cascade');
+  await admin.query('truncate day_bot.outbox,day_bot.receipts,day_bot.drafts,day_bot.jobs,day_bot.links,day_bot.connections,day_bot.usage,public.blocks,public.agent_change_events restart identity cascade');
   await admin.query('update day_bot.role_owners set writes_enabled=true');
   await admin.query('insert into day_bot.connections(id,owner,telegram_user,chat_id) values($1,$2,123,123)',[connection,owner]);
 });
@@ -293,4 +294,47 @@ test('natural resume preferences override legacy pause without corrupting undo s
  await admin.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,'2000-01-01','__agent_preferences__','agent_preferences','{\"enabled\":true}')",[owner]);
  const j=await job();await store.finish(j,[{text:'check-in',checkin:true,validUntil:9999999999}]);assert.equal((await store.claimReply()).payload.text,'check-in');
  const pause=await job('/pause');await store.setReminders(pause,false);const preferences=await one(admin,"select note from public.blocks where start_time='__agent_preferences__'");assert.equal(JSON.parse(preferences.note).enabled,false);
+});
+async function createCommitment(source=true,followup=false){
+ if(source)await admin.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,$2,'__plan__','plan','[ ] Application')",[owner,day]);
+ const j=await job('track application'),rows=await store.readRows(j),ctx=D.context(rows,'Application',{today:day,local_time:'12:00'}),value={...empty(),actions:[{type:'commitment_create',title:'Application',...(source?{source_target:'objective:'+day+':daily:0'}:{}),...(followup?{followup_date:'2099-02-04',followup_time:'15:00'}:{})}]},review=D.plan(value,rows,ctx.app.targets);
+ const id=await store.saveDraft(j,{draft:value,review,time:{today:day,local_time:'12:00'}},preview,true);
+ const entity=await one(admin,"select note from public.blocks where user_id=$1 and category='agent_commitment'",[owner]);return {id,record:JSON.parse(entity.note)};
+}
+test('all browser source writes create owner-scoped events without copying diary contents',async()=>{
+ const c=await admin.connect();try{await c.query('set role authenticated');await c.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await c.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,$2,'09:00','work','private content')",[owner,day]);await assert.rejects(c.query('select * from public.agent_change_events'),/permission/);await assert.rejects(c.query("insert into public.agent_change_events(user_id,date,slot,operation) values($1,$2,'09:00','INSERT')",[other,day]),/row-level/);}finally{await c.query('reset role');await c.query('reset request.jwt.claim.sub');c.release();}
+ await seed('10:00','other',other);const events=(await scoped.query('select * from public.agent_change_events')).rows;assert.ok(events.length);assert.ok(events.every(e=>e.user_id===owner));assert.ok(events.every(e=>!JSON.stringify(e).includes('private content')));
+});
+test('web completion reconciles a lasting commitment and repeated events do not resurrect it',async()=>{
+ const {record}=await createCommitment();await admin.query("update public.blocks set note=replace(note,'[ ]','[x]') where user_id=$1 and start_time='__plan__'",[owner]);await store.reconcileMemory(owner);let current=JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment' and user_id=$1",[owner])).note);assert.equal(current.status,'completed');const revision=current.revision;await store.reconcileMemory(owner);current=JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment' and user_id=$1",[owner])).note);assert.equal(current.revision,revision);assert.equal(current.id,record.id);
+});
+test('stale Telegram controls cannot modify a revised commitment',async()=>{
+ const {record}=await createCommitment();await admin.query("update public.blocks set note=replace(note,'Application','Application renamed') where start_time='__plan__' and user_id=$1",[owner]);const j=await job('button');await store.memoryControl(j,'mdone',record.id,record.revision,true);const entity=JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment'",[])).note);assert.notEqual(entity.status,'completed');assert.match((await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[j.id+':0'])).text,/changed/);
+});
+test('Done completes the linked objective atomically and exposes an exact revision card',async()=>{
+ const {record}=await createCommitment();const j=await job('done');await store.memoryControl(j,'mdone',record.id,record.revision,true);assert.match((await one(admin,"select note from public.blocks where start_time='__plan__'",[])).note,/\[x\]/);assert.equal(JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment'",[])).note).status,'completed');
+});
+test('queued commitment follow-up is discarded when source completion happens before delivery',async()=>{
+ const {record}=await createCommitment(true,true),j=await job('queue');await store.finish(j,[{text:'follow-up',checkin:true,commitmentId:record.id,revision:record.revision,followupAt:record.followupAt,validUntil:9999999999}]);await admin.query('update day_bot.outbox set delivered_at=now() where dedupe_key<>$1',[j.id+':0']);await admin.query("update public.blocks set note=replace(note,'[ ]','[x]') where start_time='__plan__'",[]);assert.equal(await store.claimReply(),null);
+});
+test('forget confirmation removes the fact from active context and preserves the source note',async()=>{
+ await admin.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,'2000-01-01','__note__n','note',$2)",[owner,JSON.stringify({id:'n',title:'Original note',body:'Keep source'})]);
+ const j=await job('remember'),rows=await store.readRows(j),ctx=D.context(rows,'', {today:day,local_time:'12:00'}),value={...empty(),actions:[{type:'memory_remember',kind:'decision',text:'Synthetic remembered fact',source_target:'note:n'}]},review=D.plan(value,rows,ctx.app.targets);await store.saveDraft(j,{draft:value,review},preview,true);let entity=JSON.parse((await one(admin,"select note from public.blocks where category='agent_memory'",[])).note);
+ const forget=await job('forget');await store.memoryControl(forget,'mforget',entity.id,entity.revision,true);assert.ok((await store.status({connection,generation:1})).pending);const save=await job('save');await store.apply(save,undefined,true);entity=JSON.parse((await one(admin,"select note from public.blocks where category='agent_memory'",[])).note);assert.equal(entity.status,'forgotten');assert.equal(entity.text,undefined);assert.match((await one(admin,"select note from public.blocks where start_time='__note__n'",[])).note,/Keep source/);assert.ok((await one(admin,'select agent_context from day_bot.connections where id=$1',[connection])).agent_context.memorySince);
+});
+test('requested commitment check-in is deduplicated and respects paused sources',async()=>{
+ const {record}=await createCommitment(false,true),now=Date.parse('2099-02-04T15:10Z');await store.checkins(now);await store.checkins(now);assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'commitmentId'=$1",[record.id])).n,1);
+});
+test('task snooze and stop preserve global preferences and linked objective',async()=>{
+ const {record}=await createCommitment(),j=await job('snooze');await store.memoryControl(j,'msnooze',record.id,record.revision,true);let current=JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment'")).note);assert.ok(Date.parse(current.followupAt)>Date.now()+2*3600000);assert.match((await one(admin,"select note from public.blocks where start_time='__plan__'")).note,/\[ \]/);
+ const stop=await job('stop');await store.memoryControl(stop,'mstop',record.id,current.revision,true);current=JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment'")).note);assert.equal(current.status,'paused');assert.equal(current.followupAt,null);assert.equal((await one(admin,'select reminders_enabled from day_bot.connections')).reminders_enabled,true);assert.equal((await admin.query("select * from public.blocks where category='agent_preferences'")).rowCount,0);
+});
+test('source deletion suppresses a queued follow-up without restoring the source',async()=>{
+ const {record}=await createCommitment(true,true),j=await job('queue');await store.finish(j,[{text:'follow-up',checkin:true,commitmentId:record.id,revision:record.revision,followupAt:record.followupAt,validUntil:9999999999}]);await admin.query('update day_bot.outbox set delivered_at=now() where dedupe_key<>$1',[j.id+':0']);await admin.query("delete from public.blocks where start_time='__plan__'");assert.equal(await store.claimReply(),null);await store.reconcileMemory(owner);assert.equal((await admin.query("select * from public.blocks where start_time='__plan__'")).rowCount,0);assert.equal(JSON.parse((await one(admin,"select note from public.blocks where category='agent_commitment'")).note).status,'needs_review');
+});
+test('disabled memory follow-ups drop already queued task prompts',async()=>{
+ const {record}=await createCommitment(false,true),j=await job('queue');await store.finish(j,[{text:'follow-up',checkin:true,commitmentId:record.id,revision:record.revision,followupAt:record.followupAt,validUntil:9999999999}]);await admin.query('update day_bot.outbox set delivered_at=now() where dedupe_key<>$1',[j.id+':0']);assert.equal(await new Store(scoped,{commitmentFollowupsEnabled:false}).claimReply(),null);
+});
+test('recent voice chat suppresses optional task check-ins just like text chat',async()=>{
+ const {record}=await createCommitment(false,true);await admin.query("update day_bot.jobs set input='{\"voice\":{\"fileId\":\"synthetic\",\"duration\":5}}',created_at='2099-02-04T15:00Z'");await store.checkins(Date.parse('2099-02-04T15:10Z'));assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'commitmentId'=$1",[record.id])).n,0);
 });

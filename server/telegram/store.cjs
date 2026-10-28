@@ -3,7 +3,8 @@ const {randomUUID,randomBytes,createHash}=require('node:crypto');
 const {Pool}=require('pg');
 const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
-const {UserError,control}=require('./domain.cjs');
+const {UserError,control,helpers}=require('./domain.cjs');
+const Memory=require('./memory.cjs');
 const A=require('../../voice-actions');
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const cleanId=id=>String(id).replaceAll('-','');
@@ -22,7 +23,7 @@ function poolFromEnv(env=process.env) {
   return new Pool({connectionString:url.toString(),ssl,max:2,idleTimeoutMillis:10000,connectionTimeoutMillis:5000,statement_timeout:10000,application_name:'day-telegram'});
 }
 class Store {
-  constructor(pool,{proactiveEnabled=true}={}){this.pool=pool;this.proactiveEnabled=proactiveEnabled;}
+  constructor(pool,{proactiveEnabled=true,memoryEnabled=true,commitmentFollowupsEnabled=true,prioritySuggestionsEnabled=true}={}){Object.assign(this,{pool,proactiveEnabled,memoryEnabled,commitmentFollowupsEnabled,prioritySuggestionsEnabled});}
   async tx(fn) {
     const c=await this.pool.connect();
     try {await c.query('begin');const result=await fn(c);await c.query('commit');return result;}
@@ -102,7 +103,52 @@ class Store {
   async isCurrentReply(job,messageId,draftId) {
     return !!await one(this.pool,"select id from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3 and payload->>'draftId'=$4",[job.connection,job.generation,messageId,draftId]);
   }
+  async memoryMenu(job,type,page=0){
+    if(!this.memoryEnabled)return this.finish(job,[{text:'Lasting memory is temporarily disabled.'}]);
+    const all=Memory.view(await this.readRows(job),helpers).filter(r=>r.type===type&&r.status!=='forgotten'&&(type!=='commitment'||!['completed','cancelled'].includes(r.status)));
+    const selected=all.slice(page*5,page*5+5),messages=selected.map(Memory.card);
+    if(!messages.length)messages.push({text:type==='memory'?'I haven’t saved any lasting memories yet. Say “Remember that…” whenever you want me to keep something.':'No active commitments. Tell me what you need to get done, and any deadline.'});
+    const buttons=[];if(page)buttons.push({text:'Previous',callback_data:`${type==='memory'?'mnex':'cnex'}:${job.connection.replaceAll('-','')}:${(page-1).toString(36)}`});if(all.length>(page+1)*5)buttons.push({text:'Next',callback_data:`${type==='memory'?'mnex':'cnex'}:${job.connection.replaceAll('-','')}:${(page+1).toString(36)}`});
+    if(buttons.length)messages.push({text:'More items',reply_markup:{inline_keyboard:[buttons]}});
+    await this.finish(job,messages);
+  }
+  async memoryControl(job,verb,id,revision,writesEnabled){
+    if(!this.memoryEnabled)throw new UserError('Lasting memory is temporarily disabled.');
+    if(['mnex','cnex'].includes(verb)){if(id!==job.connection)throw new UserError('That menu is no longer available.');return this.memoryMenu(job,verb==='mnex'?'memory':'commitment',Math.min(1000,revision || 0));}
+    const liveRows=await this.readRows(job),record=Memory.view(liveRows,helpers).find(r=>r.id===id);
+    if(!record || record.status==='forgotten')return this.finish(job,[{text:'That memory is no longer available.'}]);
+    if(verb==='mdone'&&record.status==='completed')return this.finish(job,[{text:'That commitment is already completed.'}]);
+    if(revision!==(record.revision || 1))return this.finish(job,[{text:'This item changed since that message. Here is the current version.'},Memory.card(record)]);
+    if(verb==='mwhy')return this.finish(job,[{text:record.type==='commitment'?`You asked me to track “${record.title}”. ${record.followupAt?'You requested a check-in. ':''}${record.source?'I check its linked '+record.source.kind+' before following up.':'It is independent of diary time slots.'}${record.reason?' '+record.reason:''}`:`This was ${record.basis==='inferred'?'suggested and confirmed before saving':'explicitly remembered from your message'} on ${record.createdAt.slice(0,10)}.${record.source?' It is linked to a '+record.source.kind+'.':''}`}]);
+    if(verb==='medit'){
+      job.nextContext={...job.agentContext,selectedEntity:`${record.type}:${record.id}`,expiresAt:new Date(Date.now()+86400000).toISOString()};
+      return this.finish(job,[{text:record.type==='commitment'?'What would you like to change—its deadline, next step, priority or follow-up?':'What should I remember instead?',memoryId:record.id}]);
+    }
+    if(!writesEnabled)throw new UserError('Saving is currently disabled.');
+    const action=verb==='mforget'?{type:'memory_forget',target:'memory:'+id}:verb==='mdone'?{type:'commitment_update',target:'commitment:'+id,status:'completed'}:verb==='mstop'?{type:'commitment_update',target:'commitment:'+id,status:'paused',clear_followup:true}:null;
+    if(verb==='msnooze'){const time=require('./domain.cjs').anchor(Math.floor((Date.now()+3*3600000)/1000));const a={type:'commitment_update',target:'commitment:'+id,status:'active',followup_date:time.today,followup_time:time.local_time};return this.saveMemoryAction(job,a,liveRows,writesEnabled);}
+    if(!action)throw new UserError('That action is unavailable.');
+    return this.saveMemoryAction(job,action,liveRows,writesEnabled);
+  }
+  async saveMemoryAction(job,action,liveRows,writesEnabled){
+    const D=require('./domain.cjs'),time=D.anchor(job.input.timestamp),draft={reply:'',questions:[],items:[],reflections:[],actions:[action]},ctx=D.context(liveRows,'',time);ctx.app.targets.push(...Memory.targets(A.daysFromRows(liveRows)));const review=D.plan(draft,liveRows,ctx.app.targets);
+    return this.saveDraft(job,{draft,review,time,conversation:[]},require('./service.cjs').preview,writesEnabled&&!review.requiresConfirmation);
+  }
+  async reconcileMemory(owner,job){
+    if(!this.memoryEnabled)return [];
+    return this.tx(async c=>{
+      if(job)await this.guard(c,job);
+      const events=await rows(c,'select id from public.agent_change_events where user_id=$1 order by id limit 500',[owner]);
+      const relevant=await rows(c,"select date::text,start_time,category,note,subcategory,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[owner]);
+      const days=A.daysFromRows(relevant),patches=Memory.reconcile(days,helpers).slice(0,200);
+      for(const p of patches)p.version=relevant.find(r=>r.date===p.date&&r.start_time===p.slot)?.version;
+      if(patches.length)await this.applyPatches(c,owner,patches);
+      if(events.length)await c.query('delete from public.agent_change_events where user_id=$1 and id=any($2::bigint[])',[owner,events.map(e=>e.id)]);
+      return relevant;
+    });
+  }
   async readRows(job) {
+    await this.reconcileMemory(job.owner,job);
     // Bounded complete retrieval is necessary for linked objectives. Only selected
     // context is sent to the model; fail closed if this bound cannot cover history.
     return this.tx(async c=>{
@@ -133,6 +179,7 @@ class Store {
       if(autoSave && data.review.patches.length && !data.review.questions.length){
         if(!(await this.owner(c)).writes_enabled)throw new UserError('Saving is currently disabled.');
         const patches=await this.applyPatches(c,job.owner,data.review.patches);
+        if(patches.some(p=>p.after?.category==='agent_memory'&&JSON.parse(p.after.note).status==='forgotten'))job.nextContext={memorySince:new Date().toISOString()};
         await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[id,job.owner,job.connection,JSON.stringify(patches)]);
         await c.query("update day_bot.drafts set status='saved' where id=$1",[id]);
         await this.publishHistory(c,job,id,data.review.summaries);
@@ -149,6 +196,8 @@ class Store {
     await c.query("insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,'2000-01-01','__agent_history__','agent_history',$2,'') on conflict(user_id,date,start_time) do update set note=excluded.note,updated_at=clock_timestamp()",[job.owner,JSON.stringify(records.slice(0,8))]);
   }
   savedReply(id,data){
+    const entityPatches=data.review.patches.filter(p=>p.after&&['agent_memory','agent_commitment'].includes(p.after.category));
+    if(entityPatches.length===1){const record=JSON.parse(entityPatches[0].after.note);if(record.status!=='forgotten'){const payload=Memory.card(record);payload.draftId=id;payload.reply_markup.inline_keyboard.push([button('Undo','undo',id)]);return payload;}}
     const summary=data.review.summaries.map(line=>line.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) → (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}): (.*)$/,(_,date,start,endDate,end,name)=>{
       const label=d=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));
       return `${name.replace(/ \([a-z]+\)$/,'')} · ${label(date)}, ${start}–${date===endDate?'':label(endDate)+' '}${end}`;
@@ -219,6 +268,7 @@ class Store {
       if(d.data.review.questions.length)throw new UserError('Answer the clarification before saving.');
       if(d.data.review.formatVersion!==1)throw new UserError('This preview predates the activity-format update. /cancel and send the request again; nothing was saved.','stale');
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
+      if(patches.some(p=>p.after?.category==='agent_memory'&&JSON.parse(p.after.note).status==='forgotten'))job.nextContext={memorySince:new Date().toISOString()};
       await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[d.id,job.owner,job.connection,JSON.stringify(patches)]);
       await c.query("update day_bot.drafts set status='saved' where id=$1",[d.id]);
       await this.publishHistory(c,job,d.id,d.data.review.summaries);
@@ -262,6 +312,11 @@ class Store {
         if(r.payload.checkin && ((prefs.enabled ?? r.reminders_enabled)===false || Date.parse(prefs.snooze_until || '')>Date.now())){
           await c.query('update day_bot.outbox set delivered_at=now() where id=$1',[r.id]);continue;
         }
+        if(r.payload.commitmentId){
+          const current=await rows(c,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[r.owner]);
+          const record=Memory.view(current,helpers).find(x=>x.id===r.payload.commitmentId);
+          if(!this.memoryEnabled||!this.commitmentFollowupsEnabled||!record||!['active','waiting'].includes(record.status)||record.revision!==r.payload.revision||record.followupAt!==r.payload.followupAt){await c.query('update day_bot.outbox set delivered_at=now() where id=$1',[r.id]);continue;}
+        }
         const token=randomUUID();await c.query("update day_bot.outbox set lease_token=$2,lease_until=now()+interval '30 seconds',attempts=attempts+1 where id=$1",[r.id,token]);return {...r,token};
       }
       return null;
@@ -301,28 +356,36 @@ class Store {
   }
   async reference(job){
     if(!job.input.replyTo)return null;
-    const reply=await one(this.pool,"select payload->>'draftId' as draft_id,payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3",[job.connection,job.generation,job.input.replyTo]);
-    return reply?{reply_to:reply.text,action_id:reply.draft_id || null}:null;
+    const reply=await one(this.pool,"select payload->>'draftId' as draft_id,payload->>'memoryId' as memory_id,payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3",[job.connection,job.generation,job.input.replyTo]);
+    if(reply?.memory_id){const current=await one(this.pool,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time=$2",[job.owner,Memory.PREFIX.memory+reply.memory_id]);if(current&&Memory.parse(current.note)?.status==='forgotten')return {reply_to:'That memory was forgotten. Ask the user for new information.'};}
+    return reply?{reply_to:reply.text,action_id:reply.draft_id || null,memoryId:reply.memory_id || null}:null;
   }
   async checkins(now=Date.now()){
     if(!this.proactiveEnabled)return;
     const connections=await rows(this.pool,'select * from day_bot.connections where active');
     for(const connection of connections){
       const job={connection:connection.id,owner:connection.owner,generation:connection.generation};
+      await this.reconcileMemory(job.owner);
       const today=require('./domain.cjs').anchor(Math.floor(now/1000)).today;
-      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or (date='2000-01-01' and start_time='__agent_preferences__'))",[job.owner,today]);
+      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or date='2000-01-01' or start_time='__plan__')",[job.owner,today]);
       let prefs={};try{prefs=JSON.parse(diary.find(r=>r.start_time==='__agent_preferences__')?.note || '{}');}catch{}
-      const lastUser=await one(this.pool,"select created_at from day_bot.jobs where connection=$1 and generation=$2 and input ? 'text' order by created_at desc limit 1",[job.connection,job.generation]);
+      const lastUser=await one(this.pool,"select created_at from day_bot.jobs where connection=$1 and generation=$2 and (input ? 'text' or input ? 'voice') order by created_at desc limit 1",[job.connection,job.generation]);
       const state={...connection.checkin_state,lastUserAt:lastUser?.created_at};
-      const message=(prefs.enabled ?? connection.reminders_enabled)?require('./checkins.cjs').checkin(diary,now,prefs,state):null;
+      const records=Memory.view(diary,helpers,now);
+      const queued=await rows(this.pool,"select dedupe_key from day_bot.outbox where connection=$1 and generation=$2 and dedupe_key like 'commitment:%'",[job.connection,job.generation]);
+      const seen=new Set(queued.map(r=>r.dedupe_key));
+      const candidate=this.memoryEnabled&&this.commitmentFollowupsEnabled&&Memory.followups(records,now).find(r=>!seen.has(`commitment:${job.connection}:${job.generation}:${r.id}:${r.revision}:${r.followupAt}`));
+      const ready=(prefs.enabled ?? connection.reminders_enabled)&&require('./checkins.cjs').contactWindow(now,prefs,state);
+      const message=ready&&candidate?{key:`${candidate.id}:${candidate.revision}:${candidate.followupAt}`,topic:'commitment',record:candidate,text:`How’s “${candidate.title}” going? You asked me to check back.`}:(prefs.enabled ?? connection.reminders_enabled)?require('./checkins.cjs').checkin(diary,now,prefs,state,{priorities:this.memoryEnabled&&this.prioritySuggestionsEnabled&&this.commitmentFollowupsEnabled?Memory.priorities(records,today):[]}):null;
       await this.tx(async c=>{
         const current=await one(c,'select * from day_bot.connections where id=$1 for update',[connection.id]);
         if(!current?.active || current.generation!==job.generation)return;
         for(const reminder of require('./checkins.cjs').dueReminders(diary,now))await this.enqueueReply(c,job,`reminder:${job.connection}:${job.generation}:${reminder.key}`,{text:reminder.text,validUntil:reminder.validUntil,reminder:true});
         if(message && (prefs.enabled ?? current.reminders_enabled)){
-          const key=`checkin:${connection.id}:${connection.generation}:${message.key}`;
+          const key=`${message.record?'commitment':'checkin'}:${connection.id}:${connection.generation}:${message.key}`;
           if(await one(c,'select id from day_bot.outbox where dedupe_key=$1',[key]))return;
-          await this.enqueueReply(c,job,key,{text:message.text,checkin:true,topic:message.topic,validUntil:Math.floor(now/3600000)*3600+3600,reply_markup:{inline_keyboard:[[button('Snooze','snooze',connection.id),button('Less often','less',connection.id),button('Pause','pause',connection.id)]]}});
+          const controls=message.record?Memory.card(message.record).reply_markup:{inline_keyboard:[[button('Snooze','snooze',connection.id),button('Less often','less',connection.id),button('Pause','pause',connection.id)]]};
+          await this.enqueueReply(c,job,key,{text:message.text,checkin:true,topic:message.topic,...(message.record?{commitmentId:message.record.id,revision:message.record.revision,followupAt:message.record.followupAt}:{}),validUntil:Math.floor(now/3600000)*3600+3600,reply_markup:controls});
           const unanswered=state.day===today && (!lastUser || Date.parse(lastUser.created_at)<Date.parse(state.lastPrompt || 0))?(state.unanswered || 0)+1:1;
           await c.query('update day_bot.connections set checkin_state=$2 where id=$1',[job.connection,JSON.stringify({day:today,count:state.day===today?(state.count || 0)+1:1,lastPrompt:new Date(now).toISOString(),lastTopic:message.topic,unanswered})]);
         }
@@ -330,6 +393,7 @@ class Store {
     }
   }
   async recover() {
+    await this.pool.query("delete from public.agent_change_events where created_at<now()-interval '7 days'");
     // Keep idempotency keys; remove sensitive payloads after their useful lifetime.
     await this.pool.query("update day_bot.jobs set input='{}',transcript=null,status=case when status in ('pending','processing') then 'failed' else status end,error_code=case when status in ('pending','processing') then 'expired' else error_code end where created_at<now()-interval '24 hours' and input<>'{}'");
     await this.pool.query("update day_bot.drafts set status=case when status='pending' then 'expired' else status end,data='{}' where expires_at<now() and data<>'{}'");

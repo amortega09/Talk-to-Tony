@@ -47,6 +47,7 @@ function providers(env=process.env,fetch=globalThis.fetch) {
     if(!r.ok)throw new ProviderError('telegram_response');return r.result;
   };
   return {
+    async configureMenu(){await telegram('setMyCommands',{commands:[{command:'today',description:'Your current diary'},{command:'plan',description:'Commitments and next steps'},{command:'memory',description:'Inspect and correct lasting memory'},{command:'priorities',description:'Choose a useful next step'},{command:'settings',description:'Check-in settings'},{command:'history',description:'Recent changes and undo'},{command:'pause',description:'Pause all check-ins'},{command:'resume',description:'Resume check-ins'},{command:'forget',description:'Clear recent conversation focus'}]});return telegram('setChatMenuButton',{menu_button:{type:'commands'}});},
     async send(chatId,payload){return telegram('sendMessage',{chat_id:chatId,text:payload.text,reply_markup:payload.reply_markup,link_preview_options:{is_disabled:true}});},
     async acknowledge(id){return telegram('answerCallbackQuery',{callback_query_id:id});},
     async transcribe(voice){

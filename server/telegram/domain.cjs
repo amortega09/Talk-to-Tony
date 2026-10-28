@@ -61,16 +61,18 @@ function alignSleep(draft,text,today) {
   return draft;
 }
 function context(rows,text,time,conversation=[]) {
-  const days=actions.daysFromRows(rows), all=actions.targets(days,helpers);
+  const days=actions.daysFromRows(rows), all=[...actions.targets(days,helpers),...require('./memory.cjs').targets(days)];
   const words=text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
   let shared=null;try{const parsed=JSON.parse(rows.find(r=>r.start_time==='__agent_selection__')?.note || '{}');if(Date.parse(parsed.expiresAt)>Date.now())shared=parsed;}catch{}
-  const score=t=> (shared?.kind==='note'&&t.id==='note:'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===time.today?3:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
+  const selectedEntity=conversation.find(x=>x.focus?.selectedEntity)?.focus.selectedEntity;
+  const score=t=>(t.id===selectedEntity?100:0)+ (shared?.id&&t.id===shared.kind+':'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===time.today?3:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
   let budget=12000;
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
   let formatBudget=7000;
   const activityFormats=formats.vocabulary(rows).filter(f=>f.label.length<=150&&f.note.length<=300).sort((a,b)=>score({activity:b.label})-score({activity:a.label})).filter(f=>{formatBudget-=JSON.stringify(f).length;return formatBudget>=0;}).slice(0,80);
   const explicitDate=require('./dates.cjs').resolve(text,time.today);
-  return {...time,resolved_date:explicitDate,viewed_date:time.today,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
+  let memoryBudget=6500;const memory=require('./memory.cjs').view(rows,helpers).filter(r=>r.status==='active').map(r=>({...r,target:r.type+':'+r.id})).sort((a,b)=>score({text:b.title || b.text})-score({text:a.title || a.text})).filter(r=>{memoryBudget-=JSON.stringify(r).length;return memoryBudget>=0;});
+  return {...time,lasting_memory:memory,memory_limited:memoryBudget<0,resolved_date:explicitDate,viewed_date:time.today,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:time.today,transcript:text,maxChars:14000})};
 }
 function plan(draft,rows,catalog,options={}) {
   validate(draft);

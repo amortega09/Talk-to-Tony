@@ -6,14 +6,14 @@ const R=require('../../event-range');
 const {randomUUID}=require('node:crypto');
 const text={type:'string',minLength:1,maxLength:4000},short={...text,maxLength:150};
 const date={type:'string',pattern:'^\\d{4}-\\d{2}-\\d{2}$'},clock={type:'string',pattern:'^(?:[01]\\d|2[0-3]):(?:00|30)$'};
-const VERSION=1;
+const VERSION=2;
 const endClock={type:'string',pattern:'^(?:(?:[01]\\d|2[0-3]):(?:00|30)|24:00)$'};
 const tools={};
 function tool(name,description,fields,required,run,{confirm=false}={}){tools[name]={description,fields,required,run,confirm};}
 const parse=value=>{try{return JSON.parse(value || '{}');}catch{throw Error('This saved record is unreadable. Open it in Day before editing.');}};
 const str=value=>String(value || '').trim();
 function validDate(d){if(!A.dateOK(d))throw Error('Which date do you mean?');return d;}
-function target(a,ctx,kind){const t=ctx.catalog.find(t=>t.id===a.target && t.kind===kind);if(!t)throw Error(`Which ${kind} do you mean?`);return t;}
+function target(a,ctx,kind){const canonical=['memory','commitment'].includes(kind)&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(a.target || '')?kind+':'+a.target:a.target;const t=ctx.catalog.find(t=>t.id===canonical && t.kind===kind);if(!t)throw Error(`Which ${kind} do you mean?`);return t;}
 function get(ctx,date){return ctx.next[date] ||= {};}
 function saveJSON(ctx,date,slot,category,value,sub=''){get(ctx,date)[slot]={category,note:JSON.stringify(value),sub};}
 function interval(a){validDate(a.date);validDate(a.end_date || a.date);const r=R.build(a.date,a.start,a.end_date || a.date,a.end);if(r.error || r.hours>168)throw Error(r.error || 'Choose at most seven days.');return r;}
@@ -112,9 +112,16 @@ tool('query_patterns','Read patterns calculated by the same analysis module as t
  if(!report.comparisons.length)lines.push('Not enough comparable days to report associations.');
  lines.push('Recorded activity is not measured attention. Associations are not causes. Missing time is unknown.');return lines.join('\n');
 });
+require('./memory.cjs').register(tool,{get,saveJSON,target,validDate});
+
 function summary(a,c){
  const selected=c.catalog.find(t=>t.id===a.target),name=selected?.text || selected?.activity || a.title || a.activity || '';
  switch(a.type){
+  case 'memory_remember':return `Remembered: ${a.title || a.text}`;
+  case 'memory_update':return `Updated memory: ${name}`;
+  case 'memory_forget':return `Forget memory: ${name}`;
+  case 'commitment_create':return `Tracking “${a.title}”${a.due_date?' · due '+a.due_date:''}`;
+  case 'commitment_update':return `Updated “${name}”${a.status?' · '+a.status:''}${a.due_date?' · due '+a.due_date:''}`;
   case 'activity_slice':return `Updated ${a.date}, ${a.start}–${a.end}${a.text!=null?' · '+a.text:''}`;
   case 'activity_copy':case 'activity_move_range':return `${a.type==='activity_copy'?'Copy':'Move'} ${a.date}, ${a.start}–${a.end} to ${a.destination_date}`;
   case 'note_create':return `Saved “${a.title}” to your notes`;
@@ -143,6 +150,8 @@ function plan({draft,days,catalog,range,helpers}){
   if(tool){const answer=tool.run(a,c);if(a.type.startsWith('query_'))answers.push(answer);else{summaries.push(summary(a,c));c.confirm ||= tool.confirm;}}
   else {const r=A.plan({draft:{actions:[a]},days:c.next,catalog,range,helpers});for(const p of r.patches){const day=get(c,p.date);if(p.after)day[p.slot]=p.after;else delete day[p.slot];}summaries.push(...r.summaries);answers.push(...r.answers);navigation.push(...r.navigation);if(['activity_delete','objective_remove'].includes(a.type))c.confirm=true;}
  }
+ // Derived state belongs to writes or read-time reconciliation, never a query plan.
+ if((draft.actions || []).some(a=>!a.type.startsWith('query_')&&a.type!=='navigate'))for(const patch of require('./memory.cjs').reconcile(c.next,helpers)){get(c,patch.date)[patch.slot]=patch.after;}
  const patches=[];for(const date of new Set([...Object.keys(days),...Object.keys(c.next)]))for(const slot of new Set([...Object.keys(days[date] || {}),...Object.keys(c.next[date] || {})])){const before=A.normal(days[date]?.[slot]),after=A.normal(c.next[date]?.[slot]);if(!A.same(before,after))patches.push({date,slot,before,after});}
  return {patches,summaries:[...summaries,...(c.extraSummaries || [])],answers,navigation,requiresConfirmation:c.confirm};
 }

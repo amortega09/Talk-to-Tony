@@ -2,7 +2,7 @@
 const fs=require('node:fs');
 if(fs.existsSync('.env'))process.loadEnvFile('.env');
 const {Store,poolFromEnv}=require('../server/telegram/store.cjs');
-const {queue,jsonRequest}=require('../server/telegram/providers.cjs');
+const {queue,jsonRequest,providers}=require('../server/telegram/providers.cjs');
 async function main(){
   const cmd=process.argv[2],env=process.env;
   if(cmd==='check'){
@@ -20,7 +20,8 @@ async function main(){
     const r=await jsonRequest(fetch,`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,{url:new URL('/api/telegram/webhook',origin).href,secret_token:env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:['message','callback_query'],max_connections:1,drop_pending_updates:false});
     if(!r.ok)throw new Error('Telegram rejected the webhook');console.log('Webhook registered.');return;
   }
+  if(cmd==='menu'){await providers(env).configureMenu();console.log('Telegram menu configured.');return;}
   if(cmd==='schedule'){await queue(env).schedule();console.log('Recovery schedule created. Run this once; inspect QStash before creating another.');return;}
-  console.log('Usage: npm run telegram:admin -- check|link|webhook|schedule\nReads ignored .env. check is offline; other commands require configured services.');
+  console.log('Usage: npm run telegram:admin -- check|link|webhook|schedule|menu\nReads ignored .env. check is offline; other commands require configured services.');
 }
 main().catch(()=>{console.error('Setup failed. Check private configuration and provider status; no credential details were logged.');process.exitCode=1;});

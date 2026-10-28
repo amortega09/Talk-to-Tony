@@ -4451,6 +4451,18 @@ document.getElementById('eventStartDate').addEventListener('change', () => {
 document.getElementById('eventPrevDay').addEventListener('click', () => moveEventDates(-1));
 document.getElementById('eventNextDay').addEventListener('click', () => moveEventDates(1));
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
+document.getElementById("agentMemoryClose").addEventListener("click",()=>{document.getElementById("agentMemoryDialog").hidden=true;});
+document.getElementById("agentMemoryBtn").addEventListener("click",async()=>{
+  const dialog=document.getElementById("agentMemoryDialog"),body=document.getElementById("agentMemoryBody");dialog.hidden=false;body.textContent="Checking current records…";
+  if(!sb || !USER_ID || USER_ID==='local-recovery'){body.textContent='Sign in to inspect lasting memory.';return;}
+  const actor=USER_ID;
+  try{
+    const all=[];for(let offset=0;offset<10000;offset+=1000){const {data:rows,error}=await sb.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id',actor).or("date.eq.2000-01-01,start_time.eq.__plan__").order('date').order('start_time').range(offset,offset+999);if(error)throw error;all.push(...rows);if(rows.length<1000)break;if(offset===9000)throw Error('Too many source records');}
+    if(USER_ID!==actor)return;const records=DayAgentMemory.view(all,{parseObjective:parseObjectiveLine}).filter(r=>r.status!=='forgotten');body.textContent='';
+    if(!records.length){body.textContent='Nothing remembered yet. Tell Tony “Remember that…” or describe a commitment in Telegram.';return;}
+    for(const record of records.slice(0,50)){const section=document.createElement('section'),text=document.createElement('p'),button=document.createElement('button');text.textContent=DayAgentMemory.format(record);button.className='ghost-btn';button.textContent='Review in Telegram';button.addEventListener('click',()=>shareAgentSelection({kind:record.type,id:record.id}));section.append(text,button);body.appendChild(section);}
+  }catch{body.textContent='Could not verify current source records. Please try again.';}
+});
 document.getElementById("agentHistoryClose").addEventListener("click",()=>{document.getElementById("agentHistoryDialog").hidden=true;});
 document.getElementById("agentHistoryBtn").addEventListener("click",async()=>{
   const dialog=document.getElementById("agentHistoryDialog"),body=document.getElementById("agentHistoryBody");
@@ -4940,7 +4952,7 @@ let agentRefreshBusy=false;
 async function refreshAgentChanges(){
   if(statusEl()?.classList.contains('syncing') || statusEl()?.classList.contains('err'))return;
   if(agentRefreshBusy || !sb || !USER_ID || USER_ID==='local-recovery' || document.hidden)return;
-  const editingOpen=()=>['sheetBackdrop','gymBackdrop','plannerScreen','voiceDialog','calendarScreen','insightScreen'].some(id=>!document.getElementById(id)?.hidden) || (document.activeElement?.offsetParent!==null && document.activeElement?.matches('input,textarea,[contenteditable="true"]'));
+  const editingOpen=()=>['sheetBackdrop','gymBackdrop','plannerScreen','voiceDialog','calendarScreen','insightScreen','agentMemoryDialog'].some(id=>!document.getElementById(id)?.hidden) || (document.activeElement?.offsetParent!==null && document.activeElement?.matches('input,textarea,[contenteditable="true"]'));
   if(editingOpen())return;
   const actor=USER_ID,client=sb,date=ymd(current),snapshot=JSON.stringify(data);agentRefreshBusy=true;
   try{

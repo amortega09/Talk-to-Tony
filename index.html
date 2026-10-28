@@ -118,6 +118,7 @@
       <button class="text-btn" id="exportBtn">Export</button>
       <button class="text-btn" id="helpBtn">Help</button>
       <button class="text-btn" id="agentHistoryBtn">Agent changes</button>
+      <button class="text-btn" id="agentMemoryBtn">Memory &amp; plans</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden />
     </footer>
   </div>
@@ -128,6 +129,13 @@
       <div id="agentHistoryBody" style="max-height:55vh;overflow:auto;white-space:pre-wrap"></div>
       <p>Open Telegram and send /history to undo a recent change.</p>
       <button class="primary-btn" id="agentHistoryClose" type="button">Close</button>
+    </section>
+  </div>
+  <div class="sheet-backdrop" id="agentMemoryDialog" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="agentMemoryTitle">
+      <h2 id="agentMemoryTitle">Memory &amp; commitments</h2>
+      <div id="agentMemoryBody" style="max-height:60vh;overflow:auto;white-space:pre-wrap"></div>
+      <button class="primary-btn" id="agentMemoryClose" type="button">Close</button>
     </section>
   </div>
   <!-- Keyboard shortcuts -->
@@ -471,13 +479,14 @@
   <script src="event-range.js?v=71"></script>
   <script src="voice-draft.js?v=83"></script>
   <script src="slot-transfer.js?v=2"></script>
-  <script src="app.js?v=agent1-83"></script>
+  <script src="app.js?v=memory1-83"></script>
   <script src="speech-transcriber.js?v=83"></script>
   <script src="voice-context.js?v=83"></script>
   <script src="diary-agent.js?v=83"></script>
   <script src="voice-actions.js?v=83"></script>
+  <script src="agent-memory-core.js?v=1"></script>
   <script src="voice-store.js?v=83"></script>
-  <script src="voice-app.js?v=agent1-83"></script>
+  <script src="voice-app.js?v=83"></script>
   <script src="voice.js?v=83"></script>
 
 

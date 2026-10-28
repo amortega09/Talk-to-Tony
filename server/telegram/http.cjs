@@ -17,7 +17,7 @@ function runtime(env=process.env){
   for(const name of ['TELEGRAM_BOT_TOKEN','TELEGRAM_WEBHOOK_SECRET','TELEGRAM_PUBLIC_ORIGIN','TELEGRAM_DATABASE_URL','QSTASH_TOKEN','QSTASH_CURRENT_SIGNING_KEY','QSTASH_NEXT_SIGNING_KEY'])if(!env[name])throw new Error('Missing bot configuration');
   const origin=new URL(env.TELEGRAM_PUBLIC_ORIGIN);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw new Error('Use an HTTPS origin');
   if(!/^\d+:[A-Za-z0-9_-]+$/.test(env.TELEGRAM_BOT_TOKEN)||env.TELEGRAM_WEBHOOK_SECRET.length<32)throw new Error('Invalid bot credentials');
-  const store=new Store(poolFromEnv(env),{proactiveEnabled:env.TELEGRAM_PROACTIVE_ENABLED!=='0'}),q=queue(env);
+  const store=new Store(poolFromEnv(env),{proactiveEnabled:env.TELEGRAM_PROACTIVE_ENABLED!=='0',memoryEnabled:env.TELEGRAM_MEMORY_ENABLED!=='0',commitmentFollowupsEnabled:env.TELEGRAM_COMMITMENT_FOLLOWUPS_ENABLED!=='0',prioritySuggestionsEnabled:env.TELEGRAM_PRIORITY_SUGGESTIONS_ENABLED!=='0'}),q=queue(env);
   singleton={service:new Service({store,queue:q,providers:providers(env),writesEnabled:env.TELEGRAM_WRITES_ENABLED==='1',extendedTools:env.TELEGRAM_AGENT_TOOLS_ENABLED!=='0'}),queue:q};return singleton;
 }
 function handlers({env=process.env,getRuntime=()=>runtime(env)}={}) {
