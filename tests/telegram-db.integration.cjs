@@ -249,7 +249,7 @@ test('Telegram status uses fresh database rows even after remembered entries mov
   const n=++seq;const result=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:Math.floor(Date.parse('2026-10-27T20:26:00Z')/1000),text:'What is the status of my day so far? What have I filled in?'});
   await service.process(result.id);
   const answer=await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[result.id+':0']);
-  assert.equal(answer.text,'No activities are saved for Tuesday 27 October.');
+  assert.equal(answer.text,'No activities are saved for Tuesday, 27 October 2026.');
   assert.equal((await savedBlocks()).length,1);
 });
 test('destructive tool waits for confirmation, then saves and undo restores data',async()=>{
@@ -337,4 +337,21 @@ test('disabled memory follow-ups drop already queued task prompts',async()=>{
 });
 test('recent voice chat suppresses optional task check-ins just like text chat',async()=>{
  const {record}=await createCommitment(false,true);await admin.query("update day_bot.jobs set input='{\"voice\":{\"fileId\":\"synthetic\",\"duration\":5}}',created_at='2099-02-04T15:00Z'");await store.checkins(Date.parse('2099-02-04T15:10Z'));assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'commitmentId'=$1",[record.id])).n,0);
+});
+test('yesterday gap query pins plain chores follow-up to that day and verifies fresh records',async()=>{
+ const ts=Math.floor(Date.parse('2026-10-28T08:40Z')/1000);let seen;
+ const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async(text,ctx)=>{seen=ctx;return {...empty(),items:[{date:ctx.discussion_date,start:'21:30',end_date:ctx.discussion_date,end:'22:00',category:'chores',activity:'chores',note:''}]};}}});
+ async function turn(text){const n=++seq,r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:ts,text});await service.process(r.id);return (await one(admin,"select payload from day_bot.outbox where dedupe_key=$1",[r.id+':0'])).payload;}
+ const gaps=await turn('What time slots yesterday are free?');assert.match(gaps.text,/27 October 2026/);assert.match(gaps.text,/00:00–24:00/);assert.doesNotMatch(gaps.text,/Objectives/);
+ const saved=await turn('21:30–22 put chores');assert.equal(seen.today,'2026-10-28');assert.equal(seen.discussion_date,'2026-10-27');assert.match(saved.text,/27 Oct/);assert.equal((await admin.query("select * from public.blocks where date='2026-10-28' and start_time='21:30'")).rowCount,0);assert.equal((await one(admin,"select category from public.blocks where date='2026-10-27' and start_time='21:30'")).category,'chores');
+ const fresh=await turn('What time slots are still unfilled?');assert.match(fresh.text,/27 October 2026/);assert.match(fresh.text,/22:00–24:00/);assert.doesNotMatch(fresh.text,/00:00–24:00/);
+ await admin.query("delete from public.blocks where date='2026-10-27' and start_time='21:30'");const checked=await turn('Can you double check that?');assert.match(checked.text,/00:00–24:00/);assert.match(checked.text,/27 October 2026/);
+ const today=await turn('/today');assert.match(today.text,/28 October 2026/);const next=await turn('21:30–22 put chores');assert.equal(seen.discussion_date,'2026-10-28');assert.match(next.text,/28 Oct/);
+});
+test('a wrong model date cannot silently save an undated follow-up on today',async()=>{
+ await admin.query('update day_bot.connections set agent_context=$1',[JSON.stringify({focusDate:'2026-10-27',expiresAt:'2099-01-01T00:00Z'})]);
+ const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async()=>({...empty(),items:[{date:'2026-10-28',start:'21:30',end_date:'2026-10-28',end:'22:00',category:'chores',activity:'chores',note:''}]})}});const n=++seq,r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:Math.floor(Date.parse('2026-10-28T08:40Z')/1000),text:'21:30–22 put chores'});await service.process(r.id);assert.equal((await admin.query('select * from public.blocks')).rowCount,0);assert.match((await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[r.id+':0'])).text,/different date/);
+});
+test('a future commitment deadline does not become the next diary day',async()=>{
+ await admin.query('update day_bot.connections set agent_context=$1',[JSON.stringify({focusDate:'2026-10-27',expiresAt:'2099-01-01T00:00Z'})]);const service=new Service({store,writesEnabled:true,queue:{publish:async()=>{}},providers:{interpret:async()=>({...empty(),actions:[{type:'commitment_create',title:'Synthetic report',due_date:'2099-02-05'}]})}});const n=++seq,r=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:Math.floor(Date.parse('2026-10-28T08:40Z')/1000),text:'Track my report due by 5 February 2099'});await service.process(r.id);assert.equal((await one(admin,'select agent_context from day_bot.connections')).agent_context.focusDate,'2026-10-27');
 });

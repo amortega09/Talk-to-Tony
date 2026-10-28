@@ -1,7 +1,7 @@
 'use strict';
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
-const {queryDate,summarize}=require('./day-summary.cjs');
+const {query,summarize,gaps}=require('./day-summary.cjs');
 const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /today · /plan · /memory · /priorities · /settings · /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
@@ -77,7 +77,7 @@ class Service {
       const cmd=input.callback?{control:input.callback.verb}:control(text || '',time);
       if(input.callback && ['mdone','msnooze','mstop','mforget','medit','mwhy','mnex','cnex'].includes(input.callback.verb))await this.store.memoryControl(job,input.callback.verb,input.callback.id,input.callback.revision,this.writesEnabled);
       else if(text==='/memory'||text==='/plan')await this.store.memoryMenu(job,text==='/memory'?'memory':'commitment');
-      else if(text==='/today'){const rows=await this.store.readRows(job);await this.store.finish(job,chunks(summarize(rows,time.today)));}
+      else if(text==='/today'){const rows=await this.store.readRows(job);job.nextContext={...job.agentContext,focusDate:time.today,expiresAt:new Date(Date.now()+86400000).toISOString(),lastQuery:{date:time.today,kind:'summary'}};await this.store.finish(job,chunks(summarize(rows,time.today)).map(m=>({...m,discussionDate:time.today,queryKind:'summary'})));}
       else if(text==='/priorities'&&(this.store.prioritySuggestionsEnabled===false||this.store.memoryEnabled===false))await this.store.finish(job,[{text:'Priority suggestions are temporarily disabled.'}]);
       else if(text==='/settings'||text==='/priorities'){const rows=await this.store.readRows(job),D=require('./domain.cjs'),ctx=D.context(rows,text,time),review=D.plan({reply:'',questions:[],items:[],reflections:[],actions:[text==='/settings'?{type:'query_settings'}:{type:'query_priorities',date:time.today}]},rows,ctx.app.targets);await this.store.finish(job,chunks(review.answers));}
       else if(input.callback && ['pause','snooze','less'].includes(input.callback.verb))await this.store.proactiveControl(job,input.callback.verb);
@@ -104,20 +104,23 @@ class Service {
         if(input.replyTo && pending && !await this.store.isCurrentReply(job,input.replyTo,pending.id))throw new UserError('That reply belongs to an old preview. Use /status and reply to the current one.','stale');
         if(pending && !input.replyTo && !pending.data.review.questions.length && !/^(?:actually|change|make that|correct|instead|no\b)/i.test(text))throw new UserError('A draft is waiting. Reply to its preview to correct it, or /cancel before starting another.','pending_draft');
         // A correction keeps the original date anchor, even after midnight.
-        const effectiveTime=pending?.data.time || time;
+        const effectiveTime=require('./dates.cjs').resolve(text,time.today)?time:(pending?.data.time || time);
         const rows=await this.store.readRows(job),conversation=await this.store.conversation(job,rows);
         const reference=await this.store.reference(job);if(reference)conversation.push(reference);
-        const focused=job.agentContext?.focusDate;
-        const dates=require('./dates.cjs'),explicitDate=dates.resolve(text,time.today);
-        const focusValid=focused && Date.parse(job.agentContext?.expiresAt)>Date.now();
-        const discussionDate=explicitDate || (focusValid && /\b(?:then|that day|same day|after that|actually)\b/i.test(text)?focused:null);
-        job.nextContext={...job.agentContext,...(discussionDate?{focusDate:discussionDate,expiresAt:new Date(Date.now()+86400000).toISOString()}: {})};
-        const summaryDate=queryDate(text,time.today,conversation);
-        if(summaryDate){
-          await this.store.finish(job,chunks(summarize(rows,summaryDate)));
+        const discussion=require('./discussion.cjs').resolve(text,time,job.agentContext,reference,pending);
+        const discussionDate=discussion.date;
+        job.nextContext={...job.agentContext,focusDate:discussionDate,lastQuery:null,expiresAt:new Date(Date.now()+86400000).toISOString()};
+        const previous=job.agentContext?.lastQuery;
+        const queryConversation=[...conversation,...(previous?[{discussion_date:previous.date,query_kind:previous.kind}]:[]),...(reference?.query_kind?[reference]:[])];
+        const request=query(text,time.today,queryConversation,discussionDate);
+        if(request&&discussion.expired&&!/\b(?:double[ -]?check|check again|are you sure)\b/i.test(text))throw new UserError('Which day should I check? Our earlier date discussion has expired.');
+        if(request){
+          job.nextContext={...job.nextContext,focusDate:request.date,lastQuery:request};
+          await this.store.finish(job,chunks((request.kind==='gaps'?gaps:summarize)(rows,request.date)).map(m=>({...m,discussionDate:request.date,queryKind:request.kind})));
           await this.queue.publish(id,'replies');await this.kick(id);return;
         }
-        const ctx=context(rows,text,effectiveTime,conversation);
+        if(discussion.expired&&/\b\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d/i.test(text))throw new UserError('Our earlier date discussion has expired. Which day should I put that on?');
+        const ctx=context(rows,text,effectiveTime,conversation,{discussionDate});
         if(this.store.memoryEnabled===false){ctx.lasting_memory=[];ctx.app.targets=ctx.app.targets.filter(t=>!['memory','commitment'].includes(t.kind));}
         ctx.discussion_date=discussionDate;ctx.reply_reference=reference;
         const shared=rows.find(r=>r.date==='2000-01-01'&&r.start_time==='__agent_selection__');
@@ -126,6 +129,10 @@ class Service {
         if(preferences){try{ctx.agent_preferences=JSON.parse(preferences.note);}catch{}}
         const allowedNew=/^(?:yes|yes please|confirm)[.!\s]*$/i.test(text.trim())?(pending?.data.review.formatProposals || []):[];
         const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
+        // Deadlines and dated prose are not changes to the diary day under discussion.
+        if(!draft.items?.length&&!draft.reflections?.length&&(draft.actions || []).every(a=>/^(?:memory_|commitment_|query_memory|query_commitments|query_priorities|agent_preferences|query_settings|note_|project_)/.test(a.type)))job.nextContext={...job.agentContext,lastQuery:null};
+        const dateError=require('./discussion.cjs').checkDraft(draft,discussion,text);
+        if(dateError)throw new UserError(dateError,'date_mismatch');
         const selectedCategory=pending?.data.review.questions.length && /^[a-z]+$/.test(text.trim().toLowerCase())?text.trim().toLowerCase():undefined;
         if(!this.extendedTools && draft.actions?.some(a=>require('./agent-tools.cjs').tools[a.type]))throw new UserError('That agent feature is temporarily unavailable.');
         if(this.store.memoryEnabled===false && draft.actions?.some(a=>/^(?:memory_|commitment_|query_memory|query_commitments|query_priorities)/.test(a.type)))throw new UserError('Lasting memory is temporarily disabled.');
@@ -135,7 +142,7 @@ class Service {
         if(!review.patches.length && !review.questions.length && !review.answers.length && !review.navigation.length && require('./day-summary.cjs').needsEvidence(text))throw new UserError('I couldn’t verify that from the saved records. Which date or item should I look up?','ungrounded_answer');
         if(!review.patches.length && !review.questions.length){
           await this.store.finish(job,chunks([...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`),...(!review.answers.length&&!review.navigation.length?[(draft.actions?.length || draft.items?.length || draft.reflections?.length)?'Everything already matches — no changes were needed.':draft.reply || 'What would you like to update?']:[])]));
-        } else await this.store.saveDraft(job,{draft,review,transcript:text,voice:!!input.voice,time:effectiveTime,conversation:[...conversation,{user:text,assistant:draft.reply,question:review.questions[0] || ''}].slice(-3)},preview,this.writesEnabled && !review.requiresConfirmation);
+        } else await this.store.saveDraft(job,{draft,review,transcript:text,voice:!!input.voice,time:effectiveTime,discussionDate,conversation:[...conversation,{user:text,assistant:draft.reply,question:review.questions[0] || ''}].slice(-3)},preview,this.writesEnabled && !review.requiresConfirmation);
       }
     } catch(e) {
       if(job.released)throw e;

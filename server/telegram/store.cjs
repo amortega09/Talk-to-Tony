@@ -199,10 +199,10 @@ class Store {
     const entityPatches=data.review.patches.filter(p=>p.after&&['agent_memory','agent_commitment'].includes(p.after.category));
     if(entityPatches.length===1){const record=JSON.parse(entityPatches[0].after.note);if(record.status!=='forgotten'){const payload=Memory.card(record);payload.draftId=id;payload.reply_markup.inline_keyboard.push([button('Undo','undo',id)]);return payload;}}
     const summary=data.review.summaries.map(line=>line.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) → (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}): (.*)$/,(_,date,start,endDate,end,name)=>{
-      const label=d=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));
+      const label=d=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(d+'T12:00:00Z'));
       return `${name.replace(/ \([a-z]+\)$/,'')} · ${label(date)}, ${start}–${date===endDate?'':label(endDate)+' '}${end}`;
     })).join(' · ');
-    return {draftId:id,text:('Done — '+(summary || 'updated your diary.')).slice(0,3300),reply_markup:{inline_keyboard:[[button('Change','change',id),button('Undo','undo',id)]]}};
+    return {draftId:id,discussionDate:data.discussionDate || data.review.patches.find(p=>p.date!==Memory.DATE)?.date,text:('Done — '+(summary || 'updated your diary.')).slice(0,3300),reply_markup:{inline_keyboard:[[button('Change','change',id),button('Undo','undo',id)]]}};
   }
   async conversation(job,liveRows){
     const recent=await rows(this.pool,`select j.input,j.transcript,
@@ -216,7 +216,7 @@ class Store {
     let budget=8000;
     const boundedChanges=changes.filter(change=>{budget-=JSON.stringify(change).length;return budget>=0;});
     const prompt=await one(this.pool,"select payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and payload->>'checkin'='true' and created_at>now()-interval '12 hours' and created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz) order by ordinal desc limit 1",[job.connection,job.generation]);
-    return [{focus:job.agentContext || {}},...(prompt?[{assistant:prompt.text}]:[]),...recent.reverse().map(r=>({user:(r.transcript || r.input.text || (r.input.callback?.verb==='change'?'Change saved change '+r.input.callback.id:'')).slice(0,900),assistant:(r.answer || '').slice(0,900)})),{recent_changes:boundedChanges,changes_limited:boundedChanges.length<changes.length}];
+    return [{focus:job.agentContext || {}},...(prompt?[{assistant:prompt.text}]:[]),...recent.reverse().map(r=>({anchor_date:r.input.timestamp?require('./domain.cjs').anchor(r.input.timestamp).today:null,user:(r.transcript || r.input.text || (r.input.callback?.verb==='change'?'Change saved change '+r.input.callback.id:'')).slice(0,900),assistant:(r.answer || '').slice(0,900)})),{recent_changes:boundedChanges,changes_limited:boundedChanges.length<changes.length}];
   }
   async change(job,id){
     const d=await one(this.pool,"select * from day_bot.drafts where id=$1 and connection=$2 and generation=$3 and expires_at>now()",[id,job.connection,job.generation]);
@@ -356,9 +356,9 @@ class Store {
   }
   async reference(job){
     if(!job.input.replyTo)return null;
-    const reply=await one(this.pool,"select payload->>'draftId' as draft_id,payload->>'memoryId' as memory_id,payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3",[job.connection,job.generation,job.input.replyTo]);
+    const reply=await one(this.pool,"select payload->>'draftId' as draft_id,payload->>'memoryId' as memory_id,payload->>'discussionDate' as discussion_date,payload->>'queryKind' as query_kind,payload->>'text' as text from day_bot.outbox where connection=$1 and generation=$2 and message_id=$3",[job.connection,job.generation,job.input.replyTo]);
     if(reply?.memory_id){const current=await one(this.pool,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time=$2",[job.owner,Memory.PREFIX.memory+reply.memory_id]);if(current&&Memory.parse(current.note)?.status==='forgotten')return {reply_to:'That memory was forgotten. Ask the user for new information.'};}
-    return reply?{reply_to:reply.text,action_id:reply.draft_id || null,memoryId:reply.memory_id || null}:null;
+    return reply?{reply_to:reply.text,discussion_date:reply.discussion_date,query_kind:reply.query_kind,action_id:reply.draft_id || null,memoryId:reply.memory_id || null}:null;
   }
   async checkins(now=Date.now()){
     if(!this.proactiveEnabled)return;

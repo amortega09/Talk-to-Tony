@@ -97,3 +97,32 @@ those received fixes and regression tests. No real diary was sent to the evaluat
 The live migration's RLS and restricted privileges were checked. Supabase's security
 advisor reported only the pre-existing leaked-password-protection warning; account
 password policy is outside this release.
+
+## Date-conversation correction — 28 October 2026
+
+A diary day under discussion now persists for plain follow-ups, not just phrases like
+“then” or “that day”. “Yesterday” followed by “21:30–22 put chores” keeps yesterday;
+“today” and `/today` explicitly switch. A reply to an older dated bot message selects
+that message's day. Current `today` remains the incoming message's London date.
+Timed entries whose model date contradicts this discussion date are refused before
+saving. Overnight entries and explicitly multi-day requests remain supported. A future
+commitment deadline does not set the diary discussion day. Expired date focus asks for
+the day rather than silently reusing it for a timed entry.
+
+Gap questions return contiguous unfilled ranges, with the full day/date/year, rather
+than listing every existing activity and objective. Unfilled does not prove free time.
+Double-check requests preserve the previous query's resolved date and query type across
+midnight, reread the database, and never reuse an old answer as evidence. A different
+intervening topic does not inherit an old diary-summary query. Month-first dates such as
+“October 26” are supported. Saved timed entries include their date and year.
+
+Validation adds the exact screenshot sequence, live-source edits between queries,
+explicit date switches, stale focus, wrong model dates, deadline isolation, overnight
+and multi-day entries. The AI date evaluation script uses invented fixtures only:
+`node --env-file=.env scripts/eval-telegram-dates.cjs`.
+
+Date-fix release checks: 260 JavaScript, 62 disposable PostgreSQL and 28 Python tests
+pass (350 total); 5/5 focused date AI scenarios and 24/24 existing synthetic agent
+scenarios pass with the final prompt. An earlier AI regression run asked an unnecessary
+optional-deadline question; the prompt now explicitly permits commitments without one.
+These are observed test results, not a guarantee of arbitrary conversational accuracy.

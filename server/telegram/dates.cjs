@@ -10,6 +10,8 @@ function resolve(text,today){
  if(/\byesterday\b/.test(t))return shift(today,-1);if(/\btomorrow\b/.test(t))return shift(today,1);if(/\btoday\b/.test(t))return today;
  const named=t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\b/);
  if(named){const d=`${named[3] || today.slice(0,4)}-${String(months.indexOf(named[2])+1).padStart(2,'0')}-${named[1].padStart(2,'0')}`;return valid(d)?d:null;}
+ const monthFirst=t.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
+ if(monthFirst){const d=`${monthFirst[3] || today.slice(0,4)}-${String(months.indexOf(monthFirst[1])+1).padStart(2,'0')}-${monthFirst[2].padStart(2,'0')}`;return valid(d)?d:null;}
  const weekday=t.match(/\b(?:(last|this|next)\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
  if(weekday){const now=new Date(today+'T12:00:00Z').getUTCDay(),want=weekdays.indexOf(weekday[2]);let delta=want-now;
  if(weekday[1]==='next'){if(delta<=0)delta+=7;}else if(weekday[1]==='last'){if(delta>=0)delta-=7;}else if(weekday[1]==='this'){delta=((want+6)%7)-((now+6)%7);}else if(delta>0)delta-=7;
