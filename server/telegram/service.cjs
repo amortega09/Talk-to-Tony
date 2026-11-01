@@ -2,13 +2,15 @@
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
 const {query,summarize,gaps}=require('./day-summary.cjs');
-const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /today · /plan · /memory · /priorities · /settings · /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
+const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /day · /today · /plan · /memory · /priorities · /settings · /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
   const cb=u.callback_query,m=cb?.message || u.message,from=cb?.from || m?.from;
   if(!m || !from || from.is_bot || m.chat?.type!=='private' || !Number.isSafeInteger(from.id)||from.id<=0 || m.chat.id!==from.id || !Number.isSafeInteger(m.message_id))return null;
   if(m.forward_origin || m.via_bot)return null;
   if(cb){
+    const day=require('./day-selector.cjs').parse(cb.data);
+    if(day){if(typeof cb.id!=='string'||cb.id.length>200)return null;return {updateId:u.update_id,userId:from.id,chatId:m.chat.id,messageId:m.message_id,callback:{...day,queryId:cb.id},timestamp:Math.floor(now/1000)};}
     const match=/^(save|cancel|undo|change|pause|snooze|less|mdone|msnooze|mstop|mforget|medit|mwhy|mnex|cnex):([a-f0-9]{32})(?::([0-9a-z]{1,8}))?$/.exec(cb.data || '');
     if(!match || typeof cb.id!=='string'||cb.id.length>200)return null;
     const h=match[2],id=`${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
@@ -65,7 +67,7 @@ class Service {
       if(input.text==='/limit')throw new UserError('Daily pilot allowance reached. Use Day directly or try tomorrow. This request was not saved.','daily_limit');
       if(input.text==='/audio-limit')throw new UserError('Send a voice note of up to two minutes and 10 MB.');
       let text=job.transcript || input.text;
-      const menus={Today:'/today',Plan:'/plan',Memory:'/memory',Settings:'/settings'};if(menus[text])text=menus[text];
+      const menus={'📅 Day':'/day',Today:'/today',Plan:'/plan',Memory:'/memory',Settings:'/settings'};if(menus[text])text=menus[text];
       if(input.voice && !text){
         text=await this.providers.transcribe(input.voice);await this.store.checkpoint(job,text);
         // A second delivery handles interpretation, leaving each stage within the
@@ -75,7 +77,9 @@ class Service {
       }
       const time=anchor(input.timestamp);
       const cmd=input.callback?{control:input.callback.verb}:control(text || '',time);
-      if(input.callback && ['mdone','msnooze','mstop','mforget','medit','mwhy','mnex','cnex'].includes(input.callback.verb))await this.store.memoryControl(job,input.callback.verb,input.callback.id,input.callback.revision,this.writesEnabled);
+      if(input.callback&&['day','dview','dgaps'].includes(input.callback.verb))await this.selectDay(job,time,input.callback);
+      else if(/^\/day(?:\s|$)/.test(text || ''))await this.selectDay(job,time,null,text.slice(4).trim());
+      else if(input.callback && ['mdone','msnooze','mstop','mforget','medit','mwhy','mnex','cnex'].includes(input.callback.verb))await this.store.memoryControl(job,input.callback.verb,input.callback.id,input.callback.revision,this.writesEnabled);
       else if(text==='/memory'||text==='/plan')await this.store.memoryMenu(job,text==='/memory'?'memory':'commitment');
       else if(text==='/today'){const rows=await this.store.readRows(job);job.nextContext={...job.agentContext,focusDate:time.today,expiresAt:new Date(Date.now()+86400000).toISOString(),lastQuery:{date:time.today,kind:'summary'}};await this.store.finish(job,chunks(summarize(rows,time.today)).map(m=>({...m,discussionDate:time.today,queryKind:'summary'})));}
       else if(text==='/priorities'&&(this.store.prioritySuggestionsEnabled===false||this.store.memoryEnabled===false))await this.store.finish(job,[{text:'Priority suggestions are temporarily disabled.'}]);
@@ -89,7 +93,7 @@ class Service {
       else if(cmd?.control==='undo')await this.store.undo(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='cancel')await this.store.cancel(job,input.callback?.id);
       else if(cmd?.control==='unlink')await this.store.unlink(job);
-      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{keyboard:[[{text:'Today'},{text:'Plan'}],[{text:'Memory'},{text:'Settings'}]],resize_keyboard:true}}]);
+      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{keyboard:[[{text:'📅 Day'},{text:'Today'},{text:'Plan'}],[{text:'Memory'},{text:'Settings'}]],resize_keyboard:true}}]);
       else if(cmd?.control==='status'){
         const status=await this.store.status(job);
         const messages=status.pending?preview(status.pending.id,status.pending.data):[{text:status.receipt?`Latest bot change: ${status.receipt.undone?'undone':'saved'}. No pending draft.`:'No pending draft or saved bot changes.'}];
@@ -108,6 +112,7 @@ class Service {
         const rows=await this.store.readRows(job),conversation=await this.store.conversation(job,rows);
         const reference=await this.store.reference(job);if(reference)conversation.push(reference);
         const discussion=require('./discussion.cjs').resolve(text,time,job.agentContext,reference,pending);
+        if(require('./dates.cjs').hasReference(text)&&!require('./dates.cjs').resolve(text,time.today))throw new UserError('I couldn’t read that date. Choose a day with /day YYYY-MM-DD, for example /day 2026-10-31.');
         const discussionDate=discussion.date;
         job.nextContext={...job.agentContext,focusDate:discussionDate,lastQuery:null,expiresAt:new Date(Date.now()+86400000).toISOString()};
         const previous=job.agentContext?.lastQuery;
@@ -128,7 +133,8 @@ class Service {
         const preferences=rows.find(r=>r.date==='2000-01-01'&&r.start_time==='__agent_preferences__');
         if(preferences){try{ctx.agent_preferences=JSON.parse(preferences.note);}catch{}}
         const allowedNew=/^(?:yes|yes please|confirm)[.!\s]*$/i.test(text.trim())?(pending?.data.review.formatProposals || []):[];
-        const draft=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
+        const interpreted=allowedNew.length?pending.data.draft:cmd?.actions?{reply:'',questions:[],items:[],reflections:[],actions:cmd.actions}:await this.providers.interpret(text,ctx,pending?.data.draft);
+        const draft=require('./discussion.cjs').bindDraft(interpreted,discussion,text);
         // Deadlines and dated prose are not changes to the diary day under discussion.
         if(!draft.items?.length&&!draft.reflections?.length&&(draft.actions || []).every(a=>/^(?:memory_|commitment_|query_memory|query_commitments|query_priorities|agent_preferences|query_settings|note_|project_)/.test(a.type)))job.nextContext={...job.agentContext,lastQuery:null};
         const dateError=require('./discussion.cjs').checkDraft(draft,discussion,text);
@@ -153,6 +159,17 @@ class Service {
     // exhaust the function deadline. The outbox also survives enqueue failure.
     await this.queue.publish(id,'replies');
     await this.kick(id);
+  }
+  async selectDay(job,time,callback=null,value=''){
+    const dates=require('./dates.cjs');
+    if(callback&&callback.id!==job.connection)throw new UserError('That day selector belongs to a different connection. Use /day.');
+    if(await this.store.pending(job))throw new UserError('Save or /cancel the current draft before switching days. Its date has not changed.');
+    const current=job.agentContext?.focusDate,active=dates.valid(current)&&Date.parse(job.agentContext?.expiresAt)>Date.now()?current:time.today;
+    const date=callback?(callback.date==='today'?time.today:callback.date):value?(dates.valid(value)?value:dates.resolve(value,time.today)):active;
+    if(!dates.valid(date))throw new UserError('Use /day YYYY-MM-DD, for example /day 2026-10-31.');
+    job.nextContext={...job.agentContext,focusDate:date,expiresAt:new Date(Date.now()+86400000).toISOString(),lastQuery:null};
+    if(callback&&callback.verb!=='day'){const kind=callback.verb==='dgaps'?'gaps':'summary',rows=await this.store.readRows(job);job.nextContext.lastQuery={date,kind};return this.store.finish(job,chunks((kind==='gaps'?gaps:summarize)(rows,date)).map(m=>({...m,discussionDate:date,queryKind:kind})));}
+    return this.store.finish(job,[require('./day-selector.cjs').card(job.connection,date)]);
   }
   async kick(id){const next=await this.store.nextPending(id);if(next)await this.queue.publish(next.id,`wake-${id}`);}
   async recover(){

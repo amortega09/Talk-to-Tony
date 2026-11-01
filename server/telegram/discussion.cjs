@@ -9,10 +9,13 @@ function resolve(text,time,focus={},reference=null,pending=null,now=Date.now()){
  if(dates.valid(focus.focusDate)&&Date.parse(focus.expiresAt)>now)return {date:focus.focusDate,basis:'conversation'};
  return {date:time.today,basis:'today',expired:!!focus.focusDate&&focus.focusDate!==time.today};
 }
+function multiple(text,anchor){
+ const mentions=dates.normalize(text).match(/\b(?:today|yesterday|tomorrow|\d{4}-\d{2}-\d{2}|(?:(?:last|this|next)\s+)?(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+\d{4})?)\b/gi) || [];
+ return new Set(mentions.map(x=>dates.resolve(x,anchor)).filter(Boolean)).size>1;
+}
 function checkDraft(draft,discussion,text=''){
  // An explicitly multi-day request is validated by the normal per-action planner.
- const mentions=text.match(/\b(?:today|yesterday|tomorrow|\d{4}-\d{2}-\d{2}|(?:(?:last|this|next)\s+)?(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+\d{4})?)\b/gi) || [];
- if(new Set(mentions.map(x=>dates.resolve(x,discussion.date)).filter(Boolean)).size>1)return null;
+ if(multiple(text,discussion.date))return null;
 
  const errors=[];
  for(const item of draft.items || []){
@@ -24,4 +27,18 @@ function checkDraft(draft,discussion,text=''){
  for(const a of draft.actions || [])if(scoped.has(a.type)&&a.date&&a.date!==discussion.date)errors.push(a.date);
  return errors.length?`We’re discussing ${discussion.date}, but I interpreted a different date. Please repeat the day and time so I can save it correctly.`:null;
 }
-module.exports={resolve,checkDraft};
+// The LLM supplies the operation and times. Code supplies its single diary date.
+function bindDraft(draft,discussion,text=''){
+ const next=structuredClone(draft);if(multiple(text,discussion.date))return next;
+ for(const item of next.items || []){
+   if(!dates.valid(item.date)||!dates.valid(item.end_date))continue;
+   const overnight=item.end_date===dates.shift(item.date,1)&&item.end<item.start;
+   if(item.end_date!==item.date&&!overnight)continue;
+   item.date=discussion.date;item.end_date=overnight?dates.shift(discussion.date,1):discussion.date;
+ }
+ for(const r of next.reflections || [])if(dates.valid(r.date))r.date=discussion.date;
+ const scoped=new Set(['query_slot','query_day','query_objectives','query_reflection','query_gym','query_reminders','activity_slice','checkin','day_status','gym_set','reflection_set','rough_plan_add','objective_add','reminder_set']);
+ for(const a of next.actions || [])if(scoped.has(a.type)&&dates.valid(a.date))a.date=discussion.date;
+ return next;
+}
+module.exports={resolve,checkDraft,bindDraft};

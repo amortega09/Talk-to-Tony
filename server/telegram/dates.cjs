@@ -3,9 +3,10 @@ const shift=(date,n)=>{const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTC
 const valid=date=>/^\d{4}-\d{2}-\d{2}$/.test(date || '')&&!Number.isNaN(Date.parse(date))&&new Date(date+'T12:00:00Z').toISOString().slice(0,10)===date;
 const months=['january','february','march','april','may','june','july','august','september','october','november','december'];
 const weekdays=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+function normalize(text){return String(text).toLowerCase().replace(/(\d{1,2})(?:rst|ndst|rdst|thst)\b/g,'$1');}
 function resolve(text,today){
  if(!valid(today))throw Error('Invalid reference date');
- const t=String(text).toLowerCase();
+ const t=normalize(text);
  const iso=t.match(/\b\d{4}-\d{2}-\d{2}\b/);if(iso)return valid(iso[0])?iso[0]:null;
  if(/\byesterday\b/.test(t))return shift(today,-1);if(/\btomorrow\b/.test(t))return shift(today,1);if(/\btoday\b/.test(t))return today;
  const named=t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\b/);
@@ -18,7 +19,9 @@ function resolve(text,today){
  return shift(today,delta);}
  return null;
 }
-module.exports={resolve,shift,valid};
+function hasReference(text){const month='(?:January|February|March|April|May|June|July|August|September|October|November|December)';return new RegExp('\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b'+month+'\\s+\\d|\\b\\d{1,2}(?:st|nd|rd|th|rst)?\\s+'+month+'\\b|\\b\\d{1,2}[\\/]\\d{1,2}\\b','i').test(text);}
+
+module.exports={resolve,shift,valid,hasReference,normalize};
 // Find the actual London instant; gaps during the spring clock change are invalid.
 function localInstant(date,clock){
  if(!valid(date)||!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(clock || ''))return null;

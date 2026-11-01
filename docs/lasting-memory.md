@@ -126,3 +126,36 @@ pass (350 total); 5/5 focused date AI scenarios and 24/24 existing synthetic age
 scenarios pass with the final prompt. An earlier AI regression run asked an unnecessary
 optional-deadline question; the prompt now explicitly permits commitments without one.
 These are observed test results, not a guarantee of arbitrary conversational accuracy.
+
+## Deterministic day selection — 1 November 2026
+
+Use `/day` or the **📅 Day** keyboard button to inspect the selected diary date.
+Use `/day 2026-10-31` for an exact date. Dated diary responses now show **◀ / 📅 date /
+Today / ▶** controls; the selector also offers **View diary** and **Find gaps**. Buttons
+contain absolute dates and the linked connection ID, so repeated taps on an old button
+select the same date rather than advancing relative to a newer selection. Today is
+resolved from the incoming callback's London date. Switching days cannot retarget a
+pending draft: save or cancel it first. Selection itself never changes diary records.
+
+Selection, full-day schedule reads and gap reads run without the LLM. The reported
+“October 31rst” typo is normalised before parsing, and “schedule” routes to a fresh
+database summary. An explicit but invalid/unsupported numeric date asks for `/day`
+rather than silently falling back to the current date.
+
+For a single-day diary request, code binds new entries, reflections and supported dated
+tools to the resolved/selected day before planning. A model returning a different date
+therefore cannot save on that different day or force the user to repeat a known date.
+Valid overnight duration is preserved. Explicit multi-day requests and date transfers
+retain the existing per-action planner; commitment deadlines are never rebound to the
+diary day. The LLM still interprets intent, activity names and times. This release makes
+the calendar state deterministic, not arbitrary natural-language interpretation.
+
+Date focus retains its existing 24-hour expiry; `/day` always displays the active choice
+and refreshes selection. Provider check-ins do not silently select another diary day.
+No base web app workflows or database privileges changed.
+
+Validated: 264 JavaScript tests, 64 disposable PostgreSQL integration tests and 28
+Python tests (356 total), plus 5/5 date and 24/24 existing synthetic AI scenarios.
+The screenshot query and calendar paths were tested with an interpreter that throws if
+called, proving those operations do not depend on model output. No live diary data was
+sent to the AI evaluations.

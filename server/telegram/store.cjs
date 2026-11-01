@@ -165,7 +165,7 @@ class Store {
   async finishIn(c,job,payloads) {
     await c.query('update day_bot.jobs set metrics=$2 where id=$1',[job.id,JSON.stringify({duration_ms:job.startedAt?Date.now()-job.startedAt:null,tools:job.toolNames || []})]);
     if(job.nextContext)await c.query('update day_bot.connections set agent_context=$2 where id=$1',[job.connection,JSON.stringify(job.nextContext)]);
-    for(let i=0;i<payloads.length;i++)await this.enqueueReply(c,job,`${job.id}:${i}`,payloads[i]);
+    for(let i=0;i<payloads.length;i++)await this.enqueueReply(c,job,`${job.id}:${i}`,require('./day-selector.cjs').decorate(payloads[i],job.connection));
     await c.query("update day_bot.jobs set status='done' where id=$1",[job.id]);
     await c.query('update day_bot.connections set lease_until=null,lease_job=null,lease_token=null,last_message_id=case when $3 then greatest(last_message_id,$2) else last_message_id end where id=$1',[job.connection,job.message_id,!job.input.control && !job.input.callback]);
   }

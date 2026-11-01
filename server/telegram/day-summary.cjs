@@ -12,11 +12,12 @@ function query(text,today,conversation=[],focusDate=null){
   }
   const gaps=/\b(?:free|empty|unfilled|unrecorded|unlogged|gaps?|missing|left to fill|still to fill|need to fill|haven.t (?:filled|logged|recorded))\b/i.test(text);
   if(!/\b(?:what|which|when|show|list|summari[sz]e|summary|status|review|any)\b/i.test(text))return null;
-  if(!gaps&&!/\b(?:day|today|yesterday|diary|filled|logged|recorded)\b/i.test(text))return null;
+  if(!gaps&&!/\b(?:day|today|yesterday|diary|schedule|timetable|filled|logged|recorded)\b/i.test(text))return null;
   if(/\b(?:week|month)\b/i.test(text))return null;
   if(/\b(?:at|from|between)\s+\d/i.test(text))return null;
   const resolved=dates.resolve(text,today);
   if(/\b(?:today|yesterday|tomorrow)\b/i.test(text)&&(text.match(/\b(?:today|yesterday|tomorrow)\b/gi) || []).length>1)return null;
+  if(!resolved&&dates.hasReference(text))return null;
   if(!resolved&&/\b\d{1,2}(?:st|nd|rd|th)\b/.test(text))return null;
   return {date:resolved || focusDate || today,kind:gaps?'gaps':'summary'};
 }
