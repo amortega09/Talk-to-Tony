@@ -3157,7 +3157,6 @@ const INSIGHTS = [
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
   { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Daily actions & longer-term direction", fn: renderInsightGoals },
-  { id: "gym",      title: "Gym Tracker",      icon: "🏋️", desc: "Weight progress & workouts",    fn: renderInsightGym, menu: false },
 ];
 
 // ---- shared helpers ----
@@ -3717,6 +3716,7 @@ function openInsightsMenu() {
 function closeInsightsMenu() { document.getElementById("insightsMenu").hidden = true; }
 
 function openInsight(id) {
+  if (!INSIGHTS.some((item) => item.id === id)) return;
   if (id === "notes") {
     currentInsight = null;
     document.getElementById("insightTitle").textContent = "Notes";
@@ -4279,7 +4279,6 @@ document.getElementById("calendarMultiRoughAdd").addEventListener("click", async
 document.getElementById("calendarMultiRoughInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter") { event.preventDefault(); document.getElementById("calendarMultiRoughAdd").click(); }
 });
-document.getElementById("gymBtn").addEventListener("click", () => openInsight("gym"));
 document.getElementById("gymBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "gymBackdrop") closeGymLogger();
 });

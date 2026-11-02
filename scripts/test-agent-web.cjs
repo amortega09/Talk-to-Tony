@@ -25,6 +25,7 @@ window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{u
   await page.evaluate(()=>{window.mockRows.push({user_id:'test-owner',date:'2026-10-27',start_time:'10:00',category:'food',note:'',subcategory:''});document.activeElement?.blur();});await page.evaluate(()=>refreshAgentChanges());await page.waitForFunction(()=>document.querySelector('.block[data-slot="10:00"]')?.classList.contains('filled'));
   await page.evaluate(()=>window.mockRows.push({user_id:'test-owner',date:'2000-01-01',start_time:'__memory__fixture',category:'agent_memory',note:JSON.stringify({id:'fixture',type:'memory',title:'Afternoon preference',text:'Prefer afternoon check-ins',status:'active',basis:'explicit',createdAt:'2026-10-28T12:00Z',revision:1})}));
   await page.getByRole('button',{name:'Memory & plans',exact:true}).click();await page.getByText('Afternoon preference',{exact:false}).waitFor();await page.locator('#agentMemoryClose').click();
+  assert.equal(await page.locator('#gymBtn').count(),0);await page.evaluate(()=>openInsight('gym'));assert.equal(await page.locator('#insightScreen').isVisible(),false);
   assert.deepEqual(errors,[]);console.log('PASS: signed-in fixture, slot selection sharing, activity view, cloud refresh, lasting memory inspector, no browser errors.');
  }finally{if(browser)await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e.message);process.exitCode=1;});
