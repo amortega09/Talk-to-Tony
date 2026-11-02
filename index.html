@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=89" />
+  <link rel="stylesheet" href="styles.css?v=90" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -115,7 +115,6 @@
       <button class="text-btn" id="insightsBtn">Insights</button>
       <button class="text-btn" id="todayBtn">Today</button>
       <button class="text-btn" id="exportBtn">Export</button>
-      <button class="text-btn" id="helpBtn">Help</button>
       <button class="text-btn" id="agentHistoryBtn">Agent changes</button>
       <button class="text-btn" id="agentMemoryBtn">Memory &amp; plans</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden />
@@ -137,33 +136,6 @@
       <button class="primary-btn" id="agentMemoryClose" type="button">Close</button>
     </section>
   </div>
-  <!-- Keyboard shortcuts -->
-  <div class="sheet-backdrop" id="helpDialog" hidden>
-    <div class="sheet help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-      <div class="sheet-handle"></div>
-      <div class="help-head">
-        <div class="sheet-time" id="helpTitle">Keyboard shortcuts</div>
-        <button class="nav-btn" id="helpClose" type="button" aria-label="Close keyboard shortcuts">×</button>
-      </div>
-      <div class="help-section-title">Anywhere</div>
-      <div class="help-shortcuts">
-        <div><span><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></span><span>Move between controls</span></div>
-        <div><span><kbd>Enter</kbd> / <kbd>Space</kbd></span><span>Activate a focused button</span></div>
-        <div><span><kbd>?</kbd></span><span>Open this help</span></div>
-      </div>
-      <div class="help-section-title">Daily targets</div>
-      <div class="help-shortcuts">
-        <div><span><kbd>N</kbd></span><span>New target</span></div>
-        <div><span><kbd>↑</kbd> / <kbd>↓</kbd></span><span>Select a target</span></div>
-        <div><span><kbd>Space</kbd></span><span>Complete or reopen selected target</span></div>
-        <div><span><kbd>→</kbd></span><span>Move selected target to tomorrow</span></div>
-        <div><span><kbd>Delete</kbd> / <kbd>Backspace</kbd></span><span>Remove selected target</span></div>
-        <div><span><kbd>Enter</kbd></span><span>Add target while typing</span></div>
-        <div><span><kbd>Esc</kbd></span><span>Close help or an editor</span></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Insights menu (bottom popup) -->
   <div class="sheet-backdrop" id="insightsMenu" hidden>
     <div class="sheet" id="insightsSheet" role="dialog" aria-modal="true">
@@ -250,7 +222,6 @@
             <input id="plannerTaskInput" type="text" autocomplete="off" placeholder="Add a concrete target…" />
             <button class="primary-btn" id="plannerAddTask" type="button">Add</button>
           </div>
-          <div class="planner-shortcuts"><kbd>N</kbd> new · <kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Space</kbd> complete · <kbd>→</kbd> tomorrow · <kbd>Delete</kbd> remove · <kbd>Esc</kbd> close</div>
         </section>
 
         <section class="planner-week-card">
@@ -478,7 +449,7 @@
   <script src="event-range.js?v=71"></script>
   <script src="voice-draft.js?v=83"></script>
   <script src="slot-transfer.js?v=2"></script>
-  <script src="app.js?v=89"></script>
+  <script src="app.js?v=90"></script>
   <script src="speech-transcriber.js?v=83"></script>
   <script src="voice-context.js?v=83"></script>
   <script src="diary-agent.js?v=83"></script>

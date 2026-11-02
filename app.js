@@ -1496,7 +1496,7 @@ function focusDiaryTargetSelected() {
 
 function handleDiaryTargetKeyboard(event) {
   const app = document.getElementById("app");
-  if (app.hidden || event.defaultPrevented || !document.getElementById("helpDialog").hidden) return;
+  if (app.hidden || event.defaultPrevented) return;
   const overlayOpen = ["sheetBackdrop", "voiceDialog", "statsScreen", "plannerScreen", "calendarScreen", "insightScreen"]
     .some((id) => !document.getElementById(id).hidden);
   if (overlayOpen || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -2502,7 +2502,7 @@ function movePlannerTaskToNextDay(index) {
 
 function handlePlannerKeyboard(event) {
   const screen = document.getElementById("plannerScreen");
-  if (screen.hidden || !document.getElementById("helpDialog").hidden || event.defaultPrevented) return;
+  if (screen.hidden || event.defaultPrevented) return;
 
   const editor = document.getElementById("sheetBackdrop");
   if (!editor.hidden) {
@@ -2568,31 +2568,6 @@ async function openPlannerSlot(slot) {
   document.getElementById("activityPickerLabel").textContent = "What are you scheduling?";
   document.getElementById("activitySearch").placeholder = "e.g. Revision, project work, meeting…";
   updateNotePlaceholder();
-}
-
-function openKeyboardHelp() {
-  const dialog = document.getElementById("helpDialog");
-  dialog.hidden = false;
-  document.getElementById("helpClose").focus();
-}
-
-function closeKeyboardHelp() {
-  document.getElementById("helpDialog").hidden = true;
-}
-
-function handleKeyboardHelp(event) {
-  const dialog = document.getElementById("helpDialog");
-  if (!dialog.hidden && event.key === "Escape") {
-    event.preventDefault();
-    closeKeyboardHelp();
-    return;
-  }
-  const target = event.target instanceof Element ? event.target : document.body;
-  const isTyping = target.matches("input, textarea, select") || target.isContentEditable;
-  if (dialog.hidden && event.key === "?" && !isTyping && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault();
-    openKeyboardHelp();
-  }
 }
 
 // ---- Calendar ----
@@ -4189,12 +4164,6 @@ document.getElementById("plannerScheduleList").addEventListener("click", (event)
 });
 document.getElementById("plannerOpenDay").addEventListener("click", openPlannerDay);
 document.addEventListener("keydown", handlePlannerKeyboard);
-document.getElementById("helpBtn").addEventListener("click", openKeyboardHelp);
-document.getElementById("helpClose").addEventListener("click", closeKeyboardHelp);
-document.getElementById("helpDialog").addEventListener("click", (event) => {
-  if (event.target.id === "helpDialog") closeKeyboardHelp();
-});
-document.addEventListener("keydown", handleKeyboardHelp);
 document.getElementById("calendarBtn").addEventListener("click", openCalendar);
 document.getElementById("calendarBack").addEventListener("click", closeCalendar);
 document.getElementById("calendarMultiSelect").addEventListener("click", toggleCalendarMultiMode);
@@ -4534,7 +4503,6 @@ function applySession(session) {
     document.getElementById("calendarScreen").hidden = true;
     document.getElementById("insightScreen").hidden = true;
     document.getElementById("insightsMenu").hidden = true;
-    document.getElementById("helpDialog").hidden = true;
     document.getElementById("authScreen").hidden = false;
   }
 }
