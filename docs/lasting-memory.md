@@ -6,8 +6,9 @@ implicitly. Inferred memories and forgetting a particular memory require confirm
 
 ## Using Telegram
 
-- `/start` shows Today, Plan, Memory and Settings buttons; the command menu also offers
-  `/priorities`, `/history`, `/pause`, `/resume` and `/forget`.
+- The visible command menu contains only **Choose day**, **View diary** and **Settings**.
+  `/start` removes the old multi-button reply keyboard. Other actions remain available
+  in conversation and through their existing typed commands.
 - “Remember that I prefer concise weekly reviews” saves an explicit memory.
 - “I need to finish my application by Friday; next step: draft the introduction” tracks
   a commitment without inventing a diary entry or reminder time.

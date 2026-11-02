@@ -2,7 +2,7 @@
 const {UserError,anchor,context,plan,control}=require('./domain.cjs');
 const {button}=require('./store.cjs');
 const {query,summarize,gaps}=require('./day-summary.cjs');
-const help='Tell me about your day by text or voice. I’ll save clear requests and ask if anything is unclear. You can correct me in chat or tap Undo. /day · /today · /plan · /memory · /priorities · /settings · /status · /history · /cancel · /undo · /pause · /resume · /forget · /unlink\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
+const help='Just text or send a voice note about your day. I’ll save clear requests and ask when anything is unclear. You can correct me in chat or tap Undo. Use the menu to choose a day, view your diary or change settings.\nVoice is transcribed by Groq; text and relevant diary context go to Ollama.';
 function parseUpdate(u,now=Date.now()) {
   if(!u || !Number.isSafeInteger(u.update_id)||u.update_id<0)return null;
   const cb=u.callback_query,m=cb?.message || u.message,from=cb?.from || m?.from;
@@ -93,7 +93,7 @@ class Service {
       else if(cmd?.control==='undo')await this.store.undo(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='cancel')await this.store.cancel(job,input.callback?.id);
       else if(cmd?.control==='unlink')await this.store.unlink(job);
-      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{keyboard:[[{text:'📅 Day'},{text:'Today'},{text:'Plan'}],[{text:'Memory'},{text:'Settings'}]],resize_keyboard:true}}]);
+      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{remove_keyboard:true}}]);
       else if(cmd?.control==='status'){
         const status=await this.store.status(job);
         const messages=status.pending?preview(status.pending.id,status.pending.data):[{text:status.receipt?`Latest bot change: ${status.receipt.undone?'undone':'saved'}. No pending draft.`:'No pending draft or saved bot changes.'}];
