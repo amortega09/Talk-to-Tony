@@ -4450,17 +4450,41 @@ document.getElementById('eventStartDate').addEventListener('change', () => {
 document.getElementById('eventPrevDay').addEventListener('click', () => moveEventDates(-1));
 document.getElementById('eventNextDay').addEventListener('click', () => moveEventDates(1));
 document.getElementById("saveBlock").addEventListener("click", saveSheet);
-document.getElementById("agentMemoryClose").addEventListener("click",()=>{document.getElementById("agentMemoryDialog").hidden=true;});
-document.getElementById("agentMemoryBtn").addEventListener("click",async()=>{
-  const dialog=document.getElementById("agentMemoryDialog"),body=document.getElementById("agentMemoryBody");dialog.hidden=false;body.textContent="Checking current records…";
-  if(!sb || !USER_ID || USER_ID==='local-recovery'){body.textContent='Sign in to inspect lasting memory.';return;}
-  const actor=USER_ID;
+let agentOverviewRequest=0;
+function renderAgentOverview(all,selectedDate,body){
+  body.replaceChildren();
+  const addText=(parent,tag,text,className)=>{const node=document.createElement(tag);node.textContent=text;if(className)node.className=className;parent.appendChild(node);return node;};
+  const section=(title,description)=>{const node=document.createElement('section');node.className='agent-overview-section';addText(node,'h3',title);if(description)addText(node,'p',description,'agent-overview-hint');body.appendChild(node);return node;};
+  const dayLabel=date=>new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'}).format(new Date(date+'T12:00:00'));
+  const objectives=note=>(typeof note==='string'?note:'').split(/\r?\n/).map(parseObjectiveLine).filter(item=>item.text);
+  const list=(parent,items)=>{const ul=document.createElement('ul');ul.className='agent-overview-list';for(const item of items){const li=addText(ul,'li',`${item.completed?'✓':'○'} ${item.text}`);if(item.completed)li.className='agent-overview-completed';}parent.appendChild(ul);};
+  const daily=all.filter(r=>r.start_time===PLAN_KEY&&r.date!==SETTINGS_DATE).map(r=>({date:r.date,items:objectives(r.note)}));
+  const rough=all.filter(r=>r.start_time===ROUGH_PLAN_KEY).map(r=>({date:r.date,items:roughPlansForDay({[ROUGH_PLAN_KEY]:r})}));
+  const active=section('Objectives & plans',`Existing items from Day · viewing ${dayLabel(selectedDate)}. These do not need to be saved again as memories.`);
+  const chosen=daily.find(r=>r.date===selectedDate)?.items || [],plans=rough.find(r=>r.date===selectedDate)?.items || [];
+  if(chosen.length)list(active,chosen);else addText(active,'p','No objectives for this date.','agent-overview-hint');
+  if(plans.length){addText(active,'h4','Plans for this date');const ul=document.createElement('ul');for(const text of plans)addText(ul,'li',text);active.appendChild(ul);}
+  const settingsRow=all.find(r=>r.date===SETTINGS_DATE&&r.start_time==='__settings__');let settings={};try{settings=JSON.parse(settingsRow?.note || '{}') || {};}catch{}
+  for(const [key,title] of [['shortTermObjectives','Short-term objectives'],['longTermObjectives','Long-term objectives']]){const items=objectives(settings[key]);addText(active,'h4',title);if(items.length)list(active,items);else addText(active,'p','None added yet.','agent-overview-hint');}
+  const otherDates=[...new Set([...daily.filter(r=>r.date!==selectedDate&&r.items.some(i=>!i.completed)).map(r=>r.date),...rough.filter(r=>r.date!==selectedDate&&r.items.length).map(r=>r.date)])].sort((a,b)=>b.localeCompare(a));
+  if(otherDates.length){const details=document.createElement('details');addText(details,'summary',`Other dates with open objectives or plans (${otherDates.length})`);for(const date of otherDates){addText(details,'h4',dayLabel(date));const items=(daily.find(r=>r.date===date)?.items || []).filter(i=>!i.completed);if(items.length)list(details,items);const plans=rough.find(r=>r.date===date)?.items || [];if(plans.length){const ul=document.createElement('ul');for(const text of plans)addText(ul,'li',text);details.appendChild(ul);}}active.appendChild(details);}
+  const records=DayAgentMemory.view(all,{parseObjective:parseObjectiveLine}).filter(r=>r.status!=='forgotten');
+  for(const [type,title,description,empty] of [
+    ['commitment','Tracked commitments','Items Tony is explicitly tracking, including deadlines and follow-ups.','No separately tracked commitments. Your existing objectives and plans are shown above.'],
+    ['memory','Saved memories','Preferences, decisions and context you have asked Tony to keep.','No saved memories yet. Tell Tony “Remember that…” to keep a preference or decision.']
+  ]){const node=section(title,description),items=records.filter(r=>r.type===type);if(!items.length)addText(node,'p',empty,'agent-overview-hint');for(const record of items){const card=document.createElement('div');card.className='agent-overview-card';addText(card,'p',DayAgentMemory.format(record));const button=addText(card,'button','Review in Telegram','ghost-btn');button.type='button';button.addEventListener('click',()=>shareAgentSelection({kind:record.type,id:record.id}));node.appendChild(card);}}
+}
+document.getElementById('agentMemoryClose').addEventListener('click',()=>{agentOverviewRequest++;document.getElementById('agentMemoryDialog').hidden=true;});
+document.getElementById('agentMemoryBtn').addEventListener('click',async()=>{
+  const dialog=document.getElementById('agentMemoryDialog'),body=document.getElementById('agentMemoryBody'),request=++agentOverviewRequest;dialog.hidden=false;body.textContent='Loading objectives, plans and memories…';
+  if(!sb || !USER_ID || USER_ID==='local-recovery'){body.textContent='Sign in to view your saved objectives, plans and memories.';return;}
+  const actor=USER_ID,client=sb,selectedDate=ymd(current);
   try{
-    const all=[];for(let offset=0;offset<10000;offset+=1000){const {data:rows,error}=await sb.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id',actor).or("date.eq.2000-01-01,start_time.eq.__plan__").order('date').order('start_time').range(offset,offset+999);if(error)throw error;all.push(...rows);if(rows.length<1000)break;if(offset===9000)throw Error('Too many source records');}
-    if(USER_ID!==actor)return;const records=DayAgentMemory.view(all,{parseObjective:parseObjectiveLine}).filter(r=>r.status!=='forgotten');body.textContent='';
-    if(!records.length){body.textContent='Nothing remembered yet. Tell Tony “Remember that…” or describe a commitment in Telegram.';return;}
-    for(const record of records.slice(0,50)){const section=document.createElement('section'),text=document.createElement('p'),button=document.createElement('button');text.textContent=DayAgentMemory.format(record);button.className='ghost-btn';button.textContent='Review in Telegram';button.addEventListener('click',()=>shareAgentSelection({kind:record.type,id:record.id}));section.append(text,button);body.appendChild(section);}
-  }catch{body.textContent='Could not verify current source records. Please try again.';}
+    const all=[];for(let offset=0;offset<10000;offset+=1000){const {data:rows,error}=await client.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id',actor).or('date.eq.2000-01-01,start_time.eq.__plan__,start_time.eq.__rough_plan__').order('date').order('start_time').range(offset,offset+999);if(error)throw error;all.push(...rows);if(rows.length<1000)break;if(offset===9000)throw Error('Too many source records');}
+    if(USER_ID!==actor||sb!==client||request!==agentOverviewRequest||dialog.hidden)return;
+    renderAgentOverview(all,selectedDate,body);
+    if(statusEl()?.classList.contains('syncing')||statusEl()?.classList.contains('err')){const hint=document.createElement('p');hint.className='agent-overview-hint';hint.textContent='Showing saved cloud records. Edits still waiting to sync may not appear yet.';body.prepend(hint);}
+  }catch{if(USER_ID===actor&&sb===client&&request===agentOverviewRequest&&!dialog.hidden)body.textContent='Could not load your objectives, plans and memories. Please try again.';}
 });
 document.getElementById("agentHistoryClose").addEventListener("click",()=>{document.getElementById("agentHistoryDialog").hidden=true;});
 document.getElementById("agentHistoryBtn").addEventListener("click",async()=>{

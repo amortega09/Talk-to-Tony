@@ -70,8 +70,8 @@ These defaults enable the new features without changing existing account prefere
 
 Only a bounded selection of active memories, targets and diary context reaches Ollama.
 Full owner history retrieval still fails closed above 10,000 rows; targeted historical
-retrieval remains a scaling follow-up. Memory review cards show the first 50 on the web;
-Telegram supports pagination. No automatic historical backfill, arbitrary external app
+retrieval remains a scaling follow-up. The web overview separates existing dated objectives/plans, longer-term objectives,
+tracked commitments and saved memories. Telegram supports pagination. No automatic historical backfill, arbitrary external app
 access, or guaranteed model interpretation is claimed. Unclear requests ask a question.
 
 Source events contain owner, date, slot and operation, never copied diary text. Events
@@ -159,3 +159,19 @@ Python tests (356 total), plus 5/5 date and 24/24 existing synthetic AI scenario
 The screenshot query and calendar paths were tested with an interpreter that throws if
 called, proving those operations do not depend on model output. No live diary data was
 sent to the AI evaluations.
+
+
+## Connected overview — 2 November 2026
+
+Memory & plans now includes the existing app objectives and rough plans, even if no
+agent memory or commitment has been saved. It shows the viewed diary day (including
+completion markers), short- and long-term objectives, and expandable other dates with
+open objectives or rough plans. Tracked commitments and saved memories each have their
+own explanation and empty state. It reads current owner-scoped cloud records without
+creating copies, changing completion or silently promoting objectives into memories.
+Unsynced edits are labelled, fetch errors remain distinct from an empty result, and
+late responses after account changes, closing or reopening the view are discarded.
+
+Validation: 264 JavaScript and 28 Python tests pass; the signed-in browser fixture checks
+existing plans with no agent memories, completed items, other dates, hidden link
+metadata, account isolation, read-only behavior and the addition of a saved memory.

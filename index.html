@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=83" />
+  <link rel="stylesheet" href="styles.css?v=89" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -132,8 +132,8 @@
   </div>
   <div class="sheet-backdrop" id="agentMemoryDialog" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="agentMemoryTitle">
-      <h2 id="agentMemoryTitle">Memory &amp; commitments</h2>
-      <div id="agentMemoryBody" style="max-height:60vh;overflow:auto;white-space:pre-wrap"></div>
+      <h2 id="agentMemoryTitle">Memory &amp; plans</h2>
+      <div id="agentMemoryBody" class="agent-overview-body"></div>
       <button class="primary-btn" id="agentMemoryClose" type="button">Close</button>
     </section>
   </div>
@@ -478,7 +478,7 @@
   <script src="event-range.js?v=71"></script>
   <script src="voice-draft.js?v=83"></script>
   <script src="slot-transfer.js?v=2"></script>
-  <script src="app.js?v=88"></script>
+  <script src="app.js?v=89"></script>
   <script src="speech-transcriber.js?v=83"></script>
   <script src="voice-context.js?v=83"></script>
   <script src="diary-agent.js?v=83"></script>

@@ -1727,3 +1727,17 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 #voiceDialog[data-phase="review"] #voiceRecordLabel { position:static; width:auto; color:white; font-size:11px; }
 #voiceDialog[data-phase="review"] .voice-status { font-size:11px; margin:0; }
 @media (max-width:500px) { #voiceDialog[data-phase="review"] .voice-capture { flex-wrap:wrap; } }
+
+/* Existing app plans and explicit agent memory share an overview, not storage. */
+.agent-overview-body { max-height:60vh; overflow:auto; margin:16px 0; }
+.agent-overview-section { border-top:1px solid var(--line, #ddd); padding:16px 0; }
+.agent-overview-section h3 { margin:0 0 6px; font-size:18px; }
+.agent-overview-section h4 { margin:16px 0 6px; }
+.agent-overview-hint { color:var(--text-soft); font-size:14px; line-height:1.5; margin:6px 0 12px; }
+.agent-overview-list { padding-left:22px; list-style:none; }
+.agent-overview-list li { margin:8px 0; overflow-wrap:anywhere; }
+.agent-overview-completed { color:var(--text-soft); }
+.agent-overview-section details { margin-top:18px; }
+.agent-overview-section summary { cursor:pointer; }
+.agent-overview-card { margin:12px 0; padding:12px 0; }
+.agent-overview-card p { white-space:pre-wrap; overflow-wrap:anywhere; }
