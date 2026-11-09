@@ -7,10 +7,10 @@ function vocabulary(rows){
   let settings={};try{settings=JSON.parse(rows.find(r=>r.start_time==='__settings__')?.note || '{}');}catch{}
   const choices=[];
   const custom=Array.isArray(settings.customCats)?settings.customCats:[];
-  function add(label,category,sub,note='',priority=0){
+  function add(label,category,sub,note='',priority=0,extra={}){
     if(!label || !labels[category])return;
     const override=settings.activityAreas?.[key(label)];
-    const b=M.normalize({category:labels[override]?override:category,sub,note},{projectNames:settings.workProjects || []});
+    const b=M.normalize({category:labels[override]?override:category,sub,note,details:extra},{projectNames:settings.workProjects || []});
     choices.push({label,category:b.category,sub:b.sub,note,...(b.details?{details:b.details}:{}),priority});
   }
   for(const [cat,names] of Object.entries(M.activities))for(const name of names)add(name,cat,name,'',0);
@@ -26,6 +26,7 @@ function vocabulary(rows){
   }
   for(const c of custom)if(typeof c.label==='string'){const builtin=Object.entries(labels).find(([,label])=>key(label)===key(c.label));if(!builtin)add(c.label,'other',c.label,'',2);}
   for(const project of settings.workProjects || [])if(typeof project==='string')add(project,'work',project,'',2);
+  for(const company of M.companies(settings.workCompanies))for(const project of company.projects)add(project,'work','Work','',3,{company:company.name,project});
   // The category itself is an app option, never a redundant subcategory.
   for(const [category,label] of Object.entries(labels))add(label,category,'','',3);
   for(const [label,category] of [['Work','work'],['Learn','learn'],['Chores','chores'],['Relax','relax']])add(label,category,'','',3);
@@ -38,8 +39,9 @@ function vocabulary(rows){
     return [...unique.values()].sort((a,b)=>b.count-a.count).map(({priority,count,...c})=>c);
   });
 }
-function resolve(name,category,rows,{strict=false,allowedNew=[],selectedCategory}={}){
+function resolve(name,category,rows,{strict=false,allowedNew=[],selectedCategory,company}={}){
   let matches=vocabulary(rows).filter(c=>key(c.label)===key(name));
+  if(company)matches=matches.filter(c=>!c.details?.company||key(c.details.company)===key(company));
   if(matches.length>1 && selectedCategory)matches=matches.filter(c=>c.category===selectedCategory);
   if(matches.length===1)return {format:matches[0]};
   if(matches.length>1)return {question:`“${name}” has multiple saved formats. Reply with its category (${[...new Set(matches.map(c=>c.category))].join(' or ')}), or give a different existing name.`};

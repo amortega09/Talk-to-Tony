@@ -33,6 +33,7 @@ const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
 let workProjects = [];
+let workCompanies = [];
 let activityAreas = {};              // { normalized activity label: builtin category id }
 let categoryMigrationVersion = 0;    // last completed historical recategorisation
 let shortTermObjectives = "";
@@ -154,6 +155,7 @@ function loadSettingsLocal() {
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
     activityAreas = (s.activityAreas && typeof s.activityAreas === "object") ? s.activityAreas : {};
+    workCompanies = DayActivity.companies(s.workCompanies);
     workProjects = Array.isArray(s.workProjects) ? s.workProjects.filter(p=>typeof p==="string") : [];
     categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
     shortTermObjectives = typeof s.shortTermObjectives === "string" ? s.shortTermObjectives : "";
@@ -174,23 +176,24 @@ async function pullSettings() {
       if (Array.isArray(s.customCats)) customCats = s.customCats;
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
       if (s.activityAreas && typeof s.activityAreas === "object") activityAreas = s.activityAreas;
+      workCompanies = DayActivity.companies(s.workCompanies);
       workProjects = Array.isArray(s.workProjects) ? s.workProjects.filter(p=>typeof p==="string") : [];
       if (s.categoryMigrationVersion != null) categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
       if (typeof s.shortTermObjectives === "string") shortTermObjectives = s.shortTermObjectives;
       if (typeof s.longTermObjectives === "string") longTermObjectives = s.longTermObjectives;
       gymExercises = mergeGymExercises(s.gymExercises);
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, workCompanies, workHierarchyVersion:1, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, workCompanies, workHierarchyVersion:1, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, workCompanies, workHierarchyVersion:1, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
@@ -811,6 +814,7 @@ function openSheet(slotList, preferredCat) {
   renderGymInline(existing);
   renderActivityDetails();
   document.getElementById("sheetBackdrop").hidden = false;
+  if(selectedCat==='work')refreshWorkCompanies();
 }
 
 function eventTimeLabel(value) {
@@ -1166,6 +1170,7 @@ function selectActivity(activity) {
   updateNotePlaceholder();
   renderGymInline(preserveGymWorkout ? existing : null);
   renderActivityDetails();
+  if(selectedCat==='work')refreshWorkCompanies();
 }
 
 function createActivityFromSearch() {
@@ -1187,6 +1192,7 @@ function createActivityFromSearch() {
   updateNotePlaceholder();
   renderGymInline(null);
   renderActivityDetails();
+  if(selectedCat==='work')refreshWorkCompanies();
 }
 
 function renderCatGrid() {
@@ -1680,6 +1686,7 @@ async function saveSheet() {
   if (sub) rememberSub(selectedCat, sub);
   rememberActivityArea(selectedActivityLabel || sub || (CAT[selectedCat] && CAT[selectedCat].label), selectedCat);
   const details = readActivityDetails();
+  if(selectedCat==='work'){const error=DayActivity.workError({category:'work',details},workCompanies);if(error){setStatus('err',error);document.getElementById(details.company?'activityProject':'activityCompany').focus();return;}}
   delete details.needs_review;
   if(details.project && !workProjects.includes(details.project)){workProjects.push(details.project);saveSettings();}
   const block = DayActivity.withDetails({ category: selectedCat === 'gym' ? 'exercise' : selectedCat, note, sub: isSelectedGym() ? 'Gym' : sub }, details);
@@ -1794,6 +1801,7 @@ function exportData() {
     exported_at: new Date().toISOString(),
     user_id: USER_ID,
     work_projects: workProjects,
+    work_companies: workCompanies,
     targets: { short_term: shortTermObjectives, long_term: longTermObjectives },
     notes: visibleNotes(),
     note_projects: noteProjects,
@@ -1826,6 +1834,7 @@ function recoveryRowsFromBackup(backup) {
         sub: typeof saved.subcategory === "string" ? saved.subcategory : "",
         ...(saved.details ? {details:DayActivity.details(saved.details)} : {}),
       };
+      if(block.details?.company && block.details?.project){let company=workCompanies.find(c=>DayActivity.key(c.name)===DayActivity.key(block.details.company));if(!company){company={name:block.details.company,projects:[]};workCompanies.push(company);}if(!company.projects.includes(block.details.project))company.projects.push(block.details.project);}
       if(block.details?.project && !workProjects.includes(block.details.project))workProjects.push(block.details.project);
       day[saved.start_time] = block;
       rows.push({ date: dateStr, start_time: saved.start_time, ...block });
@@ -3210,7 +3219,7 @@ function renderInsightSubs(map) {
     const items=Object.entries(values).sort((a,b)=>b[1]-a[1]);
     return items.length?`<div class="stats-h">${title}</div>`+items.map(([name,h])=>barRow(name,color,h,items[0][1])).join(''):'';
   };
-  return panel('Work by project / company',totals.projects,catColor('work'))+
+  return panel('Work by company / project',totals.projects,catColor('work'))+
     panel(`Travel · ${fmtH(totals.travelHours)} total`,totals.transport,catColor('travel'))+
     (totals.travelHours?'<p class="stats-empty">Mixed journeys count once. Time within each transport mode is not inferred.</p>':'');
 }
@@ -4167,6 +4176,25 @@ window.addEventListener("beforeunload", () => {
 });
 
 // ---- Wire up ----
+document.getElementById('activityCompany').addEventListener('change',()=>{
+  selectedDetails={...selectedDetails,company:document.getElementById('activityCompany').value};delete selectedDetails.project;renderWorkChoices();
+});
+document.getElementById('activityProject').addEventListener('change',()=>{selectedDetails={...selectedDetails,project:document.getElementById('activityProject').value};});
+document.getElementById('addWorkCompany').addEventListener('click',()=>{
+  const raw=window.prompt('Company name');if(raw===null||!raw.trim())return;const name=raw.trim();
+  if(name.length>300){setStatus('err','Company names must be under 300 characters.');return;}
+  let company=workCompanies.find(c=>DayActivity.key(c.name)===DayActivity.key(name));if(!company){company={name,projects:[]};workCompanies.push(company);}
+  selectedDetails={...selectedDetails,company:company.name};delete selectedDetails.project;saveSettings();renderWorkChoices();
+});
+document.getElementById('addWorkProject').addEventListener('click',()=>{
+  const company=workCompanies.find(c=>c.name===document.getElementById('activityCompany').value);if(!company){setStatus('err','Choose a company first.');return;}
+  const oldProject=editing&&data[editing[0]]?.details?.project;
+  const raw=window.prompt('Project name under '+company.name,oldProject || '');if(raw===null||!raw.trim())return;let name=raw.trim();
+  if(name.length>300){setStatus('err','Project names must be under 300 characters.');return;}
+  const existing=company.projects.find(p=>DayActivity.key(p)===DayActivity.key(name));if(existing)name=existing;else company.projects.push(name);
+  selectedDetails={...selectedDetails,company:company.name,project:name};if(!workProjects.includes(name))workProjects.push(name);saveSettings();renderWorkChoices();
+});
+
 document.getElementById('insightBody').addEventListener('click',async event=>{
   const button=event.target.closest('[data-review-date]');if(!button)return;
   const date=button.dataset.reviewDate,slots=button.dataset.reviewSlots.split(',');
@@ -5086,8 +5114,8 @@ function readActivityDetails() {
     d.destination = document.getElementById('activityDestination').value.trim();
     delete d.modes;
   } else { delete d.modes; delete d.destination; }
-  if (selectedCat === 'work') d.project = document.getElementById('activityProject').value.trim();
-  else delete d.project;
+  if (selectedCat === 'work') {d.company = document.getElementById('activityCompany').value;d.project = document.getElementById('activityProject').value;}
+  else {delete d.project;delete d.company;}
   selectedDetails = DayActivity.details(d);
   return {...selectedDetails};
 }
@@ -5100,12 +5128,35 @@ function renderActivityDetails() {
   document.getElementById('workProjectField').hidden=!work;
   document.getElementById('activityReviewHint').hidden=!selectedDetails.needs_review;
   document.getElementById('activityDestination').value=selectedDetails.destination || '';
-  document.getElementById('activityProject').value=selectedDetails.project || '';
+  renderWorkChoices();
   const list=document.getElementById('transportModes');list.replaceChildren();
   for(const mode of DayActivity.modes){
     const label=document.createElement('label'),input=document.createElement('input');
     input.type='checkbox';input.value=mode;input.checked=!!selectedDetails.modes?.includes(mode);
     label.append(input,document.createTextNode(mode));list.appendChild(label);
   }
-  document.getElementById('workProjectOptions').replaceChildren(...workProjects.map(name=>{const option=document.createElement('option');option.value=name;return option;}));
+
+}
+
+function renderWorkChoices(){
+  const original=editing&&data[editing[0]]?.details,hint=document.getElementById('legacyWorkHint');
+  hint.hidden=!(original?.project&&!original.company);hint.textContent=original?.project?'Older entry: '+original.project+' has no company assigned.':'';
+  const companySelect=document.getElementById('activityCompany'),projectSelect=document.getElementById('activityProject');
+  const fill=(select,placeholder,values,value)=>{const option=document.createElement('option');option.value='';option.textContent=placeholder;select.replaceChildren(option);for(const name of values){const o=document.createElement('option');o.value=name;o.textContent=name;select.appendChild(o);}select.value=values.includes(value)?value:'';};
+  fill(companySelect,'Select company…',workCompanies.map(c=>c.name),selectedDetails.company);
+  const company=workCompanies.find(c=>c.name===companySelect.value);
+  fill(projectSelect,company?'Select project…':'Choose company first',company?.projects || [],selectedDetails.project);
+  projectSelect.disabled=!company;document.getElementById('addWorkProject').disabled=!company;
+}
+
+async function refreshWorkCompanies(){
+  if(!sb||!USER_ID||USER_ID==='local-recovery')return;
+  const actor=USER_ID,client=sb;
+  try{
+    const {data:rows,error}=await client.from('blocks').select('note').eq('user_id',actor).eq('date',SETTINGS_DATE).eq('start_time','__settings__');
+    if(error||USER_ID!==actor||sb!==client)return;
+    const settings=JSON.parse(rows?.[0]?.note || '{}');
+    for(const remote of DayActivity.companies(settings.workCompanies)){let local=workCompanies.find(c=>DayActivity.key(c.name)===DayActivity.key(remote.name));if(!local){local={name:remote.name,projects:[]};workCompanies.push(local);}for(const project of remote.projects)if(!local.projects.includes(project))local.projects.push(project);}
+    if(selectedCat==='work'&&!document.getElementById('sheetBackdrop').hidden)renderWorkChoices();
+  }catch{/* The local catalogue remains usable while offline. */}
 }

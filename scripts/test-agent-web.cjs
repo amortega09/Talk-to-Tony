@@ -51,10 +51,16 @@ window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{u
   assert.equal(await page.locator('#transportModes input:checked').count(),2);assert.equal(await page.locator('#activityDestination').inputValue(),'London');
   if(process.env.DAY_TRAVEL_SCREENSHOT){await page.setViewportSize({width:390,height:844});await page.evaluate(async()=>{await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));});await page.screenshot({path:process.env.DAY_TRAVEL_SCREENSHOT});}
   await page.evaluate(()=>closeSheet());await page.evaluate(()=>openSheet(['10:00']));
-  await page.locator('#activitySearch').fill('Meeting');await page.locator('#catGrid button').filter({hasText:'Meeting'}).first().click();await page.locator('#activityProject').fill('Moeve');await page.locator('#saveBlock').click();
-  await page.waitForFunction(()=>window.mockRows.some(r=>r.date==='2026-10-29'&&r.start_time==='10:00'&&r.details?.project==='Moeve'));
-  await page.evaluate(async()=>{await pullDay('2026-10-29');openSheet(['10:00']);});assert.equal(await page.locator('#activityProject').inputValue(),'Moeve');await page.evaluate(()=>closeSheet());
-  await page.evaluate(()=>{insightRange=0;openInsight('subs');});await page.getByText('Work by project / company',{exact:true}).waitFor();await page.locator('#insightBody').getByText('Bus + Train',{exact:true}).waitFor();await page.evaluate(()=>closeInsight());
+  await page.locator('#activitySearch').fill('Meeting');await page.locator('#catGrid button').filter({hasText:'Meeting'}).first().click();assert.equal(await page.locator('#activityProject').isDisabled(),true);
+  await page.locator('#saveBlock').click();assert.equal(await page.locator('#sheetBackdrop').isVisible(),true);assert.ok(!await page.evaluate(()=>window.mockRows.some(r=>r.date==='2026-10-29'&&r.start_time==='10:00')));
+  page.once('dialog',d=>d.accept('Atlas'));await page.locator('#addWorkCompany').click();
+  page.once('dialog',d=>d.accept('Research'));await page.locator('#addWorkProject').click();
+  assert.equal(await page.locator('#activityCompany').inputValue(),'Atlas');assert.equal(await page.locator('#activityProject').inputValue(),'Research');
+  page.once('dialog',d=>d.accept('Orion'));await page.locator('#addWorkCompany').click();assert.equal(await page.locator('#activityProject').inputValue(),'');assert.equal(await page.locator('#activityProject option').count(),1);
+  await page.locator('#activityCompany').selectOption('Atlas');assert.equal(await page.locator('#activityProject').inputValue(),'');await page.locator('#activityProject').selectOption('Research');await page.locator('#saveBlock').click();
+  await page.waitForFunction(()=>window.mockRows.some(r=>r.date==='2026-10-29'&&r.start_time==='10:00'&&r.details?.company==='Atlas'&&r.details?.project==='Research'));
+  await page.evaluate(async()=>{await pullDay('2026-10-29');openSheet(['10:00']);});assert.equal(await page.locator('#activityCompany').inputValue(),'Atlas');assert.equal(await page.locator('#activityProject').inputValue(),'Research');if(process.env.DAY_WORK_SCREENSHOT){await page.setViewportSize({width:390,height:844});await page.evaluate(async()=>{await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));});await page.screenshot({path:process.env.DAY_WORK_SCREENSHOT});}await page.evaluate(()=>closeSheet());
+  await page.evaluate(()=>{insightRange=0;openInsight('subs');});await page.getByText('Work by company / project',{exact:true}).waitFor();await page.locator('#insightBody').getByText('Bus + Train',{exact:true}).waitFor();await page.evaluate(()=>closeInsight());
   assert.deepEqual(errors,[]);console.log('PASS: signed-in fixture, slot selection sharing, activity view, cloud refresh, existing objectives and plans without memories, owner isolation, read-only overview, saved memories, structured multi-mode journeys, work projects, detail round-trip, breakdown reports, no browser errors.');
  }finally{if(browser)await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e.message);process.exitCode=1;});

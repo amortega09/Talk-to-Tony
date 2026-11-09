@@ -30,10 +30,20 @@ tool('query_slot','Read exact saved activities and notes for a date/time range.'
  validDate(a.date);const day=get(c,a.date);const slots=Object.keys(day).filter(s=>/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(s)&&(!a.start||s>=a.start)&&(!a.end||s<a.end)).sort();
  return slots.length?slots.map(s=>`${a.date} ${s} · ${M.title(day[s])}${day[s].note?' · '+day[s].note:''}`).join('\n'):`No activities are saved for ${a.date}${a.start?' at '+a.start:''}.`;
 });
-tool('activity_details','Set transport modes/destination or work project on one exact activity.',{target:short,modes:{type:'array',items:{enum:M.modes},uniqueItems:true,maxItems:11},destination:{type:'string',maxLength:300},project:{type:'string',maxLength:300}},['target'],(a,c)=>{
+tool('activity_details','Set transport modes/destination or company/project on one exact activity.',{target:short,modes:{type:'array',items:{enum:M.modes},uniqueItems:true,maxItems:11},destination:{type:'string',maxLength:300},project:{type:'string',maxLength:300},company:{type:'string',maxLength:300}},['target'],(a,c)=>{
  const t=target(a,c,'activity'),r=R.build(t.date,t.start,t.date,t.end);
- for(const d of r.days)for(const slot of d.slots){const b=get(c,d.date)[slot];if(!b)throw Error('That activity changed.');const details={...b.details};for(const name of ['modes','destination','project'])if(a[name]!==undefined)details[name]=a[name];get(c,d.date)[slot]=M.normalize({...b,details});}
+ for(const d of r.days)for(const slot of d.slots){const b=get(c,d.date)[slot];if(!b)throw Error('That activity changed.');const details={...b.details};for(const name of ['modes','destination','project','company'])if(a[name]!==undefined)details[name]=a[name];get(c,d.date)[slot]=M.normalize({...b,details});}
  summariesPlaceholder(c,'Update '+t.activity+' details');
+});
+tool('work_company_add','Add a work company only on an explicit request.',{company:short},['company'],(a,c)=>{
+ const day=get(c,'2000-01-01'),settings=parse(day.__settings__?.note),companies=M.companies(settings.workCompanies);
+ if(!companies.some(x=>M.key(x.name)===M.key(a.company)))companies.push({name:a.company.trim(),projects:[]});
+ settings.workCompanies=companies;settings.workHierarchyVersion=1;saveJSON(c,'2000-01-01','__settings__','settings',settings);
+});
+tool('work_project_add','Add a work project under an existing company, only on explicit request.',{company:short,project:short},['company','project'],(a,c)=>{
+ const day=get(c,'2000-01-01'),settings=parse(day.__settings__?.note),companies=M.companies(settings.workCompanies),company=companies.find(x=>M.key(x.name)===M.key(a.company));
+ if(!company)throw Error('Add or select the company first.');if(!company.projects.some(p=>M.key(p)===M.key(a.project)))company.projects.push(a.project.trim());
+ settings.workCompanies=companies;settings.workHierarchyVersion=1;settings.workProjects=[...new Set([...(settings.workProjects || []),a.project.trim()])];saveJSON(c,'2000-01-01','__settings__','settings',settings);
 });
 tool('query_objectives','Read saved daily or longer-term objectives.',{date,horizon:{enum:['daily','shortTermObjectives','longTermObjectives']}},[],(a,c)=>{const horizon=a.horizon || 'daily';if(horizon==='daily')validDate(a.date);const day=get(c,horizon==='daily'?a.date:'2000-01-01');const raw=(horizon==='daily'?day.__plan__?.note:parse(day.__settings__?.note)[horizon]) || '';return raw?raw.split(/\r?\n/).map(c.helpers.parseObjective).filter(i=>i.text).map(i=>`${i.completed?'✓':'○'} ${i.text}`).join('\n'):'No objectives are saved for that scope.';});
 tool('query_notes','Search saved note titles and bodies; provide full content of a selected note.',{target:short,text:short},[],(a,c)=>{if(a.target){const {note}=noteTarget(a,c);return `${note.title}\n${note.body || ''}`;}const list=notes(c).filter(n=>!a.text||`${n.title} ${n.body}`.toLowerCase().includes(a.text.toLowerCase()));return list.length?list.slice(0,20).map(n=>`${n.title}: ${(n.body || '').slice(0,300)}`).join('\n'):'No matching notes are saved.';});

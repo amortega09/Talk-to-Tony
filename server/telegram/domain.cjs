@@ -30,7 +30,7 @@ function roughPlans(day) {
   try { const p=JSON.parse(note); if(Array.isArray(p))return p.map(String).map(s=>s.trim()).filter(Boolean); } catch {}
   return note.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
 }
-const helpers={parseObjective,serializeObjectives,roughPlans,roughPlanBlock:plans=>plans.length?{category:'calendar_plan',note:JSON.stringify(plans),sub:'Rough plan'}:null,categories:entries.categories};
+const helpers={deferWorkValidation:true,parseObjective,serializeObjectives,roughPlans,roughPlanBlock:plans=>plans.length?{category:'calendar_plan',note:JSON.stringify(plans),sub:'Rough plan'}:null,categories:entries.categories};
 function anchor(timestamp) {
   const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(timestamp*1000)).map(p=>[p.type,p.value]));
   return {today:`${p.year}-${p.month}-${p.day}`,local_time:`${p.hour}:${p.minute}`,timezone:'Europe/London'};
@@ -74,7 +74,7 @@ function context(rows,text,time,conversation=[],options={}) {
   const activityFormats=formats.vocabulary(rows).filter(f=>f.label.length<=150&&f.note.length<=300).sort((a,b)=>score({activity:b.label})-score({activity:a.label})).filter(f=>{formatBudget-=JSON.stringify(f).length;return formatBudget>=0;}).slice(0,80);
   const explicitDate=require('./dates.cjs').resolve(text,time.today);
   let memoryBudget=6500;const memory=require('./memory.cjs').view(rows,helpers).filter(r=>r.status==='active').map(r=>({...r,target:r.type+':'+r.id})).sort((a,b)=>score({text:b.title || b.text})-score({text:a.title || a.text})).filter(r=>{memoryBudget-=JSON.stringify(r).length;return memoryBudget>=0;});
-  return {...time,lasting_memory:memory,memory_limited:memoryBudget<0,resolved_date:explicitDate,viewed_date:discussionDate,discussion_date:discussionDate,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:discussionDate,transcript:text,maxChars:14000})};
+  return {...time,work_companies:JSON.parse(rows.find(r=>r.start_time==='__settings__')?.note || '{}').workCompanies || [],lasting_memory:memory,memory_limited:memoryBudget<0,resolved_date:explicitDate,viewed_date:discussionDate,discussion_date:discussionDate,current_day:{date:time.today,recorded_slots:rows.filter(r=>r.date===time.today && /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(r.start_time)).length,source:'fresh_database_read'},conversation:conversation.slice(-9),app:{screen:'telegram',selected_target:null,targets,targets_limited:targets.length<all.length,activity_formats:activityFormats},diary:history.select({rows,complete:true,source:'cloud'},{today:time.today,viewedDate:discussionDate,transcript:text,maxChars:14000})};
 }
 function plan(draft,rows,catalog,options={}) {
   validate(draft);
@@ -93,12 +93,12 @@ function plan(draft,rows,catalog,options={}) {
       const before=actions.normal(original[date]?.[slot]),after=actions.normal(next[date]?.[slot]);if(!actions.same(before,after))patches.push({date,slot,before,after,version:rows.find(r=>r.date===date&&r.start_time===slot)?.version || null});
     }
     if(patches.length>500)throw new UserError('Split this into smaller changes.');
-    return {...edits,patches,summaries:[...additions.summaries,...edits.summaries],requiresConfirmation:additions.requiresConfirmation || edits.requiresConfirmation};
+    return enforceWork({...edits,patches,summaries:[...additions.summaries,...edits.summaries],requiresConfirmation:additions.requiresConfirmation || edits.requiresConfirmation},rows);
   }
   const days=actions.daysFromRows(rows); let result;
   const resolved=new Map();
   for(const item of [...draft.items,...(draft.actions || []).filter(a=>['activity_update','activity_slice'].includes(a.type) && a.activity)]){
-    const match=formats.resolve(item.activity,item.category || catalog.find(t=>t.id===item.target)?.category || rows.find(r=>r.date===item.date&&r.start_time===item.start)?.category,rows,options);
+    const match=formats.resolve(item.activity,item.category || catalog.find(t=>t.id===item.target)?.category || rows.find(r=>r.date===item.date&&r.start_time===item.start)?.category,rows,{...options,company:item.details?.company});
     if(match.question)return {patches:[],summaries:[],answers:[],navigation:[],questions:[match.question],formatProposals:match.proposal?[match.proposal]:[]};
     resolved.set(item,match.format);
   }
@@ -128,7 +128,13 @@ function plan(draft,rows,catalog,options={}) {
   const versions=new Map(rows.map(r=>[`${r.date}/${r.start_time}`,r.version]));
   result.patches=result.patches.map(p=>({...p,version:versions.get(`${p.date}/${p.slot}`) || null}));
   if(result.patches.length>500)throw new UserError('Split this into smaller changes.');
-  return {...result,questions:[],formatVersion:1,toolVersion:agentTools.VERSION};
+  return enforceWork({...result,questions:[],formatVersion:1,toolVersion:agentTools.VERSION},rows);
+}
+function enforceWork(result,rows){
+  const settingsPatch=result.patches.find(p=>p.date==='2000-01-01'&&p.slot==='__settings__');
+  const settings=JSON.parse(settingsPatch?.after?.note || rows.find(r=>r.date==='2000-01-01'&&r.start_time==='__settings__')?.note || '{}');
+  if(settings.workHierarchyVersion===1)for(const patch of result.patches){const error=M.workError(patch.after,settings.workCompanies);if(error)return {...result,patches:[],summaries:[],questions:[error]};if(patch.after?.category==='work')patch.after=M.canonicalWork(patch.after,settings.workCompanies);}
+  return result;
 }
 function control(text,time) {
   const t=text.trim().replace(/^\/(save|cancel|undo|status|help|unlink)(?:@\w+)?$/i,'$1').toLowerCase().replace(/[.!?]+$/,'');

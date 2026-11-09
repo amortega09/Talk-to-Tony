@@ -384,3 +384,10 @@ test('structured travel survives transactional save, conflict checks, undo and b
  }finally{c.release();}
  rows=(await admin.query("select date::text as date,details from public.blocks where start_time='09:00'")).rows;assert.equal(rows[0].date,'2026-10-25');assert.equal(rows[0].details.destination,'London');
 });
+
+test('a previously drafted work save must satisfy the current company/project requirements',async()=>{
+ const id=await draft();
+ await admin.query("insert into public.blocks(user_id,date,start_time,category,note) values($1,'2000-01-01','__settings__','settings',$2)",[owner,JSON.stringify({workHierarchyVersion:1,workCompanies:[{name:'Atlas',projects:['Research']}]})]);
+ await assert.rejects(store.apply(await job('save'),id,true),/company/);
+ assert.equal((await admin.query("select * from public.blocks where start_time='09:00'")).rowCount,0);
+});

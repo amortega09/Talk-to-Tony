@@ -22,7 +22,7 @@
     if(value==null)return {};
     if(typeof value!=='object'||Array.isArray(value))throw Error('Invalid activity details.');
     const out={};
-    for(const name of ['project','destination','original_category','original_activity'])if(value[name]!=null){if(typeof value[name]!=='string'||value[name].length>300)throw Error('Activity details must be under 300 characters.');if(value[name].trim())out[name]=value[name].trim();}
+    for(const name of ['company','project','destination','original_category','original_activity'])if(value[name]!=null){if(typeof value[name]!=='string'||value[name].length>300)throw Error('Activity details must be under 300 characters.');if(value[name].trim())out[name]=value[name].trim();}
     if(value.modes!=null){if(!Array.isArray(value.modes)||value.modes.some(m=>!modes.includes(m)))throw Error('Choose supported transport modes.');const chosen=new Set(value.modes);if(chosen.size)out.modes=modes.filter(m=>chosen.has(m));}
     if(value.needs_review===true)out.needs_review=true;
     return out;
@@ -53,7 +53,7 @@
     }
     if(category!=='travel')delete d.modes;
     if(category!=='travel'&&category!=='health')delete d.destination;
-    if(category!=='work')delete d.project;
+    if(category!=='work'){delete d.project;delete d.company;}
     if(category==='health' && ['hospital','dentist','opticians'].includes(name) && !d.destination)d.destination=sub==='Appointment'?({hospital:'Hospital',dentist:'Dentist',opticians:'Opticians'}[name]):'';
     if(history && (conflict || ambiguous.has(name)))d.needs_review=true;
     if(history && (category!==originalCategory || sub!==originalActivity)){
@@ -66,13 +66,43 @@
     const projects={},transport={};let travelHours=0;
     for(const day of Object.values(days))for(const [slot,b] of Object.entries(day)){
       if(!/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(slot)||!b||/^\[GCal\]/.test(b.note || ''))continue;
-      if(b.category==='work'&&b.details?.project)projects[b.details.project]=(projects[b.details.project] || 0)+.5;
+      if(b.category==='work'){const name=[b.details?.company || 'Company not recorded',b.details?.project || 'Project not recorded'].join(' / ');projects[name]=(projects[name] || 0)+.5;}
       if(b.category==='travel'){travelHours+=.5;const mode=b.details?.modes?.length?b.details.modes.join(' + '):'Mode not recorded';transport[mode]=(transport[mode] || 0)+.5;}
     }
     return {projects,transport,travelHours};
   }
-  function describe(block){const d=details(block?.details);return [d.modes?.join(' + '),d.destination,d.project].filter(Boolean).join(' · ');}
+  function companies(value){
+    if(value==null)return [];
+    if(!Array.isArray(value))throw Error('Invalid company list.');
+    const result=[];
+    for(const item of value){
+      if(!item||typeof item.name!=='string'||!item.name.trim()||item.name.length>300||!Array.isArray(item.projects))throw Error('Invalid company or project.');
+      if(result.some(c=>key(c.name)===key(item.name)))throw Error('Company names must be unique.');
+      const projects=[];
+      for(const p of item.projects){if(typeof p!=='string'||!p.trim()||p.length>300)throw Error('Invalid project.');if(!projects.some(x=>key(x)===key(p)))projects.push(p.trim());}
+      result.push({name:item.name.trim(),projects});
+    }
+    return result;
+  }
+  function workError(block,catalog){
+    if(block?.category!=='work')return '';
+    const d=details(block.details);
+    if(!d.company)return 'Choose a company for this work entry.';
+    const company=companies(catalog).find(c=>key(c.name)===key(d.company));
+    if(!company)return 'Add or select a saved company for this work entry.';
+    if(!d.project)return 'Choose a project under '+company.name+'.';
+    if(!company.projects.some(p=>key(p)===key(d.project)))return 'Choose a project belonging to '+company.name+'.';
+    return '';
+  }
+  function canonicalWork(block,catalog){
+    if(block?.category!=='work')return block;
+    const error=workError(block,catalog);if(error)throw Error(error);
+    const d=details(block.details),company=companies(catalog).find(c=>key(c.name)===key(d.company));
+    d.company=company.name;d.project=company.projects.find(p=>key(p)===key(d.project));delete d.needs_review;
+    return withDetails(block,d);
+  }
+  function describe(block){const d=details(block?.details);return [d.modes?.join(' + '),d.destination,d.company,d.project].filter(Boolean).join(' · ');}
   function title(block){const name=block?.sub || block?.subcategory || (block?.category==='gym'?'Gym':labels[block?.category]) || block?.category || '';return [name,describe(block)].filter(Boolean).join(' · ');}
-  const api={version:1,labels,modes,activities,projects,key,details,withDetails,normalize,describe,title,breakdown};
+  const api={version:1,labels,modes,activities,projects,key,details,withDetails,normalize,describe,title,breakdown,companies,workError,canonicalWork};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.DayActivity=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

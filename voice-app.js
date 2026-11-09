@@ -33,7 +33,7 @@
       const date=horizon!=='daily'?'2000-01-01':activeObjectiveHorizon==='tomorrow'?DayEventRange.shift(ymd(current),1):ymd(current);
       selected=targets.find(t=>t.kind==='objective' && t.date===date && t.horizon===horizon && t.index===diaryTargetSelected);
     }
-    return {days,catalog:targets,complete:history.complete,app:{screen:!document.getElementById('calendarScreen').hidden?'calendar':!document.getElementById('plannerScreen').hidden?'planner':!document.getElementById('insightScreen').hidden?(currentInsight?.id || 'notes'):'day',selected_target:selected?.id || null,targets,targets_limited:all.length>targets.length}};
+    return {days,catalog:targets,complete:history.complete,app:{work_companies:typeof workCompanies==='undefined'?[]:workCompanies,screen:!document.getElementById('calendarScreen').hidden?'calendar':!document.getElementById('plannerScreen').hidden?'planner':!document.getElementById('insightScreen').hidden?(currentInsight?.id || 'notes'):'day',selected_target:selected?.id || null,targets,targets_limited:all.length>targets.length}};
   }
   async function review(draft,snapshot,owner) {
     if(!snapshot.complete && draft.actions?.some(a=>a.type!=='navigate'))throw Error('Saved history is incomplete. Reconnect before changing or querying saved records.');
@@ -53,7 +53,7 @@
   async function reviewEntries(draft,owner) {
     const plan=DayVoiceDraft.plan(draft,DayEventRange);if(plan.errors.length)return null;
     const dates=[...new Set([...plan.slots.map(p=>p.date),...plan.reflections.map(p=>p.date)])];
-    const days=await DayVoiceStore.read({client:sb,owner,dates,local});
+    const days=await DayVoiceStore.read({client:sb,owner,dates:[...dates,'2000-01-01'],local});
     if(USER_ID!==owner)throw Error('Your account changed. Reopen voice.');
     const next=JSON.parse(JSON.stringify(days)),summaries=[];
     const conflicts=plan.slots.filter(p=>days[p.date]?.[p.slot]).length;
@@ -62,6 +62,8 @@
     for(const r of plan.reflections){const previous=next[r.date].__reflect__?.note || '';next[r.date].__reflect__={category:'reflection',note:previous===r.text?previous:[previous,r.text].filter(Boolean).join('\n\n')};}
     const patches=[];
     for(const date of dates)for(const slot of Object.keys(next[date]))if(!A.same(days[date][slot],next[date][slot]))patches.push({date,slot,before:A.normal(days[date][slot]),after:A.normal(next[date][slot])});
+    const settings=JSON.parse(days['2000-01-01']?.__settings__?.note || '{}');
+    if(settings.workHierarchyVersion===1)for(const p of patches){const error=DayActivity.workError(p.after,settings.workCompanies);if(error)throw Error(error);}
     return {owner,patches,summaries,navigation:[],answers:[],localBefore:Object.fromEntries(dates.map(date=>[date,local(date)]))};
   }
   function onApplied(patches) {

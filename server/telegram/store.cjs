@@ -6,6 +6,7 @@ const {join}=require('node:path');
 const {UserError,control,helpers}=require('./domain.cjs');
 const Memory=require('./memory.cjs');
 const A=require('../../voice-actions');
+const M=require('../../activity-model');
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const cleanId=id=>String(id).replaceAll('-','');
 const callback=(verb,id)=>`${verb}:${cleanId(id)}`;
@@ -178,6 +179,7 @@ class Store {
       await c.query('insert into day_bot.drafts(id,owner,connection,generation,data) values($1,$2,$3,$4,$5)',[id,job.owner,job.connection,job.generation,JSON.stringify(data)]);
       if(autoSave && data.review.patches.length && !data.review.questions.length){
         if(!(await this.owner(c)).writes_enabled)throw new UserError('Saving is currently disabled.');
+        await this.checkWork(c,job.owner,data.review.patches);
         const patches=await this.applyPatches(c,job.owner,data.review.patches);
         if(patches.some(p=>p.after?.category==='agent_memory'&&JSON.parse(p.after.note).status==='forgotten'))job.nextContext={memorySince:new Date().toISOString()};
         await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[id,job.owner,job.connection,JSON.stringify(patches)]);
@@ -236,6 +238,13 @@ class Store {
   async unlink(job) {
     await this.tx(async c=>{await this.guard(c,job);await c.query('update day_bot.connections set active=false where id=$1',[job.connection]);await c.query("update day_bot.drafts set status='cancelled' where connection=$1 and status='pending'",[job.connection]);await this.finishIn(c,job,[{text:'Telegram disconnected. Reconnect using a new link code.',unlinked:true}]);});
   }
+  async checkWork(c,owner,patches){
+    if(!patches.some(p=>p.after?.category==='work'))return;
+    const row=await one(c,"select note from public.blocks where user_id=$1 and date='2000-01-01' and start_time='__settings__' for share",[owner]);
+    const settingsPatch=patches.find(p=>p.date==='2000-01-01'&&p.slot==='__settings__');
+    const settings=JSON.parse(settingsPatch?.after?.note || row?.note || '{}');
+    if(settings.workHierarchyVersion===1)for(const p of patches){const error=M.workError(p.after,settings.workCompanies);if(error)throw new UserError(error);if(p.after?.category==='work')p.after=M.canonicalWork(p.after,settings.workCompanies);}
+  }
   async applyPatches(c,owner,patches) {
     const saved=[];
     if(!Array.isArray(patches)||patches.length===0||patches.length>500)throw new UserError('This draft has no valid changes.');
@@ -267,6 +276,7 @@ class Store {
       if(!d || (id && d.id!==id))throw new UserError('That preview expired or was replaced. Use /status.','stale');
       if(d.data.review.questions.length)throw new UserError('Answer the clarification before saving.');
       if(d.data.review.formatVersion!==1)throw new UserError('This preview predates the activity-format update. /cancel and send the request again; nothing was saved.','stale');
+      await this.checkWork(c,job.owner,d.data.review.patches);
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
       if(patches.some(p=>p.after?.category==='agent_memory'&&JSON.parse(p.after.note).status==='forgotten'))job.nextContext={memorySince:new Date().toISOString()};
       await c.query('insert into day_bot.receipts(id,owner,connection,patches) values($1,$2,$3,$4)',[d.id,job.owner,job.connection,JSON.stringify(patches)]);

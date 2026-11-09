@@ -130,6 +130,8 @@
     for(const date of new Set([...Object.keys(days),...Object.keys(next)]))for(const slot of new Set([...Object.keys(days[date] || {}),...Object.keys(next[date] || {})])) {
       const before=normal(days[date]?.[slot]),after=normal(next[date]?.[slot]);if(!same(before,after))patches.push({date,slot,before,after});
     }
+    const settings=parse(next['2000-01-01']?.__settings__?.note);
+    if(settings.workHierarchyVersion===1 && !helpers.deferWorkValidation)for(const p of patches){const error=M.workError(p.after,settings.workCompanies);if(error)throw Error(error);if(p.after?.category==='work')p.after=M.canonicalWork(p.after,settings.workCompanies);}
     if(patches.length>500)throw Error('Split this into smaller changes.');
     return {patches,summaries,navigation,answers};
   }

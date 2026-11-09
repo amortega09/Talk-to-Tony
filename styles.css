@@ -1745,3 +1745,7 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 
 .review-entry { display:block; width:100%; text-align:left; padding:14px; margin:8px 0; border:1px solid var(--border,#ddd); border-radius:10px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
 .review-entry small { display:block; margin-top:6px; opacity:.65; }
+.work-choice-row { display:flex; gap:8px; align-items:center; margin:6px 0 14px; }
+.work-choice-row select { flex:1; min-width:0; padding:10px; border:1px solid var(--border,#ddd); border-radius:8px; background:var(--surface,#fff); color:inherit; font:inherit; }
+.work-choice-row .text-btn { flex-shrink:0; }
+#workProjectField > label { display:block; font-size:13px; font-weight:600; }

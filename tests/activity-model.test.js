@@ -14,7 +14,7 @@ test('unclear entries and contradictory sleep labels keep their purpose and rece
 });
 test('mixed transport counts time once and work has separate project totals',()=>{
  const days={[date]:{'09:00':{category:'travel',sub:'Travel',details:{modes:['Train','Bus']}},'09:30':{category:'travel',sub:'Travel'},'10:00':{category:'work',sub:'Meeting',details:{project:'Moeve'}},'10:30':{category:'work',sub:'Work',details:{project:'Moeve'}}}};
- assert.deepEqual(M.breakdown(days),{travelHours:1,transport:{'Train + Bus':.5,'Mode not recorded':.5},projects:{Moeve:1}});
+ assert.deepEqual(M.breakdown(days),{travelHours:1,transport:{'Train + Bus':.5,'Mode not recorded':.5},projects:{'Company not recorded / Moeve':1}});
  assert.throws(()=>M.details({modes:['Teleport']}));assert.throws(()=>M.details({project:'a'.repeat(301)}));
 });
 test('Telegram new journeys, detail corrections, moves and undo patches retain all modes',()=>{
@@ -31,4 +31,35 @@ test('migration plans only timed rows and settings, keeps metadata and exports d
  const plan=planRows(rows);assert.equal(plan.timed,1);assert.equal(plan.changes.length,2);assert.ok(!plan.changes.some(p=>p.slot==='__plan__'));
  const organized=rows.map(r=>{const p=plan.changes.find(p=>p.id===r.id);return p?{...r,...p.after,subcategory:p.after.sub}:r;});
  const exported=exportRows(organized,'test');assert.equal(exported.days[date].objectives,'[ ] Keep objective');assert.deepEqual(exported.days[date].blocks[0].details.modes,['Train']);assert.equal(exported.targets.short_term,'Keep this');assert.equal(planRows(organized).changes.length,0);
+});
+
+test('work requires a company and a project owned by that company',()=>{
+ const companies=[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Build']}];
+ const b=details=>({category:'work',sub:'Meeting',details});
+ assert.match(M.workError(b({}),companies),/company/);
+ assert.match(M.workError(b({company:'Atlas'}),companies),/project/);
+ assert.match(M.workError(b({company:'Atlas',project:'Build'}),companies),/belonging to Atlas/);
+ assert.equal(M.workError(b({company:'Atlas',project:'Research'}),companies),'');
+ assert.equal(M.workError({category:'travel'},companies),'');
+ assert.match(M.title(b({company:'Atlas',project:'Research'})),/Atlas · Research/);
+ assert.throws(()=>M.companies([{name:'Atlas',projects:[]},{name:' atlas ',projects:[]}]));
+});
+test('Telegram asks for missing work ownership and cannot accept a cross-company project',()=>{
+ const settings={date:'2000-01-01',start_time:'__settings__',category:'settings',note:JSON.stringify({workHierarchyVersion:1,workCompanies:[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Build']}]})};
+ const item={date,start:'09:00',end_date:date,end:'09:30',category:'work',activity:'Meeting',note:''};
+ for(const details of [{},{company:'Atlas'},{company:'Atlas',project:'Build'}]){const p=D.plan(draft([{...item,details}]),[settings],[],{strict:true});assert.equal(p.patches.length,0);assert.equal(p.questions.length,1);}
+ const p=D.plan(draft([{...item,details:{company:'Atlas',project:'Research'}}]),[settings],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches[0].after.details.company,'Atlas');
+ const missing=A.plan.bind(null,{draft:{actions:[{type:'activity_update',target:'activity:'+date+':09:00',text:'Correct note'}]},days:A.daysFromRows([settings,row('work','Meeting')]),catalog:A.targets(A.daysFromRows([settings,row('work','Meeting')]),D.helpers),range:R,helpers:{...D.helpers,deferWorkValidation:false}});assert.throws(missing,/company/);
+});
+test('Telegram can register company then project without confusing note projects',()=>{
+ const rows=[{date:'2000-01-01',start_time:'__settings__',category:'settings',note:'{}'}];
+ const p=D.plan({...draft([]),actions:[{type:'work_company_add',company:'Atlas'},{type:'work_project_add',company:'Atlas',project:'Research'}]},rows,[]);
+ const settings=JSON.parse(p.patches.find(p=>p.slot==='__settings__').after.note);assert.deepEqual(settings.workCompanies,[{name:'Atlas',projects:['Research']}]);assert.equal(settings.workHierarchyVersion,1);assert.equal(p.questions.length,0);
+});
+test('historical company assignment uses only an explicit unambiguous project catalogue',()=>{
+ const {planHierarchy}=require('../scripts/require-work-hierarchy.cjs');
+ const rows=[row('work','Work',{project:'Research'}),{id:2,date:'2000-01-01',start_time:'__settings__',category:'settings',note:'{}',version:'2:1'}];
+ let p=planHierarchy(rows,[{name:'Atlas',projects:['Research']}]);assert.equal(p.assigned,1);assert.equal(p.changes[0].after.details.company,'Atlas');assert.equal(p.changes[0].after.note,'Original note');
+ p=planHierarchy(rows,[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Research']}]);assert.equal(p.assigned,0);assert.equal(p.changes[0].after.details.company,undefined);assert.equal(p.changes[0].after.details.needs_review,true);
+ p=planHierarchy(rows,[]);assert.equal(p.assigned,0);assert.equal(p.work,1);assert.equal(p.changes[0].after.details.project,'Research');
 });

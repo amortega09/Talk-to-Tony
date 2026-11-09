@@ -1,5 +1,6 @@
 /* Voice-only persistence: bounded, owner-scoped reads and checked, undoable patches. */
 (function(root) {
+  const M=typeof module==='object'&&module.exports?require('./activity-model'):root.DayActivity;
   async function read({client,owner,dates,signal,local}) {
     if(!client)return Object.fromEntries(dates.map(date=>[date,local(date)]));
     if(!owner)throw Error('Please sign in.');
@@ -22,6 +23,11 @@
       if(!same(fresh[p.date]?.[p.slot],p.before))throw Error('An affected record changed since the preview. Make a fresh voice draft.');
       if(client && localBefore?.[p.date]?.[p.slot] && !same(localBefore[p.date][p.slot],p.before))throw Error('Local and cloud versions differ for an affected record. Sync that day before applying voice changes.');
       if(localBefore && !same(local(p.date)?.[p.slot],localBefore[p.date]?.[p.slot]))throw Error('You edited an affected record since the preview. Make a fresh voice draft.');
+    }
+    if(patches.some(p=>p.after?.category==='work')){
+      const settingsDay=await read({client,owner,dates:['2000-01-01'],local});checkOwner();
+      const settings=JSON.parse(settingsDay['2000-01-01']?.__settings__?.note || '{}');
+      if(settings.workHierarchyVersion===1)for(const p of patches){const error=M.workError(p.after,settings.workCompanies);if(error)throw Error(error);if(p.after?.category==='work')p.after=M.canonicalWork(p.after,settings.workCompanies);}
     }
     const groups=[];
     const writes=patches.filter(p=>p.after);if(writes.length)groups.push(writes);
