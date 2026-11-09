@@ -4,7 +4,36 @@ test('status follows actual date and empty data rather than remembered moved ent
  assert.equal(queryDate(conversation[0].user,'2026-10-27'),'2026-10-27');
  assert.equal(queryDate('Can you double check that?','2026-10-27',conversation),'2026-10-27');
  const rows=[{date:'2026-10-26',start_time:'00:00',category:'sleep'}];
- assert.deepEqual(summarize(rows,'2026-10-27'),['No activities are saved for Tuesday, 27 October 2026.']);
+ assert.deepEqual(summarize(rows,'2026-10-27'),['Tuesday, 27 October 2026','','No activities recorded.']);
+});
+test('day summary separates sections and renders linked objectives without storage metadata',()=>{
+ const date='2026-11-09';
+ const rows=[{date,start_time:'00:00',category:'sleep'},
+  {date,start_time:'__plan__',note:[
+   '[ ] Call dentist <!--day-link:dentist:2026-11-04:-->',
+   '- [X] Send report <!--day-link:report::-->',
+   '[ ] Call hospital <!--day-link:hospital:2026-11-04:2026-11-10-->',
+   'Plain objective',
+   '[ ] <!--day-link:empty::-->'
+  ].join('\n')},
+  {date:'2026-11-10',start_time:'__plan__',note:'Private tomorrow goal'}];
+ const before=structuredClone(rows),reply=summarize(rows,date).join('\n');
+ assert.equal(reply,[
+  'Monday, 9 November 2026','','Recorded activities','00:00–00:30 · Sleep','',
+  '0.5 hours recorded · unfilled time is unknown.','','Objectives',
+  '○ Call dentist','○ Plain objective','','Completed','✓ Send report','',
+  'Moved to another day','→ Call hospital · 10 Nov 2026'
+ ].join('\n'));
+ assert.doesNotMatch(reply,/day-link|<!--|Private tomorrow/);
+ assert.deepEqual(rows,before);
+});
+test('objective display strips metadata before formatting long lists and tolerates empty rows',()=>{
+ const date='2026-11-09',note=Array.from({length:25},(_,i)=>`[ ] Goal ${i+1} <!--day-link:${'a'.repeat(100)}-${i}:2026-11-04:-->`).join('\r\n');
+ const reply=summarize([{date,start_time:'__plan__',note}],date).join('\n');
+ assert.match(reply,/○ Goal 25/);assert.doesNotMatch(reply,/day-link|<!--/);
+ assert.equal((reply.match(/○ Goal/g)||[]).length,25);
+ assert.doesNotMatch(summarize([{date,start_time:'__plan__',note:' \n[ ] '}],date).join('\n'),/Objectives/);
+ assert.match(summarize([{date,start_time:'09:00',category:'work'},{date,start_time:'09:30',category:'work'}],date).join('\n'),/1 hour recorded/);
 });
 test('summary groups current slots only, preserves labels and leaves gaps',()=>{
  const rows=['09:00','09:30','10:30'].map(start_time=>({date:'2026-10-27',start_time,category:'work',subcategory:'Lab'}));

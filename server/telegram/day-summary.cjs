@@ -1,5 +1,11 @@
 'use strict';
 const dates=require('./dates.cjs');
+const {helpers:{parseObjective}}=require('./domain.cjs');
+const categoryLabels={sleep:'Sleep',work:'Work',exercise:'Exercise',gym:'Gym',food:'Food',learn:'Learn',social:'Social',chores:'Chores',travel:'Travel',relax:'Relax',other:'Other'};
+function objectives(note){
+  return (note || '').split(/\r?\n/).map(parseObjective)
+    .map(item=>({...item,text:item.text.replace(/<!--[\s\S]*?-->/g,'').trim()})).filter(item=>item.text);
+}
 function query(text,today,conversation=[],focusDate=null){
   if(/\b(?:add|move|delete|change|replace|log|record|save|set|put)\b/i.test(text) && !/\b(?:what|which|have|has|was|is)\b/i.test(text))return null;
   if(/\b(?:notes?|ideas?|thoughts?|workout|gym|objectives?|reminders?)\b/i.test(text))return null;
@@ -35,21 +41,26 @@ function summarize(rows,date){
   const spans=[];
   for(const row of timed){
     const mins=Number(row.start_time.slice(0,2))*60+Number(row.start_time.slice(3));
-    const name=row.subcategory || row.sub || row.category;
+    const name=row.subcategory || row.sub || categoryLabels[row.category] || row.category;
     const previous=spans.at(-1);
     if(previous && previous.end===mins && previous.category===row.category && previous.name===name && previous.note===(row.note || ''))previous.end=mins+30;
     else spans.push({start:mins,end:mins+30,name,category:row.category,note:row.note || ''});
   }
   const clock=mins=>`${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
-  const lines=[timed.length?`Here’s what’s saved for ${dayLabel}:`:`No activities are saved for ${dayLabel}.`];
+  const lines=[dayLabel,'',timed.length?'Recorded activities':`No activities recorded.`];
   for(const span of spans)lines.push(`${clock(span.start)}–${clock(span.end)} · ${span.name}`);
-  const goals=day.find(r=>r.start_time==='__plan__')?.note;
-  if(goals)lines.push('Objectives:\n'+goals.slice(0,1500));
-  if(timed.length)lines.push(`${timed.length/2} hours recorded. Unfilled time is still unknown.`);
+  if(timed.length)lines.push('',`${timed.length/2} ${timed.length===2?'hour':'hours'} recorded · unfilled time is unknown.`);
+  const goals=objectives(day.find(r=>r.start_time==='__plan__')?.note);
+  const active=goals.filter(item=>!item.completed&&!item.transferredTo);
+  const completed=goals.filter(item=>item.completed&&!item.transferredTo);
+  const moved=goals.filter(item=>item.transferredTo);
+  if(active.length)lines.push('','Objectives',...active.map(item=>`○ ${item.text}`));
+  if(completed.length)lines.push('','Completed',...completed.map(item=>`✓ ${item.text}`));
+  if(moved.length)lines.push('','Moved to another day',...moved.map(item=>`→ ${item.text} · ${new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(item.transferredTo+'T12:00:00Z'))}`));
   return lines;
 }
 function needsEvidence(text){
   if(/\bwhat should\b/i.test(text))return false;
   return /\b(?:what|which|show|list|find|read|summari[sz]e|how much|how many|have i|did i|tell me)\b/i.test(text)&&/\b(?:saved|recorded|logged|diary|objectives?|goals?|notes?|workouts?|gym|sleep|reminders?|entries|slots?|settings)\b/i.test(text);
 }
-module.exports={query,queryDate,summarize,gaps,label,needsEvidence};
+module.exports={query,queryDate,summarize,gaps,label,needsEvidence,objectives};

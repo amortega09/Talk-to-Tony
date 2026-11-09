@@ -6,6 +6,17 @@ test('check-ins respect London daylight saving, quiet hours, and recorded sleep'
  assert.equal(checkin([],Date.parse('2026-07-01T09:00:00Z')),null);
  assert.match(checkin([],Date.parse('2026-07-01T08:00:00Z')).text,/sleep/);
 });
+test('objective check-ins skip moved and completed goals and trim hidden metadata',()=>{
+ const now=Date.parse('2026-11-09T12:00Z'),rows=[{date:'2026-11-09',start_time:'__plan__',note:[
+  '[ ] Call hospital <!--day-link:hospital:2026-11-04:2026-11-10-->',
+  '- [x] Send report <!--day-link:report::-->',
+  '[ ] Call dentist <!--day-link:dentist::-->'
+ ].join('\n')}];
+ const reply=checkin(rows,now).text;
+ assert.match(reply,/“Call dentist”/);assert.doesNotMatch(reply,/hospital|report|day-link|<!--|dentist /);
+ rows[0].note=rows[0].note.split('\n').slice(0,2).join('\n');
+ assert.notEqual(checkin(rows,now).topic,'objectives');
+});
 
 test('recorded objectives and reflection suppress completed check-ins',()=>{
  assert.match(checkin([{date:'2026-10-27',category:'sleep'},{date:'2026-10-27',start_time:'__plan__',note:'[ ] Walk'}],Date.parse('2026-10-27T09:00:00Z')).text,/Walk/);
