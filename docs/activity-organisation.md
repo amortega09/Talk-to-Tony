@@ -13,7 +13,7 @@ Work reports group projects independently of activity type. Existing project-onl
 labels become activity Work with a project; no focused-work claim is inferred. Project names live in owner-scoped synced settings, not public application code.
 
 New entries use the activity picker, with transport controls for Travel and a
-required Company selection followed by a required Project selection filtered to that company. Adding a company/project is explicit; switching company clears the project. Telegram accepts structured details on new items
+required Company selection followed by a required Project / task selection filtered to that company. Adding a company/project is explicit; switching company clears the project. Telegram accepts structured details on new items
 and `activity_details` on an exact existing target. Moves and undo retain details;
 conflict checks include them. Public exports and restores include details.
 
@@ -58,7 +58,7 @@ mock browser fixture (`npm run test:agent:web`, Playwright path if needed), and 
 static build. Browser checks cover multi-mode input, persistence and reload,
 project entry and reports; no real messages or diary records are created by tests.
 
-## Company → project work structure
+## Company → project/task work structure
 
 Owner settings store `workCompanies: [{name, projects: []}]` and
 `workHierarchyVersion: 1`. Company/project names stay private. New and edited Work
@@ -80,3 +80,5 @@ node scripts/require-work-hierarchy.cjs "/path/to/owner-export.json" "/private/c
 The catalogue is optional. Without an explicit, unambiguous mapping, older Work
 entries retain all existing fields and are flagged for review. Apply or roll
 back the emitted private plan with `scripts/organize-history.cjs` as above.
+
+The Work picker labels its second level **Project / task**. A single task is a valid choice; it does not need to represent a whole project. Existing `project` data fields and saved entries remain compatible.

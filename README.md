@@ -9,7 +9,7 @@ Serve the directory over HTTP; no build step is required.
 ## Activity organisation
 
 Travel supports one or more transport modes and an optional destination. Work
-requires a company first and then a project belonging to that company. Gym belongs to Exercise, and personal care
+requires a company first and then a project or task belonging to that company. Gym belongs to Exercise, and personal care
 and appointments belong to Personal care & health. Activity reports show project
 totals and transport combinations without counting a mixed journey twice.
 

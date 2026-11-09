@@ -3219,7 +3219,7 @@ function renderInsightSubs(map) {
     const items=Object.entries(values).sort((a,b)=>b[1]-a[1]);
     return items.length?`<div class="stats-h">${title}</div>`+items.map(([name,h])=>barRow(name,color,h,items[0][1])).join(''):'';
   };
-  return panel('Work by company / project',totals.projects,catColor('work'))+
+  return panel('Work by company / project / task',totals.projects,catColor('work'))+
     panel(`Travel · ${fmtH(totals.travelHours)} total`,totals.transport,catColor('travel'))+
     (totals.travelHours?'<p class="stats-empty">Mixed journeys count once. Time within each transport mode is not inferred.</p>':'');
 }
@@ -4189,8 +4189,8 @@ document.getElementById('addWorkCompany').addEventListener('click',()=>{
 document.getElementById('addWorkProject').addEventListener('click',()=>{
   const company=workCompanies.find(c=>c.name===document.getElementById('activityCompany').value);if(!company){setStatus('err','Choose a company first.');return;}
   const oldProject=editing&&data[editing[0]]?.details?.project;
-  const raw=window.prompt('Project name under '+company.name,oldProject || '');if(raw===null||!raw.trim())return;let name=raw.trim();
-  if(name.length>300){setStatus('err','Project names must be under 300 characters.');return;}
+  const raw=window.prompt('Project / task name under '+company.name,oldProject || '');if(raw===null||!raw.trim())return;let name=raw.trim();
+  if(name.length>300){setStatus('err','Project / task names must be under 300 characters.');return;}
   const existing=company.projects.find(p=>DayActivity.key(p)===DayActivity.key(name));if(existing)name=existing;else company.projects.push(name);
   selectedDetails={...selectedDetails,company:company.name,project:name};if(!workProjects.includes(name))workProjects.push(name);saveSettings();renderWorkChoices();
 });
@@ -5145,7 +5145,7 @@ function renderWorkChoices(){
   const fill=(select,placeholder,values,value)=>{const option=document.createElement('option');option.value='';option.textContent=placeholder;select.replaceChildren(option);for(const name of values){const o=document.createElement('option');o.value=name;o.textContent=name;select.appendChild(o);}select.value=values.includes(value)?value:'';};
   fill(companySelect,'Select company…',workCompanies.map(c=>c.name),selectedDetails.company);
   const company=workCompanies.find(c=>c.name===companySelect.value);
-  fill(projectSelect,company?'Select project…':'Choose company first',company?.projects || [],selectedDetails.project);
+  fill(projectSelect,company?'Select project / task…':'Choose company first',company?.projects || [],selectedDetails.project);
   projectSelect.disabled=!company;document.getElementById('addWorkProject').disabled=!company;
 }
 

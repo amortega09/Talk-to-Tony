@@ -66,7 +66,7 @@
     const projects={},transport={};let travelHours=0;
     for(const day of Object.values(days))for(const [slot,b] of Object.entries(day)){
       if(!/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(slot)||!b||/^\[GCal\]/.test(b.note || ''))continue;
-      if(b.category==='work'){const name=[b.details?.company || 'Company not recorded',b.details?.project || 'Project not recorded'].join(' / ');projects[name]=(projects[name] || 0)+.5;}
+      if(b.category==='work'){const name=[b.details?.company || 'Company not recorded',b.details?.project || 'Project / task not recorded'].join(' / ');projects[name]=(projects[name] || 0)+.5;}
       if(b.category==='travel'){travelHours+=.5;const mode=b.details?.modes?.length?b.details.modes.join(' + '):'Mode not recorded';transport[mode]=(transport[mode] || 0)+.5;}
     }
     return {projects,transport,travelHours};
@@ -90,8 +90,8 @@
     if(!d.company)return 'Choose a company for this work entry.';
     const company=companies(catalog).find(c=>key(c.name)===key(d.company));
     if(!company)return 'Add or select a saved company for this work entry.';
-    if(!d.project)return 'Choose a project under '+company.name+'.';
-    if(!company.projects.some(p=>key(p)===key(d.project)))return 'Choose a project belonging to '+company.name+'.';
+    if(!d.project)return 'Choose a project / task under '+company.name+'.';
+    if(!company.projects.some(p=>key(p)===key(d.project)))return 'Choose a project / task belonging to '+company.name+'.';
     return '';
   }
   function canonicalWork(block,catalog){

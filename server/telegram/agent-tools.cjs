@@ -40,7 +40,7 @@ tool('work_company_add','Add a work company only on an explicit request.',{compa
  if(!companies.some(x=>M.key(x.name)===M.key(a.company)))companies.push({name:a.company.trim(),projects:[]});
  settings.workCompanies=companies;settings.workHierarchyVersion=1;saveJSON(c,'2000-01-01','__settings__','settings',settings);
 });
-tool('work_project_add','Add a work project under an existing company, only on explicit request.',{company:short,project:short},['company','project'],(a,c)=>{
+tool('work_project_add','Add a work project or task under an existing company, only on explicit request.',{company:short,project:short},['company','project'],(a,c)=>{
  const day=get(c,'2000-01-01'),settings=parse(day.__settings__?.note),companies=M.companies(settings.workCompanies),company=companies.find(x=>M.key(x.name)===M.key(a.company));
  if(!company)throw Error('Add or select the company first.');if(!company.projects.some(p=>M.key(p)===M.key(a.project)))company.projects.push(a.project.trim());
  settings.workCompanies=companies;settings.workHierarchyVersion=1;settings.workProjects=[...new Set([...(settings.workProjects || []),a.project.trim()])];saveJSON(c,'2000-01-01','__settings__','settings',settings);
