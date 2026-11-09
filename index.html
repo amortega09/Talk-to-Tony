@@ -11,7 +11,7 @@
   <title>Day — Time Tracker</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
-  <link rel="stylesheet" href="styles.css?v=90" />
+  <link rel="stylesheet" href="styles.css?v=91" />
 
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -400,6 +400,20 @@
         <div class="picker-label picker-label-small">Broad area <span>for statistics</span></div>
         <div class="sub-row area-row" id="subRow"></div>
       </div>
+      <section class="activity-details" id="activityDetails" hidden aria-label="Activity details">
+        <fieldset id="travelModesField" hidden>
+          <legend>Transport <span class="field-hint">choose one or more</span></legend>
+          <div class="transport-modes" id="transportModes"></div>
+        </fieldset>
+        <label id="destinationField" hidden>Destination / place <span class="field-hint">optional</span>
+          <input id="activityDestination" type="text" maxlength="300" autocomplete="off" />
+        </label>
+        <label id="workProjectField" hidden>Project / company <span class="field-hint">optional</span>
+          <input id="activityProject" type="text" maxlength="300" list="workProjectOptions" autocomplete="off" />
+          <datalist id="workProjectOptions"></datalist>
+        </label>
+        <p id="activityReviewHint" hidden>This older entry needs a closer look. Choose its purpose above; your original wording is preserved.</p>
+      </section>
       <div class="gym-inline-panel" id="gymInlinePanel" hidden>
         <div class="gym-inline-head">
           <span class="gym-label">Exercises</span>
@@ -447,17 +461,18 @@
   <script src="config.js?v=41"></script>
   <script src="patterns.js?v=70"></script>
   <script src="event-range.js?v=71"></script>
-  <script src="voice-draft.js?v=83"></script>
-  <script src="slot-transfer.js?v=2"></script>
-  <script src="app.js?v=90"></script>
-  <script src="speech-transcriber.js?v=83"></script>
-  <script src="voice-context.js?v=83"></script>
-  <script src="diary-agent.js?v=83"></script>
-  <script src="voice-actions.js?v=83"></script>
+  <script src="activity-model.js?v=1"></script>
+  <script src="voice-draft.js?v=84"></script>
+  <script src="slot-transfer.js?v=3"></script>
+  <script src="app.js?v=91"></script>
+  <script src="speech-transcriber.js?v=84"></script>
+  <script src="voice-context.js?v=84"></script>
+  <script src="diary-agent.js?v=84"></script>
+  <script src="voice-actions.js?v=84"></script>
   <script src="agent-memory-core.js?v=1"></script>
-  <script src="voice-store.js?v=83"></script>
-  <script src="voice-app.js?v=83"></script>
-  <script src="voice.js?v=83"></script>
+  <script src="voice-store.js?v=84"></script>
+  <script src="voice-app.js?v=84"></script>
+  <script src="voice.js?v=84"></script>
 
 
 </body>

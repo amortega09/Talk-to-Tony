@@ -6,15 +6,16 @@
 
 const BUILTIN_CATEGORIES = [
   { id: "sleep",    label: "Sleep",    color: "#7b8cde" },
-  { id: "work",     label: "Work",     color: "#4a5d4e" },
+  { id: "work",     label: "Work & career",     color: "#4a5d4e" },
   { id: "exercise", label: "Exercise", color: "#e08a4a" },
   { id: "gym",      label: "Gym",      color: "#c0693e" },
   { id: "food",     label: "Food",     color: "#d1a13a" },
-  { id: "learn",    label: "Learn",    color: "#5aa0a8" },
+  { id: "learn",    label: "Learning",    color: "#5aa0a8" },
   { id: "social",   label: "Social",   color: "#c76b98" },
-  { id: "chores",   label: "Chores",   color: "#9a8c7a" },
+  { id: "chores",   label: "Life admin & chores",   color: "#9a8c7a" },
   { id: "travel",   label: "Travel",   color: "#6a7fd0" },
-  { id: "relax",    label: "Relax",    color: "#6aa86a" },
+  { id: "relax",    label: "Leisure",    color: "#6aa86a" },
+  { id: "health",   label: "Personal care & health", color: "#b36f86" },
   { id: "other",    label: "Other",    color: "#9b9793" },
 ];
 // Palette used to auto-assign colors to custom categories.
@@ -31,6 +32,7 @@ const GYM_NOTE_PREFIX = "__gym_workout_v1__";
 
 let customCats = [];                 // [{id,label,color}], user-created, synced
 let customSubs = {};                 // { catId: [label,...] }, remembered subcategories
+let workProjects = [];
 let activityAreas = {};              // { normalized activity label: builtin category id }
 let categoryMigrationVersion = 0;    // last completed historical recategorisation
 let shortTermObjectives = "";
@@ -127,6 +129,7 @@ let calendarDragging = false;
 let calendarLongPressTimer = null;
 let suppressCalendarClick = false;
 let selectedCat = null;
+let selectedDetails = {};
 let selectedSub = null; // chosen subcategory label (optional)
 let selectedActivityLabel = null;
 let rangeAnchor = null; // slot where a press-and-hold range started
@@ -151,6 +154,7 @@ function loadSettingsLocal() {
     customCats = Array.isArray(s.customCats) ? s.customCats : [];
     customSubs = (s.subs && typeof s.subs === "object") ? s.subs : {};
     activityAreas = (s.activityAreas && typeof s.activityAreas === "object") ? s.activityAreas : {};
+    workProjects = Array.isArray(s.workProjects) ? s.workProjects.filter(p=>typeof p==="string") : [];
     categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
     shortTermObjectives = typeof s.shortTermObjectives === "string" ? s.shortTermObjectives : "";
     longTermObjectives = typeof s.longTermObjectives === "string" ? s.longTermObjectives : "";
@@ -170,22 +174,23 @@ async function pullSettings() {
       if (Array.isArray(s.customCats)) customCats = s.customCats;
       if (s.subs && typeof s.subs === "object") customSubs = s.subs;
       if (s.activityAreas && typeof s.activityAreas === "object") activityAreas = s.activityAreas;
+      workProjects = Array.isArray(s.workProjects) ? s.workProjects.filter(p=>typeof p==="string") : [];
       if (s.categoryMigrationVersion != null) categoryMigrationVersion = Number(s.categoryMigrationVersion) || 0;
       if (typeof s.shortTermObjectives === "string") shortTermObjectives = s.shortTermObjectives;
       if (typeof s.longTermObjectives === "string") longTermObjectives = s.longTermObjectives;
       gymExercises = mergeGymExercises(s.gymExercises);
-      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
+      localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
       rebuildCats();
     }
   } catch (e) { console.warn(e); }
 }
 async function saveSettings() {
-  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
+  localStorage.setItem("day_settings", JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }));
   if (!sb) return;
   try {
     await sb.from("blocks").upsert({
       user_id: USER_ID, date: SETTINGS_DATE, start_time: "__settings__",
-      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }),
+      category: "settings", note: JSON.stringify({ customCats, subs: customSubs, activityAreas, workProjects, categoryMigrationVersion, shortTermObjectives, longTermObjectives, gymExercises }),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,date,start_time" });
   } catch (e) { console.warn(e); }
@@ -280,11 +285,11 @@ async function pullDay(dateStr) {
   setStatus("syncing", "Syncing…");
   try {
     const { data: rows, error } = await sb
-      .from("blocks").select("start_time,category,note,subcategory")
+      .from("blocks").select("start_time,category,note,subcategory,details")
       .eq("user_id", USER_ID).eq("date", dateStr);
     if (error) throw error;
     const remote = {};
-    for (const r of rows) remote[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
+    for (const r of rows) remote[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "", ...(r.details && Object.keys(r.details).length ? {details:r.details} : {}) };
     // Remote is source of truth once synced.
     data = remote;
     saveLocal(dateStr, data);
@@ -305,7 +310,7 @@ async function pushBlocks(dateStr, slotList, block) {
     if (block) {
       const rows = slotList.map((s) => ({
         user_id: USER_ID, date: dateStr, start_time: s,
-        category: block.category, note: block.note || "", subcategory: block.sub || "",
+        category: block.category, note: block.note || "", subcategory: block.sub || "", details: block.details || {},
         updated_at: new Date().toISOString(),
       }));
       const { error } = await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
@@ -549,7 +554,7 @@ function render() {
     el.innerHTML = `
       <div class="block-time">${to12(slot)}</div>
       <div class="block-body">
-        <div class="block-cat">${b ? (c.label + (b.sub ? ` · ${escapeHtml(b.sub)}` : "")) : "—"}</div>
+        <div class="block-cat">${b ? (escapeHtml(DayActivity.title(b))) : "—"}</div>
         ${noteText ? `<div class="block-note">${escapeHtml(noteText)}</div>` : ""}
       </div>`;
     el.dataset.slot = slot;
@@ -786,8 +791,9 @@ function openSheet(slotList, preferredCat) {
     ? existingCategory.label
     : null;
   const existingGym = isGymBlock(existing);
-  selectedCat = existingGym ? "gym" : (legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null)));
-  selectedSub = existingGym ? null : (existing ? (existing.sub || legacyActivity || null) : null);
+  selectedDetails = DayActivity.details(existing?.details);
+  selectedCat = existingGym ? "exercise" : (legacyActivity ? "other" : (existing ? existing.category : (preferredCat || null)));
+  selectedSub = existingGym ? "Gym" : (existing ? (existing.sub || legacyActivity || null) : null);
   selectedActivityLabel = existing
     ? (existingGym ? "Gym" : (existing.sub || legacyActivity || displayBlockNote(existing) || ((CAT[existing.category] || CAT.other).label)))
     : (preferredCat && CAT[preferredCat] ? CAT[preferredCat].label : null);
@@ -803,6 +809,7 @@ function openSheet(slotList, preferredCat) {
   updateNotePlaceholder();
   document.getElementById("noteInput").value = existing ? (isGymBlock(existing) ? "" : (existing.note || "")) : "";
   renderGymInline(existing);
+  renderActivityDetails();
   document.getElementById("sheetBackdrop").hidden = false;
 }
 
@@ -900,6 +907,8 @@ function openEventSheet() {
   document.getElementById("areaPicker").hidden = true;
   renderNoteSuggest();
   updateNotePlaceholder();
+  selectedDetails = {};
+  renderActivityDetails();
   renderGymInline(null);
   selectEventPreset("all");
   document.getElementById("sheetBackdrop").hidden = false;
@@ -934,11 +943,12 @@ function recentActivityOptions(limit) {
       seen.add(key);
       out.push({
         label,
-        catId: historicalGym ? "gym" : (activityAreas[key] || (legacyActivity ? "other" : b.category)),
-        sub: historicalGym ? "" : (b.sub || legacyActivity),
+        catId: historicalGym ? "exercise" : (activityAreas[key] || (legacyActivity ? "other" : b.category)),
+        sub: historicalGym ? "Gym" : (b.sub || legacyActivity),
         // A note-only activity is reusable by putting the same task back into
         // the note field. Named activities start with a clean optional note.
         note: b.sub ? "" : note,
+        details: b.details?.project ? {project:b.details.project} : {},
       });
       if (out.length >= limit) return out;
     }
@@ -949,7 +959,9 @@ function recentActivityOptions(limit) {
 function activityOptions() {
   const out = [], seen = new Set();
   const add = (item) => {
-    if (isGymActivityLabel(item.label)) item = { ...item, label: "Gym", catId: "gym", sub: "", note: "" };
+    if (isGymActivityLabel(item.label)) item = { ...item, label: "Gym", catId: "exercise", sub: "Gym", note: "" };
+    const canonical = DayActivity.normalize({category:item.catId,sub:item.sub || "",note:item.note || "",details:item.details},{projectNames:workProjects});
+    item = {...item,catId:canonical.category,sub:canonical.sub,label:canonical.sub || item.label,details:canonical.details};
     const key = normalizeActivityLabel(item.label);
     if (!key || seen.has(key)) return;
     if (activityAreas[key] && !isGymActivityLabel(item.label)) item = { ...item, catId: activityAreas[key] };
@@ -960,6 +972,7 @@ function activityOptions() {
   // Keep the activity currently being edited visible, even before it has
   // been saved to the remembered activity list.
   if (selectedSub) add({ label: selectedSub, catId: selectedCat || "other", sub: selectedSub, note: "" });
+  for (const [catId,names] of Object.entries(DayActivity.activities)) for (const label of names) add({label,catId,sub:label,note:""});
   recentActivityOptions(10).forEach(add);
   for (const [catId, labels] of Object.entries(customSubs)) {
     for (const label of labels) add({ label, catId, sub: label, note: "" });
@@ -990,13 +1003,15 @@ function renderSubRow() {
   document.getElementById("areaPicker").hidden = !selectedActivityLabel;
   row.hidden = false;
   row.innerHTML = "";
-  for (const c of BUILTIN_CATEGORIES) {
+  for (const c of BUILTIN_CATEGORIES.filter(c=>c.id!=="gym")) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "sub-chip area-chip" + (selectedCat === c.id ? " selected" : "");
     chip.innerHTML = `<span class="cdot" style="background:${c.color}"></span>${c.label}`;
     chip.addEventListener("click", () => {
+      readActivityDetails();
       selectedCat = c.id;
+      renderActivityDetails();
       renderSubRow();
       renderCatGrid();
       renderNoteSuggest();
@@ -1010,10 +1025,10 @@ function renderSubRow() {
 function updateNotePlaceholder() {
   const input = document.getElementById("noteInput");
   if (!input) return;
-  input.placeholder = isGymCategoryId(selectedCat)
+  input.placeholder = isSelectedGym()
     ? "Optional note"
     : (plannerSlotMode ? "Target for this block (optional)" : "What are you doing? (optional)");
-  input.classList.toggle("gym-note-hidden", isGymCategoryId(selectedCat));
+  input.classList.toggle("gym-note-hidden", isSelectedGym());
 }
 
 function renderGymExerciseOptions() {
@@ -1044,7 +1059,7 @@ function addGymInlineRow(ex) {
 function renderGymInline(existing) {
   const panel = document.getElementById("gymInlinePanel");
   const rows = document.getElementById("gymExerciseRows");
-  const isGym = isGymCategoryId(selectedCat);
+  const isGym = isSelectedGym();
   panel.hidden = !isGym;
   rows.innerHTML = "";
   if (!isGym) return;
@@ -1113,7 +1128,7 @@ function recentNotesFor(catId, limit) {
 function renderNoteSuggest() {
   const row = document.getElementById("noteSuggest");
   row.innerHTML = "";
-  if (!selectedCat || isGymCategoryId(selectedCat)) { row.hidden = true; return; }
+  if (!selectedCat || isSelectedGym()) { row.hidden = true; return; }
   const notes = recentNotesFor(selectedCat, 6);
   if (!notes.length) { row.hidden = true; return; }
   row.hidden = false;
@@ -1137,7 +1152,9 @@ function removeSub(catId, label) {
 
 function selectActivity(activity) {
   const existing = editing && data[editing[0]];
-  const preserveGymWorkout = existing && isGymBlock(existing) && isGymCategoryId(activity.catId);
+  readActivityDetails();
+  selectedDetails = DayActivity.details({...selectedDetails,...activity.details});
+  const preserveGymWorkout = existing && isGymBlock(existing) && isGymActivityLabel(activity.label);
   selectedCat = activity.catId;
   selectedSub = activity.sub || null;
   selectedActivityLabel = activity.label;
@@ -1148,6 +1165,7 @@ function selectActivity(activity) {
   renderNoteSuggest();
   updateNotePlaceholder();
   renderGymInline(preserveGymWorkout ? existing : null);
+  renderActivityDetails();
 }
 
 function createActivityFromSearch() {
@@ -1157,14 +1175,18 @@ function createActivityFromSearch() {
   const exact = activityOptions().find((a) => a.label.toLowerCase() === label.toLowerCase());
   if (exact) { selectActivity(exact); return; }
   selectedCat = (selectedCat && BUILTIN_CATEGORIES.some((c) => c.id === selectedCat)) ? selectedCat : "other";
-  selectedSub = label;
-  selectedActivityLabel = label;
+  const canonical = DayActivity.normalize({category:selectedCat,sub:label},{projectNames:workProjects});
+  selectedCat = canonical.category;
+  selectedDetails = DayActivity.details(canonical.details);
+  selectedSub = canonical.sub;
+  selectedActivityLabel = canonical.sub || label;
   document.getElementById("noteInput").value = "";
   renderCatGrid();
   renderSubRow();
   renderNoteSuggest();
   updateNotePlaceholder();
   renderGymInline(null);
+  renderActivityDetails();
 }
 
 function renderCatGrid() {
@@ -1224,7 +1246,7 @@ async function syncSlots(dateStr, slotList, block) {
     if (block) {
       const rows = slotList.map((s) => ({
         user_id: USER_ID, date: dateStr, start_time: s,
-        category: block.category, note: block.note || "",
+        category: block.category, note: block.note || "", subcategory:block.sub || "", details:block.details || {},
         updated_at: new Date().toISOString(),
       }));
       await sb.from("blocks").upsert(rows, { onConflict: "user_id,date,start_time" });
@@ -1644,7 +1666,7 @@ async function saveSheet() {
   }
   if (!selectedCat) { closeSheet(); return; }
   const sub = selectedSub || "";
-  if (isGymCategoryId(selectedCat)) {
+  if (isSelectedGym()) {
     const invalid = firstInvalidGymInlineInput();
     if (invalid) {
       setStatus("err", "Add exercise name");
@@ -1657,12 +1679,15 @@ async function saveSheet() {
   }
   if (sub) rememberSub(selectedCat, sub);
   rememberActivityArea(selectedActivityLabel || sub || (CAT[selectedCat] && CAT[selectedCat].label), selectedCat);
-  const block = { category: selectedCat, note, sub };
+  const details = readActivityDetails();
+  delete details.needs_review;
+  if(details.project && !workProjects.includes(details.project)){workProjects.push(details.project);saveSettings();}
+  const block = DayActivity.withDetails({ category: selectedCat === 'gym' ? 'exercise' : selectedCat, note, sub: isSelectedGym() ? 'Gym' : sub }, details);
   if (savingEvent) {
     await savePlannedEvent(selectedEventRange(), block, eventTitle, document.getElementById('eventReminderLead').value);
     return;
   }
-  for (const s of editing) data[s] = { category: selectedCat, note, sub };
+  for (const s of editing) data[s] = { ...block };
   pushBlocks(dateStr, editing, block);
   render();
   if (!document.getElementById("plannerScreen").hidden) renderPlanner();
@@ -1689,10 +1714,10 @@ async function moveSelectedPreviousDay() {
     const previousDay = ymd(previous);
     let destination = loadLocal(previousDay);
     if (sb) {
-      const result = await sb.from("blocks").select("start_time,category,note,subcategory")
+      const result = await sb.from("blocks").select("start_time,category,note,subcategory,details")
         .eq("user_id", USER_ID).eq("date", previousDay);
       if (result.error) throw result.error;
-      destination = Object.fromEntries(result.data.map(r => [r.start_time, {category:r.category,note:r.note || "",sub:r.subcategory || ""}]));
+      destination = Object.fromEntries(result.data.map(r => [r.start_time, {category:r.category,note:r.note || "",sub:r.subcategory || "", ...(r.details && Object.keys(r.details).length ? {details:r.details} : {})}]));
     }
     const conflicts = [...new Set(slots)].filter(slot => source[slot] && destination[slot]);
     const overwrite = conflicts.length > 0;
@@ -1759,7 +1784,7 @@ function exportData() {
           start_time: s,
           category: day[s].category,
           category_label: (CAT[day[s].category] || CAT.other).label,
-          subcategory: day[s].sub || "",
+          subcategory: day[s].sub || "", details: day[s].details || {},
           note: day[s].note || "",
         })),
       };
@@ -1768,6 +1793,7 @@ function exportData() {
   const blob = new Blob([JSON.stringify({
     exported_at: new Date().toISOString(),
     user_id: USER_ID,
+    work_projects: workProjects,
     targets: { short_term: shortTermObjectives, long_term: longTermObjectives },
     notes: visibleNotes(),
     note_projects: noteProjects,
@@ -1798,7 +1824,9 @@ function recoveryRowsFromBackup(backup) {
         category: saved.category,
         note: typeof saved.note === "string" ? saved.note : "",
         sub: typeof saved.subcategory === "string" ? saved.subcategory : "",
+        ...(saved.details ? {details:DayActivity.details(saved.details)} : {}),
       };
+      if(block.details?.project && !workProjects.includes(block.details.project))workProjects.push(block.details.project);
       day[saved.start_time] = block;
       rows.push({ date: dateStr, start_time: saved.start_time, ...block });
       if (block.sub) {
@@ -1905,7 +1933,7 @@ async function restoreData(file) {
       start_time: row.start_time,
       category: row.category,
       note: row.note || "",
-      subcategory: row.sub || "",
+      subcategory: row.sub || "", details: row.details || {},
       updated_at: new Date().toISOString(),
     }));
     for (let i = 0; i < remoteRows.length; i += 400) {
@@ -2009,6 +2037,7 @@ function preferredAreaForBlock(block) {
 function reportingCategoryForBlock(block) {
   if (!block) return "other";
   if (isGymBlock(block)) return "exercise";
+  if (block.details?.original_category || block.details?.project || block.category === "health") return reportingCategoryId(block.category);
   const preferredArea = preferredAreaForBlock(block);
   if (BUILTIN_CATEGORIES.some((c) => c.id === preferredArea)) {
     return reportingCategoryId(preferredArea);
@@ -2066,7 +2095,7 @@ async function migrateHistoricalCategories() {
   const rows = [];
   for (let from = 0;; from += 1000) {
     const { data: page, error } = await sb.from("blocks")
-      .select("date,start_time,category,note,subcategory")
+      .select("date,start_time,category,note,subcategory,details")
       .eq("user_id", USER_ID)
       .order("date", { ascending: true })
       .order("start_time", { ascending: true })
@@ -2079,7 +2108,7 @@ async function migrateHistoricalCategories() {
   const changedRows = [];
   for (const row of rows) {
     if (!SLOTS.includes(row.start_time)) continue;
-    const block = { category: row.category, note: row.note || "", sub: row.subcategory || "" };
+    const block = { category: row.category, note: row.note || "", sub: row.subcategory || "", ...(row.details && Object.keys(row.details).length ? {details:row.details} : {}) };
     const next = canonicalStoredBlock(block);
     if (row.category === next.category && (row.subcategory || "") === next.sub) continue;
     changedRows.push({
@@ -2088,6 +2117,7 @@ async function migrateHistoricalCategories() {
       start_time: row.start_time,
       category: next.category,
       subcategory: next.sub,
+      details: row.details || {},
       note: row.note || "",
       updated_at: new Date().toISOString(),
     });
@@ -2253,7 +2283,7 @@ async function renderStats() {
       const d = new Date(); d.setDate(d.getDate() - (statsRange - 1)); start = ymd(d);
     }
     try {
-      let q = sb.from("blocks").select("date,start_time,category,note,subcategory").eq("user_id", USER_ID).lte("date", ymd(new Date()));
+      let q = sb.from("blocks").select("date,start_time,category,note,subcategory,details").eq("user_id", USER_ID).lte("date", ymd(new Date()));
       if (start) q = q.gte("date", start);
       const { data: rows, error } = await q;
       if (!error && rows) {
@@ -2261,8 +2291,8 @@ async function renderStats() {
         for (const r of rows) {
           const oldDay = map[r.date] || {};
           const oldBlock = oldDay[r.start_time];
-          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "")) {
-            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "") || JSON.stringify(oldBlock.details || {}) !== JSON.stringify(r.details || {})) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "", ...(r.details && Object.keys(r.details).length ? {details:r.details} : {}) };
             changed = true;
           }
         }
@@ -2348,7 +2378,7 @@ function renderPlanner() {
     const block = day[slot];
     const category = block ? (CAT[block.category] || CAT.other) : null;
     const detail = block ? displayBlockNote(block) : "";
-    const title = block ? (block.sub || detail || category.label) : "—";
+    const title = block ? DayActivity.title(block) : "—";
     const secondary = block && title !== category.label ? category.label : "";
     const action = !block ? "Schedule" : (detail ? "Edit target" : "Set target");
     const isNow = dateStr === todayStr && slot === nowSlot;
@@ -2411,7 +2441,7 @@ async function refreshPlannerData() {
   const rangeEnd = selected > today ? selected : today;
   try {
     const { data: rows, error } = await sb.from("blocks")
-      .select("date,start_time,category,note,subcategory")
+      .select("date,start_time,category,note,subcategory,details")
       .eq("user_id", USER_ID).gte("date", ymd(rangeStart)).lte("date", ymd(rangeEnd));
     if (error) throw error;
     for (const row of rows || []) {
@@ -2419,7 +2449,7 @@ async function refreshPlannerData() {
       remoteDay[row.start_time] = {
         category: row.category,
         note: row.note || "",
-        sub: row.subcategory || "",
+        sub: row.subcategory || "", ...(row.details && Object.keys(row.details).length ? {details:row.details} : {}),
       };
       saveLocal(row.date, remoteDay);
       if (row.date === ymd(current)) data = remoteDay;
@@ -2708,12 +2738,12 @@ async function pullUpcomingReminders() {
   const end = new Date(start); end.setDate(end.getDate() + 31);
   try {
     const { data: rows, error } = await sb.from("blocks")
-      .select("date,category,note,subcategory").eq("user_id", USER_ID)
+      .select("date,category,note,subcategory,details").eq("user_id", USER_ID)
       .eq("start_time", EVENT_REMINDER_KEY).gte("date", ymd(start)).lte("date", ymd(end));
     if (error) throw error;
     for (const row of rows || []) {
       const day = loadLocal(row.date);
-      day[EVENT_REMINDER_KEY] = { category: row.category, note: row.note || "", sub: row.subcategory || "" };
+      day[EVENT_REMINDER_KEY] = { category: row.category, note: row.note || "", sub: row.subcategory || "", ...(row.details && Object.keys(row.details).length ? {details:row.details} : {}) };
       saveLocal(row.date, day);
       if (row.date === ymd(current)) data = day;
     }
@@ -2794,7 +2824,7 @@ function calendarPreviewItems(day) {
   let active = null;
   for (let index = 0; index <= SLOTS.length; index++) {
     const block = index < SLOTS.length ? day[SLOTS[index]] : null;
-    const key = block ? JSON.stringify([block.category || "other", block.sub || "", block.note || ""]) : null;
+    const key = block ? JSON.stringify([block.category || "other", block.sub || "", block.note || "", block.details || {}]) : null;
     if (active && key !== active.key) {
       active.endIndex = index;
       items.push(active);
@@ -2824,7 +2854,7 @@ function calendarItemTitle(item) {
   const block = item.block || {};
   const category = CAT[block.category] || CAT.other;
   const note = displayBlockNote(block).replace(/^\[GCal\]\s*/i, "").trim();
-  if (block.sub && block.sub !== "Google Calendar") return block.sub;
+  if (block.sub && block.sub !== "Google Calendar") return DayActivity.title(block);
   return note || block.sub || category.label;
 }
 
@@ -2867,7 +2897,7 @@ function renderCalendarDayPreview(dateStr) {
   html += items.map((item) => {
     const category = CAT[item.block.category] || CAT.other;
     const note = displayBlockNote(item.block);
-    const title = `${reminderStarts.has(SLOTS[item.startIndex]) ? "🔔 " : ""}${item.block.sub || note || category.label}`;
+    const title = `${reminderStarts.has(SLOTS[item.startIndex]) ? "🔔 " : ""}${escapeHtml(DayActivity.title(item.block))}`;
     const detail = item.block.sub
       ? [category.label, note].filter(Boolean).join(" · ")
       : (note ? category.label : "");
@@ -2968,7 +2998,7 @@ async function pullCalendarMonth() {
   const end = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0, 12);
   try {
     const { data: rows, error } = await sb.from("blocks")
-      .select("date,start_time,category,note,subcategory")
+      .select("date,start_time,category,note,subcategory,details")
       .eq("user_id", USER_ID).gte("date", ymd(start)).lte("date", ymd(end));
     if (error) throw error;
     for (const row of rows || []) {
@@ -2976,7 +3006,7 @@ async function pullCalendarMonth() {
       day[row.start_time] = {
         category: row.category,
         note: row.note || "",
-        sub: row.subcategory || "",
+        sub: row.subcategory || "", ...(row.details && Object.keys(row.details).length ? {details:row.details} : {}),
       };
       saveLocal(row.date, day);
     }
@@ -3130,6 +3160,7 @@ const INSIGHTS = [
   { id: "patterns", title: "Patterns", icon: "📊", desc: "Time, work rhythm & daily check-ins", fn: renderPatterns },
   { id: "notes",    title: "Notes",          icon: "📝", desc: "Linked Markdown notes" },
   { id: "subs",     title: "Activities",       icon: "🗂",  desc: "Time by named activity",         fn: renderInsightActivities },
+  { id: "review", title: "Review older entries", icon: "🔎", desc: "Unclear activities kept for you to review", fn: renderActivityReview },
   { id: "heatmap",  title: "Weekly rhythm",    icon: "🔥",  desc: "When activities tend to happen", fn: renderInsightHeatmap, menu: false },
   { id: "goals",    title: "Objectives",       icon: "🎯",  desc: "Daily actions & longer-term direction", fn: renderInsightGoals },
 ];
@@ -3174,19 +3205,28 @@ const emptyMsg = (t) => `<div class="stats-empty">${t}</div>`;
 
 // ---- 1. Subcategory / project breakdown ----
 function renderInsightSubs(map) {
-  const mins = {}; // "cat sub" -> minutes
-  for (const d of trackedDates(map))
-    for (const s of SLOTS) {
-      const b = map[d][s];
-      if (b && b.sub) { const k = b.category + " " + b.sub; mins[k] = (mins[k] || 0) + 30; }
+  const totals=DayActivity.breakdown(map);
+  const panel=(title,values,color)=>{
+    const items=Object.entries(values).sort((a,b)=>b[1]-a[1]);
+    return items.length?`<div class="stats-h">${title}</div>`+items.map(([name,h])=>barRow(name,color,h,items[0][1])).join(''):'';
+  };
+  return panel('Work by project / company',totals.projects,catColor('work'))+
+    panel(`Travel · ${fmtH(totals.travelHours)} total`,totals.transport,catColor('travel'))+
+    (totals.travelHours?'<p class="stats-empty">Mixed journeys count once. Time within each transport mode is not inferred.</p>':'');
+}
+
+function renderActivityReview(map) {
+  const rows=[];
+  for(const date of trackedDates(map).reverse()){
+    let last=null;
+    for(const slot of SLOTS){const b=map[date][slot];if(!b?.details?.needs_review){last=null;continue;}
+      const signature=JSON.stringify(b);
+      if(last&&last.signature===signature){last.slots.push(slot);continue;}
+      last={date,signature,slots:[slot],b};rows.push(last);
     }
-  const keys = Object.keys(mins).sort((a, b) => mins[b] - mins[a]);
-  if (!keys.length) return emptyMsg("No projects/subcategories logged in this range yet.");
-  const maxH = Math.max(...keys.map((k) => mins[k])) / 60;
-  return `<div class="stats-h">Time by project</div>` + keys.map((k) => {
-    const [cat, sub] = k.split(" ");
-    return barRow(`${catLabel(cat)} · ${sub}`, catColor(cat), mins[k] / 60, maxH);
-  }).join("");
+  }
+  if(!rows.length)return emptyMsg('No older entries need review in this range.');
+  return '<p class="stats-empty">These entries kept their original classification. Choose one to clarify its activity and purpose.</p>'+rows.map(r=>`<button type="button" class="review-entry" data-review-date="${r.date}" data-review-slots="${r.slots.join(',')}"><strong>${escapeHtml(r.b.sub || r.b.note || (CAT[r.b.category] || CAT.other).label)}</strong><small>${r.date} · ${r.slots[0]} · ${fmtH(r.slots.length/2)}</small></button>`).join('');
 }
 
 // Activity/project totals are grouped by activity label rather than by
@@ -3209,9 +3249,9 @@ function renderInsightActivities(map) {
     }
   }
   const items = Object.values(activities).sort((a, b) => b.mins - a.mins);
-  if (!items.length) return emptyMsg("No named activities logged in this range yet.");
+  if (!items.length) return renderInsightSubs(map) || emptyMsg("No named activities logged in this range yet.");
   const maxH = items[0].mins / 60;
-  return `<div class="stats-h">Named activity time</div>` + items.map((item) => {
+  return renderInsightSubs(map) + `<div class="stats-h">Named activity time</div>` + items.map((item) => {
     const catId = Object.keys(item.categories).sort((a, b) => item.categories[b] - item.categories[a])[0] || "other";
     return barRow(`${catLabel(catId)} · ${item.label}`, catColor(catId), item.mins / 60, maxH);
   }).join("");
@@ -3582,7 +3622,7 @@ function renderInsightGym(map) {
     let active = null;
     for (const s of SLOTS) {
       const b = map[d][s];
-      const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}` : null;
+      const key = isGymBlock(b) ? `${b.category}\0${b.sub || ""}\0${b.note || ""}\0${JSON.stringify(b.details || {})}` : null;
       // A visit is one contiguous run of Gym blocks. Exercise details may
       // legitimately differ between adjacent blocks and must not split it.
       if (key && active && SLOTS.indexOf(s) === SLOTS.indexOf(active.last) + 1) {
@@ -3706,6 +3746,7 @@ function openInsight(id) {
     insightRange = 30;
     document.querySelectorAll('#insightRangeSeg button').forEach(b => b.classList.toggle('active', b.dataset.range === '30'));
   }
+  if (id === 'review') {insightRange=0;document.querySelectorAll('#insightRangeSeg button').forEach(b=>b.classList.toggle('active',b.dataset.range==='0'));}
   currentInsight = INSIGHTS.find((i) => i.id === id);
   document.getElementById("insightTitle").textContent = currentInsight.title;
   document.getElementById("insightScreen").hidden = false;
@@ -4081,7 +4122,7 @@ async function renderInsight() {
       const d = new Date(); d.setDate(d.getDate() - (insightRange - 1)); start = ymd(d);
     }
     try {
-      let q = sb.from("blocks").select("date,start_time,category,note,subcategory").eq("user_id", USER_ID).lte("date", ymd(new Date()));
+      let q = sb.from("blocks").select("date,start_time,category,note,subcategory,details").eq("user_id", USER_ID).lte("date", ymd(new Date()));
       if (start) q = q.gte("date", start);
       const { data: rows, error } = await q;
       if (currentInsight !== insight || insightRange !== requestedRange) return;
@@ -4090,8 +4131,8 @@ async function renderInsight() {
         for (const r of rows) {
           const oldDay = map[r.date] || {};
           const oldBlock = oldDay[r.start_time];
-          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "")) {
-            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "" };
+          if (!oldBlock || oldBlock.category !== r.category || oldBlock.note !== (r.note || "") || oldBlock.sub !== (r.subcategory || "") || JSON.stringify(oldBlock.details || {}) !== JSON.stringify(r.details || {})) {
+            (map[r.date] = map[r.date] || {})[r.start_time] = { category: r.category, note: r.note || "", sub: r.subcategory || "", ...(r.details && Object.keys(r.details).length ? {details:r.details} : {}) };
             changed = true;
           }
         }
@@ -4126,6 +4167,12 @@ window.addEventListener("beforeunload", () => {
 });
 
 // ---- Wire up ----
+document.getElementById('insightBody').addEventListener('click',async event=>{
+  const button=event.target.closest('[data-review-date]');if(!button)return;
+  const date=button.dataset.reviewDate,slots=button.dataset.reviewSlots.split(',');
+  closeInsight();await goto(new Date(date+'T12:00:00'));openSheet(slots);
+});
+
 document.getElementById("prevDay").addEventListener("click", () => {
   const d = new Date(current); d.setDate(d.getDate() - 1); goto(d);
 });
@@ -4449,7 +4496,7 @@ document.getElementById('agentMemoryBtn').addEventListener('click',async()=>{
   if(!sb || !USER_ID || USER_ID==='local-recovery'){body.textContent='Sign in to view your saved objectives, plans and memories.';return;}
   const actor=USER_ID,client=sb,selectedDate=ymd(current);
   try{
-    const all=[];for(let offset=0;offset<10000;offset+=1000){const {data:rows,error}=await client.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id',actor).or('date.eq.2000-01-01,start_time.eq.__plan__,start_time.eq.__rough_plan__').order('date').order('start_time').range(offset,offset+999);if(error)throw error;all.push(...rows);if(rows.length<1000)break;if(offset===9000)throw Error('Too many source records');}
+    const all=[];for(let offset=0;offset<10000;offset+=1000){const {data:rows,error}=await client.from('blocks').select('date,start_time,category,note,subcategory,details').eq('user_id',actor).or('date.eq.2000-01-01,start_time.eq.__plan__,start_time.eq.__rough_plan__').order('date').order('start_time').range(offset,offset+999);if(error)throw error;all.push(...rows);if(rows.length<1000)break;if(offset===9000)throw Error('Too many source records');}
     if(USER_ID!==actor||sb!==client||request!==agentOverviewRequest||dialog.hidden)return;
     renderAgentOverview(all,selectedDate,body);
     if(statusEl()?.classList.contains('syncing')||statusEl()?.classList.contains('err')){const hint=document.createElement('p');hint.className='agent-overview-hint';hint.textContent='Showing saved cloud records. Edits still waiting to sync may not appear yet.';body.prepend(hint);}
@@ -4873,13 +4920,13 @@ async function loadPatterns() {
     // Paginate: Supabase commonly caps a response at 1,000 rows.
     const remote = {};
     for (let offset = 0; ; offset += 500) {
-      let query = sb.from('blocks').select('date,start_time,category,note,subcategory')
+      let query = sb.from('blocks').select('date,start_time,category,note,subcategory,details')
         .eq('user_id', USER_ID).lte('date', today).order('date').order('start_time').range(offset, offset + 499);
       if (range) query = query.gte('date', start);
       const { data: rows, error } = await query;
       if (error) throw error;
       if (!active()) return;
-      for (const r of rows || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '' };
+      for (const r of rows || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '', ...(r.details && Object.keys(r.details).length ? {details:r.details} : {}) };
       if (!rows || rows.length < 500) break;
     }
     // Prefer fresh server rows, but preserve edits made while this request ran.
@@ -4947,9 +4994,9 @@ async function refreshAgentChanges(){
   if(editingOpen())return;
   const actor=USER_ID,client=sb,date=ymd(current),snapshot=JSON.stringify(data);agentRefreshBusy=true;
   try{
-    const result=await sb.from('blocks').select('start_time,category,note,subcategory').eq('user_id',USER_ID).eq('date',date);
+    const result=await sb.from('blocks').select('start_time,category,note,subcategory,details').eq('user_id',USER_ID).eq('date',date);
     if(result.error || USER_ID!==actor || sb!==client || editingOpen() || ymd(current)!==date || JSON.stringify(data)!==snapshot)return;
-    const remote=Object.fromEntries(result.data.map(r=>[r.start_time,{category:r.category,note:r.note || '',sub:r.subcategory || ''}]));
+    const remote=Object.fromEntries(result.data.map(r=>[r.start_time,{category:r.category,note:r.note || '',sub:r.subcategory || '', ...(r.details && Object.keys(r.details).length ? {details:r.details} : {})}]));
     if(JSON.stringify(remote)!==snapshot){data=remote;saveLocal(date,data);render();setStatus('ok','Updated from cloud');}
   }finally{agentRefreshBusy=false;}
 }
@@ -4968,11 +5015,11 @@ async function savePlannedEvent(range, block, title, lead) {
   try {
     if (sb) {
       for (let offset = 0; ; offset += 500) {
-        const result = await sb.from('blocks').select('date,start_time,category,note,subcategory')
+        const result = await sb.from('blocks').select('date,start_time,category,note,subcategory,details')
           .eq('user_id', USER_ID).gte('date', range.days[0].date).lte('date', range.days.at(-1).date)
           .order('date').order('start_time').range(offset, offset + 499);
         if (result.error) throw result.error;
-        for (const r of result.data || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '' };
+        for (const r of result.data || []) (remote[r.date] ||= {})[r.start_time] = { category: r.category, note: r.note || '', sub: r.subcategory || '', ...(r.details && Object.keys(r.details).length ? {details:r.details} : {}) };
         if (!result.data || result.data.length < 500) break;
       }
     }
@@ -4987,7 +5034,7 @@ async function savePlannedEvent(range, block, title, lead) {
       for (const slot of day.slots) {
         dayMap[day.date][slot] = { ...block };
         rows.push({ user_id: USER_ID, date: day.date, start_time: slot, category: block.category,
-          note: block.note || '', subcategory: block.sub || '', updated_at: new Date().toISOString() });
+          note: block.note || '', subcategory: block.sub || '', details: block.details || {}, updated_at: new Date().toISOString() });
       }
     }
     const first = range.days[0], firstDay = dayMap[first.date];
@@ -5026,4 +5073,39 @@ async function savePlannedEvent(range, block, title, lead) {
       if (eventMode) updateEventRange();
     }
   }
+}
+
+// Show only the details relevant to the activity's purpose.
+function isSelectedGym() { return isGymCategoryId(selectedCat) || (selectedCat === 'exercise' && isGymActivityLabel(selectedSub || selectedActivityLabel)); }
+function readActivityDetails() {
+  const d = {...selectedDetails};
+  if (selectedCat === 'travel') {
+    d.modes = [...document.querySelectorAll('#transportModes input:checked')].map(input=>input.value);
+    d.destination = document.getElementById('activityDestination').value.trim();
+  } else if (selectedCat === 'health') {
+    d.destination = document.getElementById('activityDestination').value.trim();
+    delete d.modes;
+  } else { delete d.modes; delete d.destination; }
+  if (selectedCat === 'work') d.project = document.getElementById('activityProject').value.trim();
+  else delete d.project;
+  selectedDetails = DayActivity.details(d);
+  return {...selectedDetails};
+}
+function renderActivityDetails() {
+  const panel=document.getElementById('activityDetails');
+  const travel=selectedCat==='travel',work=selectedCat==='work',health=selectedCat==='health';
+  panel.hidden=!(travel||work||health||selectedDetails.needs_review);
+  document.getElementById('travelModesField').hidden=!travel;
+  document.getElementById('destinationField').hidden=!(travel||health);
+  document.getElementById('workProjectField').hidden=!work;
+  document.getElementById('activityReviewHint').hidden=!selectedDetails.needs_review;
+  document.getElementById('activityDestination').value=selectedDetails.destination || '';
+  document.getElementById('activityProject').value=selectedDetails.project || '';
+  const list=document.getElementById('transportModes');list.replaceChildren();
+  for(const mode of DayActivity.modes){
+    const label=document.createElement('label'),input=document.createElement('input');
+    input.type='checkbox';input.value=mode;input.checked=!!selectedDetails.modes?.includes(mode);
+    label.append(input,document.createTextNode(mode));list.appendChild(label);
+  }
+  document.getElementById('workProjectOptions').replaceChildren(...workProjects.map(name=>{const option=document.createElement('option');option.value=name;return option;}));
 }

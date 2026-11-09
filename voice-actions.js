@@ -1,10 +1,11 @@
 /* Voice-only plans. Model output never executes JavaScript or writes storage. */
 (function(root) {
+  const M=typeof module==='object'&&module.exports?require('./activity-model'):root.DayActivity;
   const types = ['navigate','activity_update','activity_delete','objective_add','objective_complete','objective_remove','rough_plan_add','checkin','day_status','note_append','query_day'];
   const screens = ['day','calendar','planner','patterns','notes','goals','subs','gym'];
   const clone = value => JSON.parse(JSON.stringify(value));
   const same = (a,b) => JSON.stringify(normal(a)) === JSON.stringify(normal(b));
-  const normal = b => b ? {category:b.category,note:b.note || '',sub:b.sub || b.subcategory || ''} : null;
+  const normal = b => b ? {category:b.category,note:b.note || '',sub:b.sub || b.subcategory || '',...(b.details && Object.keys(b.details).length?{details:M.details(b.details)}:{})} : null;
   const parse = value => { try { const result=JSON.parse(value || '{}');return result && typeof result==='object' && !Array.isArray(result)?result:{}; } catch { return {}; } };
   const dateOK = date => /^\d{4}-\d{2}-\d{2}$/.test(date || '') && date !== '2000-01-01' && !isNaN(Date.parse(date)) && new Date(date+'T12:00Z').toISOString().slice(0,10)===date;
   const clock = n => `${String(Math.floor(n/2)).padStart(2,'0')}:${n%2?'30':'00'}`;
@@ -20,7 +21,7 @@
       for(let n=0;n<48;) {
         const start=n, block=day[clock(n++)];if(!block)continue;
         while(n<48 && same(block,day[clock(n)]))n++;
-        result.push({id:`activity:${date}:${clock(start)}`,kind:'activity',date,start:clock(start),end:clock(n),activity:block.sub || block.category,category:block.category});
+        result.push({id:`activity:${date}:${clock(start)}`,kind:'activity',date,start:clock(start),end:clock(n),activity:block.sub || block.category,category:block.category,...(block.details?{details:block.details}:{})});
       }
       const goalGroups=date==='2000-01-01' ? ['shortTermObjectives','longTermObjectives'] : ['daily'];
       const settings=parse(day.__settings__?.note);
@@ -44,9 +45,10 @@
     const selected=new Set();
     for(const action of actions) {
       if(!action || !types.includes(action.type))throw Error('Unsupported voice action.');
-      const allowed=['type','target','date','start','end_date','end','category','activity','text','status','screen','horizon','completed','energy','satisfaction'];
+      const allowed=['type','target','date','start','end_date','end','category','activity','text','status','screen','horizon','completed','energy','satisfaction','details'];
       if(Object.keys(action).some(k=>!allowed.includes(k)))throw Error('Unsupported action field.');
-      for(const key of allowed.filter(k=>!['completed','energy','satisfaction'].includes(k)))if(action[key]!=null && (typeof action[key]!=='string' || action[key].length>4000))throw Error('Invalid action text.');
+      for(const key of allowed.filter(k=>!['completed','energy','satisfaction','details'].includes(k)))if(action[key]!=null && (typeof action[key]!=='string' || action[key].length>4000))throw Error('Invalid action text.');
+      if(action.details!=null)M.details(action.details);
       const a=action, target=a.target?catalog.find(t=>t.id===a.target):null;
       if(a.target && !target)throw Error('That selection is no longer available. Describe it again.');
       if(target && selected.has(target.id))throw Error('Give one change per selected item at a time.');
@@ -67,7 +69,7 @@
           if(a.category && !helpers.categories.includes(a.category))throw Error('Choose a supported category.');
           for(const d of destination.days)for(const slot of d.slots) {
             if(get(d.date)[slot])throw Error(`The new time overlaps an entry on ${d.date} at ${slot}. Choose another time.`);
-            get(d.date)[slot]={...original,...(a.activity?{sub:a.activity}:{}),...(a.category?{category:a.category}:{}),...(a.text!=null?{note:a.text}:{})};
+            get(d.date)[slot]=(a.activity || a.category?M.normalize:b=>M.withDetails(b,b.details))({...original,...(a.activity?{sub:a.activity}:{}),...(a.category?{category:a.category}:{}),...(a.text!=null?{note:a.text}:{}),...(a.details?{details:{...original.details,...a.details}}:{})});
           }
           summaries.push(`Change ${target.activity}: ${target.date} ${target.start}–${target.end} → ${a.date || target.date} ${a.start || target.start}–${a.end || target.end}${a.activity?' · name: '+a.activity:''}${a.category?' · category: '+a.category:''}${a.text!=null?' · note: '+(a.text || '(clear)'):''}`);
         } else summaries.push(`Delete ${target.activity} · ${target.date} ${target.start}–${target.end}`);
@@ -120,7 +122,7 @@
         summaries.push(`Append to “${note.title}”: ${a.text}`);
       } else if(a.type==='query_day') {
         const day=requireDate(),totals={};let count=0;
-        for(let n=0;n<48;n++){const block=day[clock(n)];if(!block || /^\[GCal\]/.test(block.note || ''))continue;count++;const name=block.sub || block.category;totals[name]=(totals[name] || 0)+0.5;}
+        for(let n=0;n<48;n++){const block=day[clock(n)];if(!block || /^\[GCal\]/.test(block.note || ''))continue;count++;const name=M.title(block);totals[name]=(totals[name] || 0)+0.5;}
         answers.push(`${a.date}: ${count/2} hours recorded${count?' · '+Object.entries(totals).map(([name,h])=>`${name}: ${h}h`).join(', '):''}. Unrecorded time is unknown; entries may include plans.`);
       }
     }

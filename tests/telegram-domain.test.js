@@ -34,7 +34,7 @@ test('spoken-time normalization parity with Python',()=>{
 for(const [stamp,day,time] of [['2026-10-24T23:30:00Z','2026-10-25','00:30'],['2026-10-25T00:30:00Z','2026-10-25','01:30'],['2026-10-25T01:30:00Z','2026-10-25','01:30'],['2026-03-29T01:30:00Z','2026-03-29','02:30']])test(`London date anchor ${stamp}`,()=>{assert.deepEqual(D.anchor(Date.parse(stamp)/1000),{today:day,local_time:time,timezone:'Europe/London'});});
 for(const category of D.helpers.categories)for(const [start,end] of [['00:00','00:30'],['08:30','09:30'],['23:00','24:00']])test(`new ${category} ${start}–${end}`,()=>{
   const d={...empty(),items:[{date,start,end_date:date,end,category,activity:'Sample',note:'Preserved'}]};const p=D.plan(d,[],[]);
-  assert.ok(p.patches.length>=1);assert.ok(p.patches.every(p=>p.before===null&&p.after.category===category&&p.after.note==='Preserved'));
+  assert.ok(p.patches.length>=1);assert.ok(p.patches.every(p=>p.before===null&&p.after.category===(category==='gym'?'exercise':category)&&p.after.note==='Preserved'));
 });
 for(const field of ['energy','satisfaction'])for(const score of [1,2,3,4,5])test(`${field} ${score} preserves other rating`,()=>{
   const d={...empty(),actions:[{type:'checkin',date,[field]:score}]},r=[block('__checkin__','checkin',JSON.stringify({energy:3,satisfaction:4}))];const p=D.plan(d,r,[]);
@@ -176,7 +176,7 @@ test('Vercel entry points load without credentials and stay disabled by default'
   for(const name of ['webhook','worker']){const route=await import(pathToFileURL(path.join(__dirname,`../api/telegram/${name}.mjs`)));assert.equal(typeof route.default.fetch,'function');assert.equal((await route.default.fetch(new Request('https://test',{method:'POST'}))).status,503);}
 });
 test('Telegram format resolver follows category-only app formats across categories',()=>{
-  for(const category of D.helpers.categories){const d={...empty(),items:[{date,start:'00:00',end_date:date,end:'01:00',category,activity:category,note:''}]};const p=D.plan(d,[],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches.length,2);assert.ok(p.patches.every(p=>p.after.sub===''&&p.after.category===category));}
+  for(const category of D.helpers.categories){const d={...empty(),items:[{date,start:'00:00',end_date:date,end:'01:00',category,activity:category,note:''}]};const p=D.plan(d,[],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches.length,2);assert.ok(p.patches.every(p=>p.after.category===(category==='gym'?'exercise':category)));if(category==='gym')assert.ok(p.patches.every(p=>p.after.sub==='Gym'));}
 });
 test('saved names retain exact spelling and stored category instead of model guess',()=>{
   const r=[block('09:00','work','',{subcategory:'Sample Project'})];const d={...empty(),items:[{date,start:'11:00',end_date:date,end:'12:00',category:'other',activity:'sample   project',note:''}]};const p=D.plan(d,r,[],{strict:true});assert.ok(p.patches.every(p=>p.after.sub==='Sample Project'&&p.after.category==='work'));
@@ -199,7 +199,7 @@ test('repeating an existing activity preserves notes and does not invent duplica
 test('category labels match the base app and legacy custom activities remain reusable',()=>{
   const src=readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');const builtins=src.slice(src.indexOf('const BUILTIN_CATEGORIES'),src.indexOf('// Palette'));
   const vocabulary=require('../server/telegram/formats.cjs').vocabulary([]);
-  for(const m of builtins.matchAll(/id: "([^"]+)"\s*,\s*label: "([^"]+)"/g))assert.ok(vocabulary.some(f=>f.category===m[1]&&f.label===m[2]&&f.sub===''));
+  for(const m of builtins.matchAll(/id: "([^"]+)"\s*,\s*label: "([^"]+)"/g))assert.ok(vocabulary.some(f=>f.category===(m[1]==='gym'?'exercise':m[1])&&f.label===m[2]));
   const r=[block('__settings__','settings',JSON.stringify({customCats:[{id:'c_project',label:'Legacy Project'}]}),{date:'2000-01-01'}),block('09:00','c_project','',{subcategory:''})];
   const f=require('../server/telegram/formats.cjs').resolve('legacy project','other',r,{strict:true}).format;assert.equal(f.sub,'Legacy Project');assert.equal(f.category,'other');
 });

@@ -39,6 +39,22 @@ window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{u
   await page.getByRole('button',{name:'Memory & plans',exact:true}).click();await overview.getByText('Afternoon preference',{exact:false}).waitFor();await overview.getByText('○ Existing daily objective',{exact:true}).waitFor();if(process.env.DAY_WEB_SCREENSHOT){await page.evaluate(async()=>{await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));document.getElementById('agentMemoryBody').scrollTop=0;document.querySelector('#agentMemoryDialog .sheet').scrollTop=0;});await page.screenshot({path:process.env.DAY_WEB_SCREENSHOT});}await page.locator('#agentMemoryClose').click();
   assert.equal(await page.locator('#helpBtn, #helpDialog, .planner-shortcuts').count(),0);await page.keyboard.press('?');
   assert.equal(await page.locator('#gymBtn').count(),0);await page.evaluate(()=>openInsight('gym'));assert.equal(await page.locator('#insightScreen').isVisible(),false);
-  assert.deepEqual(errors,[]);console.log('PASS: signed-in fixture, slot selection sharing, activity view, cloud refresh, existing objectives and plans without memories, owner isolation, read-only overview, saved memories, no browser errors.');
+  const voicePlan=await page.evaluate(()=>DayVoiceDraft.plan({items:[{date:'2026-10-29',start:'11:00',end_date:'2026-10-29',end:'11:30',category:'travel',activity:'Travel',details:{modes:['Train','Bus']},note:''}],reflections:[]},DayEventRange));assert.deepEqual(voicePlan.errors,[]);assert.deepEqual(voicePlan.slots[0].block.details.modes,['Bus','Train']);
+  // Structured travel and work fields must survive a real page round-trip.
+  await page.evaluate(async()=>{await goto(new Date('2026-10-29T12:00:00'));openSheet(['09:00','09:30']);});
+  await page.locator('#activitySearch').fill('Travel');await page.locator('#catGrid button').filter({hasText:'Travel'}).first().click();
+  await page.locator('#transportModes input[value="Train"]').check();await page.locator('#transportModes input[value="Bus"]').check();await page.locator('#activityDestination').fill('London');
+  await page.locator('#saveBlock').click();
+  await page.waitForFunction(()=>window.mockRows.some(r=>r.date==='2026-10-29'&&r.start_time==='09:00'&&r.details?.destination==='London'));
+  const journey=await page.evaluate(()=>window.mockRows.find(r=>r.date==='2026-10-29'&&r.start_time==='09:00'));assert.equal(journey.category,'travel');assert.equal(journey.subcategory,'Travel');assert.deepEqual(journey.details.modes,['Bus','Train']);
+  await page.evaluate(async()=>{await pullDay('2026-10-29');openSheet(['09:00','09:30']);});
+  assert.equal(await page.locator('#transportModes input:checked').count(),2);assert.equal(await page.locator('#activityDestination').inputValue(),'London');
+  if(process.env.DAY_TRAVEL_SCREENSHOT){await page.setViewportSize({width:390,height:844});await page.evaluate(async()=>{await Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})));});await page.screenshot({path:process.env.DAY_TRAVEL_SCREENSHOT});}
+  await page.evaluate(()=>closeSheet());await page.evaluate(()=>openSheet(['10:00']));
+  await page.locator('#activitySearch').fill('Meeting');await page.locator('#catGrid button').filter({hasText:'Meeting'}).first().click();await page.locator('#activityProject').fill('Moeve');await page.locator('#saveBlock').click();
+  await page.waitForFunction(()=>window.mockRows.some(r=>r.date==='2026-10-29'&&r.start_time==='10:00'&&r.details?.project==='Moeve'));
+  await page.evaluate(async()=>{await pullDay('2026-10-29');openSheet(['10:00']);});assert.equal(await page.locator('#activityProject').inputValue(),'Moeve');await page.evaluate(()=>closeSheet());
+  await page.evaluate(()=>{insightRange=0;openInsight('subs');});await page.getByText('Work by project / company',{exact:true}).waitFor();await page.locator('#insightBody').getByText('Bus + Train',{exact:true}).waitFor();await page.evaluate(()=>closeInsight());
+  assert.deepEqual(errors,[]);console.log('PASS: signed-in fixture, slot selection sharing, activity view, cloud refresh, existing objectives and plans without memories, owner isolation, read-only overview, saved memories, structured multi-mode journeys, work projects, detail round-trip, breakdown reports, no browser errors.');
  }finally{if(browser)await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e.message);process.exitCode=1;});

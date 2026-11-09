@@ -10,7 +10,7 @@
     day.setDate(day.getDate()-1);
     const date=`${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
     const from=structuredClone(source),to=structuredClone(destination),expected={},destinationExpected={};
-    for(const slot of selected){destinationExpected[slot]=destination[slot]?{category:destination[slot].category,note:destination[slot].note || '',sub:destination[slot].sub || ''}:null;expected[slot]={category:source[slot].category,note:source[slot].note || '',sub:source[slot].sub || ''};to[slot]=structuredClone(source[slot]);delete from[slot];}
+    for(const slot of selected){destinationExpected[slot]=destination[slot]?{category:destination[slot].category,note:destination[slot].note || '',sub:destination[slot].sub || '',...(destination[slot].details?{details:destination[slot].details}:{})}:null;expected[slot]={category:source[slot].category,note:source[slot].note || '',sub:source[slot].sub || '',...(source[slot].details?{details:source[slot].details}:{})};to[slot]=structuredClone(source[slot]);delete from[slot];}
     return {date,from,to,expected,destinationExpected,count:selected.length};
   }
   const api={plan};if(typeof module==='object')module.exports=api;else root.DaySlotTransfer=api;

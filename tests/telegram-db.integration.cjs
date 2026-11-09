@@ -27,6 +27,7 @@ before(async()=>{
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027185438_overwrite_previous_day_transfer.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261027210936_agent_context_preferences.sql'),'utf8'));
   await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261028090222_agent_change_events.sql'),'utf8'));
+  await admin.query(readFileSync(join(__dirname,'../supabase/migrations/20261109220654_activity_details.sql'),'utf8'));
   await admin.query('alter role day_telegram login');
   await admin.query('insert into day_bot.role_owners(role_name,owner,writes_enabled) values($1,$2,true)',['day_telegram',owner]);
 });
@@ -249,7 +250,7 @@ test('Telegram status uses fresh database rows even after remembered entries mov
   const n=++seq;const result=await service.ingest('42',{userId:123,chatId:123,updateId:n,messageId:n,timestamp:Math.floor(Date.parse('2026-10-27T20:26:00Z')/1000),text:'What is the status of my day so far? What have I filled in?'});
   await service.process(result.id);
   const answer=await one(admin,"select payload->>'text' as text from day_bot.outbox where dedupe_key=$1",[result.id+':0']);
-  assert.equal(answer.text,'No activities are saved for Tuesday, 27 October 2026.');
+  assert.equal(answer.text,'Tuesday, 27 October 2026\n\nNo activities recorded.');
   assert.equal((await savedBlocks()).length,1);
 });
 test('destructive tool waits for confirmation, then saves and undo restores data',async()=>{
@@ -367,4 +368,19 @@ test('calendar controls, schedule typo and gaps are deterministic without callin
 });
 test('switching day cannot silently retarget a pending draft',async()=>{
  await draft();const j=await job('/day 2026-10-31'),service=new Service({store,queue:{publish:async()=>{}},providers:{}});await assert.rejects(service.selectDay(j,{today:'2026-11-01'},null,'2026-10-31'),/current draft/);assert.equal((await store.pending(j)).data.draft.items[0].date,day);
+});
+
+test('structured travel survives transactional save, conflict checks, undo and browser date transfer',async()=>{
+ const j=await job(),r=await store.readRows(j),value={...empty(),items:[{date:day,start:'09:00',end:'10:00',end_date:day,category:'travel',activity:'Travel',note:'Keep this journey',details:{modes:['Train','Bus'],destination:'London'}}]};
+ const review=D.plan(value,r,[]),id=await store.saveDraft(j,{draft:value,review,time:{today:day,local_time:'12:00'},transcript:'journey'},preview);
+ await store.apply(await job('save'),id,true);
+ let rows=(await admin.query("select * from public.blocks where start_time='09:00'")).rows;assert.deepEqual(rows[0].details,{modes:['Bus','Train'],destination:'London'});
+ await store.undo(await job('undo'),id,true);assert.equal((await admin.query("select * from public.blocks where start_time='09:00'")).rowCount,0);
+ await admin.query("insert into public.blocks(user_id,date,start_time,category,subcategory,note,details) values($1,$2,'09:00','travel','Travel','note',$3)",[owner,day,JSON.stringify({modes:['Train','Bus'],destination:'London'})]);
+ const c=await admin.connect();try{
+  await c.query('begin');await c.query('set local role authenticated');await c.query("select set_config('request.jwt.claim.sub',$1,true)",[owner]);
+  const expected={'09:00':{category:'travel',sub:'Travel',note:'note',details:{modes:['Train','Bus'],destination:'London'}}};
+  await c.query('select public.move_day_slots_previous_day($1,$2)',[day,expected]);await c.query('commit');
+ }finally{c.release();}
+ rows=(await admin.query("select date::text as date,details from public.blocks where start_time='09:00'")).rows;assert.equal(rows[0].date,'2026-10-25');assert.equal(rows[0].details.destination,'London');
 });

@@ -1,4 +1,5 @@
 'use strict';
+const M=require('../../activity-model');
 const Ajv = require('ajv');
 const contract = require('./voice-contract.json');
 const actions = require('../../voice-actions');
@@ -105,17 +106,17 @@ function plan(draft,rows,catalog,options={}) {
     if(draft.actions?.length){
       result=agentTools.plan({draft,days,catalog,range,helpers});
       for(const action of draft.actions){const f=resolved.get(action);if(!f)continue;
-        for(const patch of result.patches)if(patch.after && patch.after.sub===action.activity){patch.after={...patch.after,category:f.category,sub:f.sub,note:patch.after.note || f.note};}
+        for(const patch of result.patches)if(patch.after && patch.after.sub===action.activity){patch.after=M.normalize({...patch.after,category:f.category,sub:f.sub,note:patch.after.note || f.note,details:{...patch.after.details,...f.details,...action.details}});}
       }
     }
     else if(draft.items.length || draft.reflections.length) {
       const p=entries.plan(draft,range); if(p.errors.length)throw new UserError(p.errors[0]);
       const next=structuredClone(days), summaries=[];
-      for(const i of draft.items){const f=resolved.get(i);summaries.push(`${i.date} ${i.start} → ${i.end_date} ${i.end}: ${f.label} (${f.category})${i.note?' · '+i.note:''}`);}
+      for(const i of draft.items){const f=resolved.get(i);summaries.push(`${i.date} ${i.start} → ${i.end_date} ${i.end}: ${f.label} (${f.category})${M.describe({details:{...f.details,...i.details}})?' · '+M.describe({details:{...f.details,...i.details}}):''}${i.note?' · '+i.note:''}`);}
       for(const item of draft.items){const f=resolved.get(item),interval=range.build(item.date,item.start,item.end_date,item.end);for(const d of interval.days)for(const slot of d.slots){
         const existing=days[d.date]?.[slot];
         const note=item.note || (existing && existing.category===f.category && formats.key(existing.sub)===formats.key(f.sub)?existing.note:'') || f.note;
-        (next[d.date] ||= {})[slot]={category:f.category,sub:f.sub,note};
+        (next[d.date] ||= {})[slot]=M.normalize({category:f.category,sub:f.sub,note,details:{...f.details,...item.details}});
         if(existing)summaries.push(`Replace ${d.date} ${slot}: ${existing.sub || existing.category}`);
       }}
       for(const r of p.reflections){const day=next[r.date] ||= {}, old=day.__reflect__?.note || '';day.__reflect__={category:'reflection',note:old===r.text?old:[old,r.text].filter(Boolean).join('\n\n')};summaries.push(`Reflection ${r.date}: ${r.text}`);}

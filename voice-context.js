@@ -1,6 +1,6 @@
 /* Read-only diary retrieval and deterministic context selection. No model writes. */
 (function (root) {
-  const categories = new Set(['sleep','work','exercise','gym','food','learn','social','chores','travel','relax','other']);
+  const categories = new Set(['sleep','work','exercise','gym','food','learn','social','chores','travel','relax','health','other']);
   const text = (value, length = 400) => typeof value === 'string' ? value.slice(0, length) : '';
   const parse = value => { try { const parsed=JSON.parse(value || '{}');return parsed && typeof parsed==='object' && !Array.isArray(parsed)?parsed:{}; } catch { return {}; } };
   const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(Date.parse(value)) && new Date(value + 'T12:00:00Z').toISOString().slice(0,10) === value;
@@ -15,7 +15,7 @@
       try {
         for (let offset=0; ; offset+=pageSize) {
           if (signal?.aborted) throw Object.assign(new Error('Cancelled'),{name:'AbortError'});
-          let query=client.from('blocks').select('user_id,date,start_time,category,note,subcategory').eq('user_id',userId).order('date',{ascending:false}).order('start_time',{ascending:true}).range(offset,offset+pageSize-1);
+          let query=client.from('blocks').select('user_id,date,start_time,category,note,subcategory,details').eq('user_id',userId).order('date',{ascending:false}).order('start_time',{ascending:true}).range(offset,offset+pageSize-1);
           if (signal && query.abortSignal) query=query.abortSignal(signal);
           const result=await query;
           if (result.error) throw new Error('Diary unavailable');
@@ -35,7 +35,7 @@
       if (!key?.startsWith('day_data_')) continue;
       const date=key.slice(9); if (!validDate(date)) continue;
       const day=parse(storage.getItem(key));
-      for (const [start_time, block] of Object.entries(day || {})) if (block && typeof block==='object') rows.push({date,start_time,...block,subcategory:block.sub || ''});
+      for (const [start_time, block] of Object.entries(day || {})) if (block && typeof block==='object') rows.push({date,start_time,...block,subcategory:block.sub || '', details: block.details || {}});
     }
     rows.push({date:'2000-01-01',start_time:'__settings__',note:storage?.getItem('day_settings') || '{}'});
     for (const note of Object.values(parse(storage?.getItem('day_notes_v1'))).filter(n=>n && typeof n==='object')) rows.push({date:'2000-01-01',start_time:'__note__'+note.id,note:JSON.stringify(note)});
@@ -79,7 +79,7 @@
         const mapped=settings.activityAreas?.[raw.toLowerCase()] || row.category;
         const category=categories.has(mapped)?mapped:'other';
         const note=excerpt(row.note,240);
-        day.slots.set(minute,{category,activity:raw,note,note_truncated:(row.note?.length || 0)>240,kind:row.date>today || /^\[GCal\]/.test(note)?'planned':'logged'});
+        day.slots.set(minute,{category,activity:raw,...(row.details?{details:row.details}:{}),note,note_truncated:(row.note?.length || 0)>240,kind:row.date>today || /^\[GCal\]/.test(note)?'planned':'logged'});
       } else if(['__reflect__','__plan__','__rough_plan__','__gym__','__checkin__','__day_status__'].includes(row.start_time)) {
         day.metadata.push({type:row.start_time.replaceAll('__',''),text:excerpt(row.note,800),truncated:(row.note?.length || 0)>800});
       }
@@ -88,7 +88,7 @@
     for(const [date,day] of days) {
       let last;
       for(const [minute,block] of [...day.slots].sort(([a],[b])=>a-b)) {
-        if(last && last.end===clock(minute) && ['activity','category','kind','note'].every(k=>last[k]===block[k]))last.end=clock(minute+30);
+        if(last && last.end===clock(minute) && ['activity','category','kind','note'].every(k=>last[k]===block[k]) && JSON.stringify(last.details || {})===JSON.stringify(block.details || {}))last.end=clock(minute+30);
         else {last={date,start:clock(minute),end_date:date,end:clock(minute+30),...block};intervals.push(last);}
       }
     }

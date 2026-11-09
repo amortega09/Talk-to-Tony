@@ -1,4 +1,5 @@
 'use strict';
+const M=require('../../activity-model');
 const dates=require('./dates.cjs');
 const {helpers:{parseObjective}}=require('./domain.cjs');
 const categoryLabels={sleep:'Sleep',work:'Work',exercise:'Exercise',gym:'Gym',food:'Food',learn:'Learn',social:'Social',chores:'Chores',travel:'Travel',relax:'Relax',other:'Other'};
@@ -41,7 +42,7 @@ function summarize(rows,date){
   const spans=[];
   for(const row of timed){
     const mins=Number(row.start_time.slice(0,2))*60+Number(row.start_time.slice(3));
-    const name=row.subcategory || row.sub || categoryLabels[row.category] || row.category;
+    const name=M.title({...row,sub:row.subcategory || row.sub || categoryLabels[row.category] || row.category});
     const previous=spans.at(-1);
     if(previous && previous.end===mins && previous.category===row.category && previous.name===name && previous.note===(row.note || ''))previous.end=mins+30;
     else spans.push({start:mins,end:mins+30,name,category:row.category,note:row.note || ''});

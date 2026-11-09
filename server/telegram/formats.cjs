@@ -1,6 +1,7 @@
 'use strict';
 // Telegram-only adapter for the app's category/subcategory/note representation.
-const labels={sleep:'Sleep',work:'Work',exercise:'Exercise',gym:'Gym',food:'Food',learn:'Learn',social:'Social',chores:'Chores',travel:'Travel',relax:'Relax',other:'Other'};
+const M=require('../../activity-model');
+const labels={...M.labels,gym:'Gym'};
 const key=s=>String(s || '').normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
 function vocabulary(rows){
   let settings={};try{settings=JSON.parse(rows.find(r=>r.start_time==='__settings__')?.note || '{}');}catch{}
@@ -9,8 +10,10 @@ function vocabulary(rows){
   function add(label,category,sub,note='',priority=0){
     if(!label || !labels[category])return;
     const override=settings.activityAreas?.[key(label)];
-    choices.push({label,category:labels[override]?override:category,sub,note,priority});
+    const b=M.normalize({category:labels[override]?override:category,sub,note},{projectNames:settings.workProjects || []});
+    choices.push({label,category:b.category,sub:b.sub,note,...(b.details?{details:b.details}:{}),priority});
   }
+  for(const [cat,names] of Object.entries(M.activities))for(const name of names)add(name,cat,name,'',0);
   for(const [cat,names] of Object.entries(settings.subs || {}))if(Array.isArray(names))for(const name of names)if(typeof name==='string')add(name,cat,name,'',2);
   for(const r of rows){
     if(!/^\d{2}:\d{2}$/.test(r.start_time))continue;
@@ -22,8 +25,11 @@ function vocabulary(rows){
     else if(note && !note.startsWith('[GCal]') && !note.startsWith('__'))add(note,r.category,'',note);
   }
   for(const c of custom)if(typeof c.label==='string'){const builtin=Object.entries(labels).find(([,label])=>key(label)===key(c.label));if(!builtin)add(c.label,'other',c.label,'',2);}
+  for(const project of settings.workProjects || [])if(typeof project==='string')add(project,'work',project,'',2);
   // The category itself is an app option, never a redundant subcategory.
   for(const [category,label] of Object.entries(labels))add(label,category,'','',3);
+  for(const [label,category] of [['Work','work'],['Learn','learn'],['Chores','chores'],['Relax','relax']])add(label,category,'','',3);
+  for(const category of Object.keys(labels))add(category,category,'','',3);
   const groups=new Map();
   for(const c of choices){const k=key(c.label);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(c);}
   return [...groups.values()].flatMap(group=>{
@@ -38,6 +44,7 @@ function resolve(name,category,rows,{strict=false,allowedNew=[],selectedCategory
   if(matches.length===1)return {format:matches[0]};
   if(matches.length>1)return {question:`“${name}” has multiple saved formats. Reply with its category (${[...new Set(matches.map(c=>c.category))].join(' or ')}), or give a different existing name.`};
   if(strict && !allowedNew.some(n=>key(n)===key(name)))return {question:`Create “${name}” as a new activity in ${labels[category] || category}? Reply yes, or give its existing name.`,proposal:name};
-  return {format:{label:name,category,sub:name,note:''}};
+  const b=M.normalize({category,sub:name,note:''});
+  return {format:{label:name,category:b.category,sub:b.sub,note:'',...(b.details?{details:b.details}:{})}};
 }
 module.exports={vocabulary,resolve,key};

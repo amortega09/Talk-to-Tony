@@ -139,7 +139,7 @@ class Store {
     return this.tx(async c=>{
       if(job)await this.guard(c,job);
       const events=await rows(c,'select id from public.agent_change_events where user_id=$1 order by id limit 500',[owner]);
-      const relevant=await rows(c,"select date::text,start_time,category,note,subcategory,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[owner]);
+      const relevant=await rows(c,"select date::text,start_time,category,note,subcategory,details,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[owner]);
       const days=A.daysFromRows(relevant),patches=Memory.reconcile(days,helpers).slice(0,200);
       for(const p of patches)p.version=relevant.find(r=>r.date===p.date&&r.start_time===p.slot)?.version;
       if(patches.length)await this.applyPatches(c,owner,patches);
@@ -153,7 +153,7 @@ class Store {
     // context is sent to the model; fail closed if this bound cannot cover history.
     return this.tx(async c=>{
       await this.guard(c,job);
-      const result=await rows(c,"select date::text,start_time,category,note,subcategory,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 order by date,start_time limit 10001",[job.owner]);
+      const result=await rows(c,"select date::text,start_time,category,note,subcategory,details,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 order by date,start_time limit 10001",[job.owner]);
       if(result.length>10000)throw new UserError('Your history exceeds this pilot’s retrieval limit. Use the app for this request.','history_limit');
       return result;
     });
@@ -210,7 +210,7 @@ class Store {
       from day_bot.jobs j where j.connection=$1 and j.generation=$2 and j.status='done' and j.created_at>now()-interval '24 hours' and j.created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz)
       order by j.update_id desc limit 6`,[job.connection,job.generation]);
     const changes=await rows(this.pool,`select r.id,r.patches,r.undone from day_bot.receipts r join day_bot.drafts d on d.id=r.id where r.connection=$1 and d.generation=$2 and r.created_at>now()-interval '24 hours' and r.created_at>coalesce((select (agent_context->>'memorySince')::timestamptz from day_bot.connections where id=$1),'-infinity'::timestamptz) order by r.created_at desc limit 8`,[job.connection,job.generation]);
-    liveRows ||= await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1",[job.owner]);
+    liveRows ||= await rows(this.pool,"select date::text,start_time,category,note,subcategory,details from public.blocks where user_id=$1",[job.owner]);
     const live=new Map(liveRows.map(r=>[`${r.date}/${r.start_time}`,r]));
     for(const change of changes)change.state=change.undone?'undone':change.patches.every(p=>A.same(live.get(`${p.date}/${p.slot}`),p.after))?'current':'changed_since';
     let budget=8000;
@@ -243,14 +243,14 @@ class Store {
     for(const p of [...patches].sort((a,b)=>`${a.date}/${a.slot}`.localeCompare(`${b.date}/${b.slot}`))) {
       const key=`${p.date}/${p.slot}`;
       if(keys.has(key))throw new Error('Duplicate patch'); keys.add(key);
-      const current=await one(c,"select category,note,subcategory,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 and date=$2 and start_time=$3 for update",[owner,p.date,p.slot]);
+      const current=await one(c,"select category,note,subcategory,details,id::text || ':' || xmin::text as version from public.blocks where user_id=$1 and date=$2 and start_time=$3 for update",[owner,p.date,p.slot]);
       if(!A.same(current,p.before) || (p.version && p.version!==current?.version))throw new UserError('An affected record changed. Cancel and make a fresh draft; nothing was saved.','conflict');
       let after;
       if(p.after) {
-        const v=[owner,p.date,p.slot,p.after.category,p.after.note || '',p.after.sub || ''];
+        const v=[owner,p.date,p.slot,p.after.category,p.after.note || '',p.after.sub || '',JSON.stringify(p.after.details || {})];
         try {
-          after=current?await one(c,"update public.blocks set category=$4,note=$5,subcategory=$6,updated_at=clock_timestamp() where user_id=$1 and date=$2 and start_time=$3 returning id::text || ':' || xmin::text as version",v)
-            :await one(c,"insert into public.blocks(user_id,date,start_time,category,note,subcategory) values($1,$2,$3,$4,$5,$6) returning id::text || ':' || xmin::text as version",v);
+          after=current?await one(c,"update public.blocks set category=$4,note=$5,subcategory=$6,details=$7::jsonb,updated_at=clock_timestamp() where user_id=$1 and date=$2 and start_time=$3 returning id::text || ':' || xmin::text as version",v)
+            :await one(c,"insert into public.blocks(user_id,date,start_time,category,note,subcategory,details) values($1,$2,$3,$4,$5,$6,$7::jsonb) returning id::text || ':' || xmin::text as version",v);
         } catch(e){if(e.code==='23505')throw new UserError('A destination changed. Make a fresh draft; nothing was saved.','conflict');throw e;}
       } else await c.query('delete from public.blocks where user_id=$1 and date=$2 and start_time=$3',[owner,p.date,p.slot]);
       saved.push({...p,afterVersion:after?.version || null});
@@ -313,7 +313,7 @@ class Store {
           await c.query('update day_bot.outbox set delivered_at=now() where id=$1',[r.id]);continue;
         }
         if(r.payload.commitmentId){
-          const current=await rows(c,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[r.owner]);
+          const current=await rows(c,"select date::text,start_time,category,note,subcategory,details from public.blocks where user_id=$1 and (date='2000-01-01' or start_time='__plan__')",[r.owner]);
           const record=Memory.view(current,helpers).find(x=>x.id===r.payload.commitmentId);
           if(!this.memoryEnabled||!this.commitmentFollowupsEnabled||!record||!['active','waiting'].includes(record.status)||record.revision!==r.payload.revision||record.followupAt!==r.payload.followupAt){await c.query('update day_bot.outbox set delivered_at=now() where id=$1',[r.id]);continue;}
         }
@@ -367,7 +367,7 @@ class Store {
       const job={connection:connection.id,owner:connection.owner,generation:connection.generation};
       await this.reconcileMemory(job.owner);
       const today=require('./domain.cjs').anchor(Math.floor(now/1000)).today;
-      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or date='2000-01-01' or start_time='__plan__')",[job.owner,today]);
+      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory,details from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or date='2000-01-01' or start_time='__plan__')",[job.owner,today]);
       let prefs={};try{prefs=JSON.parse(diary.find(r=>r.start_time==='__agent_preferences__')?.note || '{}');}catch{}
       const lastUser=await one(this.pool,"select created_at from day_bot.jobs where connection=$1 and generation=$2 and (input ? 'text' or input ? 'voice') order by created_at desc limit 1",[job.connection,job.generation]);
       const state={...connection.checkin_state,lastUserAt:lastUser?.created_at};

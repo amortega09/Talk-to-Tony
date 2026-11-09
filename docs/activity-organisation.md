@@ -1,0 +1,59 @@
+# Activity organisation
+
+Entries keep one purpose/category and one activity. Optional `blocks.details`
+JSONB stores `modes` (an array), `destination`, and `project`. Gym is an activity
+under Exercise; its existing workout note format is preserved. Leisure, Learning,
+Work & career and Life admin & chores retain their existing stable category IDs.
+Personal care & health uses `health`.
+
+`activity-model.js` is shared by the browser, voice planners, Telegram and the
+history migration. Transport choices are explicit; multiple modes represent one
+journey and reports count that time once. They never invent minutes per mode.
+Work reports group projects independently of activity type. Existing project-only
+labels become activity Work with a project; no focused-work claim is inferred. Project names live in owner-scoped synced settings, not public application code.
+
+New entries use the activity picker, with transport controls for Travel and a
+project/company field for Work. Telegram accepts structured details on new items
+and `activity_details` on an exact existing target. Moves and undo retain details;
+conflict checks include them. Public exports and restores include details.
+
+## Historical migration
+
+Apply the additive `activity_details` schema migration before deploying clients
+that read the new column. Existing owner RLS is unchanged. The browser's old
+category migration remains version 2; this explicit migration records that as
+complete so it cannot undo the new organisation.
+
+Operator commands use the existing owner-scoped `day_telegram` database role:
+
+```
+node scripts/organize-history.cjs plan "/absolute/path/to/day-export.json" "/private/project-names.json"
+node scripts/organize-history.cjs apply "/absolute/path/to/private/backup-directory"
+node scripts/organize-history.cjs rollback "/absolute/path/to/private/backup-directory"
+```
+
+Planning reads fresh cloud records, verifies the supplied export belongs to the
+same owner, accepts an optional private JSON list of project names, and stores full before snapshots, a change plan and readable report
+under ignored `.day-voice/migrations/`. It does not import the old export.
+Applying locks and version-checks affected rows and saves them in one transaction.
+It verifies row count, identity, dates, times and non-settings notes before commit.
+Rollback requires the exact post-migration versions and refuses to overwrite
+subsequent edits. Private content is never committed or deployed.
+
+Clear aliases are consolidated; original category/activity labels remain in
+`details.original_category` / `details.original_activity`. Existing dates,
+durations, notes, workout records, reflections and objectives stay intact.
+Ambiguous activities and contradictory labels retain their classification and
+receive `details.needs_review`. Insights → Review older entries lists contiguous
+segments and opens the normal editor. Saving a reviewed entry clears its flag.
+
+The migration writes a fresh organised export and review report next to the
+supplied export. A complete raw before snapshot and before export remain in the
+private backup directory. Those raw records are authoritative for rollback.
+
+## Verification
+
+Run JavaScript tests, Python unittests, the isolated PostgreSQL suite, the signed-in
+mock browser fixture (`npm run test:agent:web`, Playwright path if needed), and the
+static build. Browser checks cover multi-mode input, persistence and reload,
+project entry and reports; no real messages or diary records are created by tests.

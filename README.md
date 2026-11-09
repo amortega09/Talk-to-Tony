@@ -6,6 +6,18 @@ Copy `config.example.js` to `config.js` and supply your Supabase and Google
 client settings. The existing `supabase-schema.sql` defines the cloud table.
 Serve the directory over HTTP; no build step is required.
 
+## Activity organisation
+
+Travel supports one or more transport modes and an optional destination. Work
+has a separate project/company field. Gym belongs to Exercise, and personal care
+and appointments belong to Personal care & health. Activity reports show project
+totals and transport combinations without counting a mixed journey twice.
+
+Historical reorganisation preserves original labels and all notes and timings.
+Ambiguous entries stay in their current category and appear under **Insights →
+Review older entries**. See [migration and rollback](docs/activity-organisation.md).
+Fresh database setups need the base schema and versioned migrations.
+
 ## Patterns
 
 Open **Insights → Patterns**. Analysis runs in the browser against local and

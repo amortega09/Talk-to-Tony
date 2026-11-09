@@ -1,5 +1,6 @@
 (function (root) {
-  const categories = ['sleep', 'work', 'exercise', 'gym', 'food', 'learn', 'social', 'chores', 'travel', 'relax', 'other'];
+  const M=typeof module==='object'&&module.exports?require('./activity-model'):root.DayActivity;
+  const categories = ['sleep', 'work', 'exercise', 'gym', 'food', 'learn', 'social', 'chores', 'travel', 'relax', 'health', 'other'];
   function plan(draft, rangeApi) {
     const errors = [], slots = new Map(), reflections = [];
     if (!draft || !Array.isArray(draft.items) || !Array.isArray(draft.reflections)) return { errors: ['Make a draft first.'], slots: [], reflections: [] };
@@ -12,7 +13,7 @@
       for (const day of range.days) for (const slot of day.slots) {
         const key = `${day.date}/${slot}`;
         if (slots.has(key)) { errors.push(`Activities overlap at ${day.date} ${slot}. Adjust or remove an entry.`); return; }
-        slots.set(key, { date: day.date, slot, block: { category: item.category, sub: item.activity.trim(), note: item.note || '' } });
+        slots.set(key, { date: day.date, slot, block: M.normalize({ category: item.category, sub: item.activity.trim(), note: item.note || '', details:item.details }) });
       }
     });
     draft.reflections.forEach((item, i) => {

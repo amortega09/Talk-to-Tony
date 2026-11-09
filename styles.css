@@ -1729,3 +1729,19 @@ body.recovery-mode #app input { pointer-events: none; opacity: .45; }
 .agent-overview-section summary { cursor:pointer; }
 .agent-overview-card { margin:12px 0; padding:12px 0; }
 .agent-overview-card p { white-space:pre-wrap; overflow-wrap:anywhere; }
+
+.activity-details { margin: 14px 0; padding: 14px; border: 1px solid var(--border, #ddd); border-radius: 12px; }
+.activity-details fieldset { border: 0; margin: 0 0 12px; padding: 0; }
+.activity-details legend, .activity-details > label { font-size: 13px; font-weight: 600; }
+.activity-details > label { display: block; margin-top: 10px; }
+.activity-details input[type="text"] { display:block; width:100%; box-sizing:border-box; margin-top:6px; padding:10px; border:1px solid var(--border, #ddd); border-radius:8px; background:var(--surface, #fff); color:inherit; font:inherit; }
+.field-hint { font-weight:400; opacity:.65; font-size:12px; }
+.transport-modes { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.transport-modes label { display:inline-flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid var(--border, #ddd); border-radius:20px; font-size:13px; cursor:pointer; }
+.transport-modes label:has(input:checked) { background:#e8efe9; border-color:#4a5d4e; color:#283e2c; }
+.transport-modes input { accent-color:#4a5d4e; }
+#activityReviewHint { font-size:12px; line-height:1.5; opacity:.75; }
+.activity-details [hidden] { display:none !important; }
+
+.review-entry { display:block; width:100%; text-align:left; padding:14px; margin:8px 0; border:1px solid var(--border,#ddd); border-radius:10px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.review-entry small { display:block; margin-top:6px; opacity:.65; }

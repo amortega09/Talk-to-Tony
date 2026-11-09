@@ -5,10 +5,10 @@
     if(!owner)throw Error('Please sign in.');
     const days=Object.fromEntries(dates.map(date=>[date,{}]));
     for(let offset=0;;offset+=500) {
-      let q=client.from('blocks').select('date,start_time,category,note,subcategory').eq('user_id',owner).in('date',dates).order('date').order('start_time').range(offset,offset+499);
+      let q=client.from('blocks').select('date,start_time,category,note,subcategory,details').eq('user_id',owner).in('date',dates).order('date').order('start_time').range(offset,offset+499);
       if(signal && q.abortSignal)q=q.abortSignal(signal);
       const {data,error}=await q;if(error || !Array.isArray(data))throw Error('Could not check saved records. Nothing new was applied.');
-      for(const r of data)if(days[r.date])days[r.date][r.start_time]={category:r.category,note:r.note || '',sub:r.subcategory || ''};
+      for(const r of data)if(days[r.date])days[r.date][r.start_time]={category:r.category,note:r.note || '',sub:r.subcategory || '', ...(r.details && Object.keys(r.details).length ? {details:r.details} : {})};
       if(data.length<500)return days;
     }
   }
@@ -31,7 +31,7 @@
         checkOwner();
         if(client) {
           let response;
-          if(group[0].after)response=await client.from('blocks').upsert(group.map(p=>({user_id:owner,date:p.date,start_time:p.slot,category:p.after.category,note:p.after.note || '',subcategory:p.after.sub || '',updated_at:new Date().toISOString()})),{onConflict:'user_id,date,start_time'}).select('date,start_time');
+          if(group[0].after)response=await client.from('blocks').upsert(group.map(p=>({user_id:owner,date:p.date,start_time:p.slot,category:p.after.category,note:p.after.note || '',subcategory:p.after.sub || '', details: p.after.details || {},updated_at:new Date().toISOString()})),{onConflict:'user_id,date,start_time'}).select('date,start_time');
           else response=await client.from('blocks').delete().eq('user_id',owner).eq('date',group[0].date).in('start_time',group.map(p=>p.slot)).select('date,start_time');
           if(response.error || response.data?.length!==group.length)throw Error('Cloud save could not be confirmed. Some changes may have reached the server. Refresh the affected days before trying again.');
         }

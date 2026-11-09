@@ -1,9 +1,9 @@
 // Simple offline cache for the app shell.
-const CACHE = "day-v90";
+const CACHE = "day-v91";
 const ASSETS = [
-  "./", "./index.html", "./styles.css?v=90", "./app.js?v=90", "./config.js?v=41", "./slot-transfer.js?v=2", "./agent-memory-core.js?v=1",
+  "./", "./index.html", "./styles.css?v=91", "./app.js?v=91", "./config.js?v=41", "./slot-transfer.js?v=3", "./agent-memory-core.js?v=1", "./activity-model.js?v=1",
 
-  "./speech-transcriber.js?v=83", "./speech-worker.js?v=83", "./diary-agent.js?v=83", "./voice-context.js?v=83", "./voice.js?v=83", "./voice-actions.js?v=83", "./voice-store.js?v=83", "./voice-app.js?v=83", "./voice-draft.js?v=83", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
+  "./speech-transcriber.js?v=84", "./speech-worker.js?v=84", "./diary-agent.js?v=84", "./voice-context.js?v=84", "./voice.js?v=84", "./voice-actions.js?v=84", "./voice-store.js?v=84", "./voice-app.js?v=84", "./voice-draft.js?v=84", "./patterns.js?v=70", "./event-range.js?v=71", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
 ];
 

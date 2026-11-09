@@ -1,0 +1,34 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const M=require('../activity-model'),A=require('../voice-actions'),D=require('../server/telegram/domain.cjs'),R=require('../event-range');
+const {planRows,exportRows}=require('../scripts/organize-history.cjs');
+const date='2026-11-09',row=(category,subcategory,details={})=>({id:1,date,start_time:'09:00',category,subcategory,note:'Original note',details,version:'1:1'});
+const draft=items=>({reply:'',questions:[],items,reflections:[],actions:[]});
+test('history normalises modes and work projects while preserving original content and is idempotent',()=>{
+ for(const [b,category,sub,detail] of [[row('travel','Train'),'travel','Travel',{modes:['Train']}],[row('gym',''),'exercise','Gym',{}],[row('work','Moeve'),'work','Work',{project:'Moeve'}],[row('chores','Cooking'),'food','Cooking',{}],[row('other','Dentist'),'health','Appointment',{destination:'Dentist'}]]){
+  const before=structuredClone(b),after=M.normalize(A.normal(b),{history:true,projectNames:['Moeve']});assert.equal(after.category,category);assert.equal(after.sub,sub);assert.equal(after.note,b.note);for(const [k,v] of Object.entries(detail))assert.deepEqual(after.details[k],v);assert.ok(after.details.original_category);assert.deepEqual(M.normalize(after,{history:true,projectNames:['Moeve']}),after);assert.deepEqual(b,before);
+ }
+});
+test('unclear entries and contradictory sleep labels keep their purpose and receive review flags',()=>{
+ for(const b of [row('social','Excursion'),row('other','Anxious'),row('sleep','Watch TV')]){const after=M.normalize(A.normal(b),{history:true,projectNames:['Moeve']});assert.equal(after.category,b.category);assert.equal(after.sub,b.subcategory);assert.equal(after.details.needs_review,true);}
+ const imported=row('work','Moeve');imported.note='[GCal] Meeting';assert.deepEqual(M.normalize(A.normal(imported),{history:true}),A.normal(imported));
+});
+test('mixed transport counts time once and work has separate project totals',()=>{
+ const days={[date]:{'09:00':{category:'travel',sub:'Travel',details:{modes:['Train','Bus']}},'09:30':{category:'travel',sub:'Travel'},'10:00':{category:'work',sub:'Meeting',details:{project:'Moeve'}},'10:30':{category:'work',sub:'Work',details:{project:'Moeve'}}}};
+ assert.deepEqual(M.breakdown(days),{travelHours:1,transport:{'Train + Bus':.5,'Mode not recorded':.5},projects:{Moeve:1}});
+ assert.throws(()=>M.details({modes:['Teleport']}));assert.throws(()=>M.details({project:'a'.repeat(301)}));
+});
+test('Telegram new journeys, detail corrections, moves and undo patches retain all modes',()=>{
+ const item={date,start:'09:00',end:'10:00',end_date:date,category:'travel',activity:'Travel',note:'Station',details:{modes:['Train','Bus'],destination:'London'}};
+ const p=D.plan(draft([item]),[],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches.length,2);assert.deepEqual(p.patches[0].after.details,{destination:'London',modes:['Bus','Train']});
+ const rows=p.patches.map(x=>({date,start_time:x.slot,...x.after,subcategory:x.after.sub}));const days=A.daysFromRows(rows),catalog=A.targets(days,D.helpers),target=catalog[0].id;
+ const edit=D.plan({...draft([]),actions:[{type:'activity_details',target,modes:['Car'],destination:'Cambridge'}]},rows,catalog);
+ assert.equal(edit.patches.length,2);assert.deepEqual(edit.patches[0].before.details,{destination:'London',modes:['Bus','Train']});assert.deepEqual(edit.patches[0].after.details,{destination:'Cambridge',modes:['Car']});
+ const moved=A.plan({draft:{actions:[{type:'activity_update',target,date:'2026-11-10'}]},days,catalog,range:R,helpers:D.helpers});assert.ok(moved.patches.filter(p=>p.after).every(p=>p.after.details.destination==='London'));
+ const changed=structuredClone(rows);changed[0].details={...changed[0].details,project:'Different'};assert.equal(A.same(rows[0],changed[0]),false);
+});
+test('migration plans only timed rows and settings, keeps metadata and exports details',()=>{
+ const rows=[row('travel','Train'),{id:2,date:'2000-01-01',start_time:'__settings__',category:'settings',note:JSON.stringify({shortTermObjectives:'Keep this',subs:{travel:['Train']}}),version:'2:1'}, {id:3,date,start_time:'__plan__',category:'plan',note:'[ ] Keep objective',version:'3:1'}];
+ const plan=planRows(rows);assert.equal(plan.timed,1);assert.equal(plan.changes.length,2);assert.ok(!plan.changes.some(p=>p.slot==='__plan__'));
+ const organized=rows.map(r=>{const p=plan.changes.find(p=>p.id===r.id);return p?{...r,...p.after,subcategory:p.after.sub}:r;});
+ const exported=exportRows(organized,'test');assert.equal(exported.days[date].objectives,'[ ] Keep objective');assert.deepEqual(exported.days[date].blocks[0].details.modes,['Train']);assert.equal(exported.targets.short_term,'Keep this');assert.equal(planRows(organized).changes.length,0);
+});

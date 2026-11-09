@@ -118,7 +118,7 @@
       const range = DayEventRange.build(item.date, item.start, item.end_date, item.end);
       const timing = item.start && item.end ? `${to12(item.start)} – ${item.end === '24:00' ? 'midnight' : to12(item.end)}` : 'Add a time';
       const date = draftDate(item.date) + (item.end_date && item.end_date !== item.date ? ` → ${draftDate(item.end_date)}` : '');
-      return `<details class="voice-card"${range.error || !item.activity ? ' open' : ''}><summary><span class="voice-card-mark" aria-hidden="true">${i + 1}</span><span class="voice-card-title"><strong>${escape(item.activity || 'Untitled activity')}</strong><small>${escape(date)} · ${escape(timing)}</small></span><span class="voice-card-edit">Edit</span></summary>
+      return `<details class="voice-card"${range.error || !item.activity ? ' open' : ''}><summary><span class="voice-card-mark" aria-hidden="true">${i + 1}</span><span class="voice-card-title"><strong>${escape((item.activity || 'Untitled activity') + (item.details ? ' · ' + [item.details.modes?.join(' + '),item.details.destination,item.details.project].filter(Boolean).join(' · ') : ''))}</strong><small>${escape(date)} · ${escape(timing)}</small></span><span class="voice-card-edit">Edit</span></summary>
       <fieldset class="voice-entry"><legend class="sr-only">Activity ${i + 1}</legend>
       <div class="voice-grid"><label>Start date<input type="date" data-group="items" data-index="${i}" data-field="date" value="${escape(item.date)}" /></label><label>End date<input type="date" data-group="items" data-index="${i}" data-field="end_date" value="${escape(item.end_date)}" /></label>
       <label>Start${timeSelect(item.start, false, i, 'start')}</label><label>End${timeSelect(item.end, true, i, 'end')}</label></div>
