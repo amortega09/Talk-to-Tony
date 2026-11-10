@@ -191,3 +191,35 @@ remain outside Git and deployments. Synthetic diary slots were undone. Cleanup
 restored the prior bot history and conversation context after checking for
 concurrent real requests, and removed the nine synthetic jobs and their bot
 records. All 5,189 original diary rows matched the pre-test full-row SHA-256 hash.
+
+## OpenAI migration — 10 November 2026
+
+`AI_PROVIDER=openai` selects `OPENAI_API_KEY` and `OPENAI_MODEL` (default
+`gpt-5-nano`) for Telegram interpretation and browser/helper drafts. The prior
+Ollama adapter remains available only through explicit configuration. There is
+no automatic provider fallback or upgrade to a more expensive model. Telegram
+speech transcription continues to use the already verified Groq service.
+
+OpenAI requests use the Responses API with `store=false`, strict Structured
+Outputs, medium reasoning and a maximum of 8,192 output tokens. Optional fields
+are represented as nullable required fields on the wire, then restored to the
+original app schema before normal validation and write checks. Refusals,
+truncation, missing output, authentication failure and exhausted credits fail
+closed. Missing notes do not require clarification. Provider names in privacy
+and account-error messages follow the selected provider.
+
+Published standard prices for GPT-5 nano are $0.05 input, $0.005 cached input and
+$0.40 output per million tokens. Reasoning tokens consume the output budget.
+Source: https://developers.openai.com/api/docs/pricing
+
+Live tests use invented fixtures and no diary writes. Early minimal-reasoning
+and JSON-mode attempts failed and were replaced. A broad strict-output test
+passed 10/12 cases; unnecessary clarification was still observed. After prompt
+refinement, focused tests passed new work, preserved-detail moves and combined
+company/project creation plus work (3/3). Browser-path multimode travel also
+passed against the real API. These checks do not establish universal model
+accuracy; complex language can still need clarification. Automated tests cover
+credential isolation, strict wire conversion, rejection of incomplete output,
+quota handling, duplicate-transfer rejection and confirmation of multi-day
+source transfers. Existing browser and PostgreSQL integration checks remain
+part of release validation.

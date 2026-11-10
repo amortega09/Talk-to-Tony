@@ -10,6 +10,10 @@ def draft(action):
 
 
 class VoiceActionTests(unittest.TestCase):
+    def setUp(self):
+        provider = patch('desktop.ai_provider', return_value='ollama')
+        provider.start(); self.addCleanup(provider.stop)
+
     def test_valid_action_and_backwards_compatible_draft(self):
         good = draft({'type': 'activity_delete', 'target': 'activity:2026-10-25:09:00'})
         self.assertEqual(desktop.validate_draft(good), good)

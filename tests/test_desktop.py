@@ -16,6 +16,10 @@ def draft():
 
 
 class DesktopTests(unittest.TestCase):
+    def setUp(self):
+        provider = patch('desktop.ai_provider', return_value='ollama')
+        provider.start(); self.addCleanup(provider.stop)
+
     def test_explicit_morning_bedtime_keeps_wake_calendar_date(self):
         def draft(): return {'items':[{'category':'sleep','start':'00:30','end':'09:30','date':'2026-10-13','end_date':'2026-10-14'}]}
         speech='Today I woke up at 9:30am. I went to sleep at 00:30.'

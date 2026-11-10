@@ -85,7 +85,7 @@ local saving, a visible status asks the user to back up before switching devices
 No new database schema is needed. Tests cover cross-midnight saves, date
 boundaries, overwrite cancellation, cloud preflight failure and subcategories.
 
-## Desktop voice + Ollama Cloud
+## Desktop voice + cloud AI
 
 Open **Talk to Day**, choose **Start talking**, and speak naturally. Choose
 **Finish talking** to automatically transcribe and organise your words. Review
@@ -208,10 +208,11 @@ Production: https://talk-to-tony-nu.vercel.app. See [deployment status and login
 
 The repository includes Vercel endpoints at `/api/voice/status` and
 `/api/voice/draft`. Set these server environment variables before deploying:
-`OLLAMA_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
+`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5-nano`,
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
 `DAY_ALLOWED_USER_IDS` (comma-separated Supabase user IDs permitted to use voice).
 Missing configuration fails closed. Each request verifies the signed-in user's
-Supabase token and checks that allowlist before calling Ollama. The service never
+Supabase token and checks that allowlist before calling the configured AI provider. The service never
 writes diary records. `DAY_ALLOWED_ORIGINS` can add exact website origins; the
 existing GitHub Pages origin is allowed by default.
 
@@ -231,7 +232,7 @@ stays warm for up to 60 seconds for a faster reopening, then is released.
 This trades more download/processing time for a larger recogniser, without another
 cloud account. The browser speech service is an explicit option in Voice settings,
 with built-in fallback after service failures. Editable text and relevant diary
-context go to Ollama Cloud; typing remains available. No Ollama key reaches the
+context go to the configured AI provider; typing remains available. No provider key reaches the
 browser. An empty `VOICE_API_URL` keeps desktop-helper transcription.
 
 The portable runtime is pinned to Transformers.js 3.8.1; the model is pinned to
@@ -249,8 +250,10 @@ helper in the background and automatically on login. Remove it with
 `.day-voice/logs/`. Alternatively run `python3 desktop.py` in a terminal.
 No Python packages are needed.
 The helper binds only to `127.0.0.1:8765` and creates `.env`.
-Open that file locally and put your Ollama Cloud API key after `OLLAMA_API_KEY=`.
-Alternatively set `OLLAMA_API_KEY` in the helper's environment. Reopen Talk to Day after saving the key file. No local Ollama service or LLM download is needed.
+Open that file locally and put your OpenAI API key after `OPENAI_API_KEY=`.
+Set `AI_PROVIDER=openai` and `OPENAI_MODEL=gpt-5-nano`. Alternatively configure
+these values in the helper environment. Reopen Talk to Day after saving.
+For the previous provider, set `AI_PROVIDER=ollama` and `OLLAMA_API_KEY`.
 
 The helper supports the local app origin and `https://amortega09.github.io` by
 default. For a different deployed website, run
@@ -262,11 +265,11 @@ the local helper. The helper URL must be an HTTP loopback address; no public
 proxy or wildcard CORS is used. You can also open `http://127.0.0.1:8765` but will
 need to sign in separately and allow that redirect URL in Supabase Auth.
 
-Cloud models are listed by Ollama's API. Draft requests use
-`https://ollama.com/api/chat` with a server-side Bearer key. Ollama Cloud does not
-currently support schema-constrained structured outputs, so the schema is
-included in the prompt and both server and browser validate the draft. Invalid
-model output is rejected. API keys never go into browser storage, `config.js`,
+OpenAI requests use `https://api.openai.com/v1/responses`, the configured model,
+strict structured outputs and `store=false`. Only the configured OpenAI model is
+offered; there is no automatic upgrade or provider fallback. Server and browser
+validate drafts before applying changes. The optional Ollama provider retains its
+existing prompt-schema validation. API keys never go into browser storage, `config.js`,
 responses, request logs, or Git. Keep the helper running while using voice.
 
 ### Optional local microphone transcription
@@ -282,13 +285,13 @@ curl -fL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.
 You can override `DAY_WHISPER_BIN` and `DAY_WHISPER_MODEL`. The default model
 transcribes English. The helper converts recordings with ffmpeg and runs
 whisper-cli, with timeouts and temporary files deleted after transcription.
-Audio is not sent to Ollama. Text input works without transcription installed.
+Audio is not sent to the interpretation provider. Text input works without transcription installed.
 
-**Data flow:** audio → local transcription → Ollama Cloud
+**Data flow:** audio → local transcription → configured AI provider
 (text, up to 80 known activity names/categories, viewed date and prior draft)
 → validated preview → explicit save → existing local/Supabase storage.
 The helper never receives Supabase credentials or writes diary records itself.
-Cloud API calls may count against your Ollama plan.
+Cloud API calls consume the configured provider’s usage credits.
 
 The ignored `.env` file holds the key; `.day-voice/` holds the downloaded speech model.
 It must never be committed. Run `node --test tests/*.test.js` and

@@ -1,6 +1,7 @@
 'use strict';
 const {Client,Receiver}=require('@upstash/qstash');
 const {UserError,contract,agentSchema,normalizeTimes,validate,alignSleep}=require('./domain.cjs');
+const {aiConfig,openaiRequest,openaiText,fromWire}=require('./ai-config.cjs');
 class ProviderError extends Error {
   constructor(code,retryAfter=0){super('A provider is temporarily unavailable.');this.code=code;this.retryAfter=retryAfter;}
 }
@@ -15,7 +16,12 @@ async function jsonRequest(fetch,url,body,headers={},timeout=12000) {
   let response;
   try {response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body),signal:AbortSignal.timeout(timeout)});}
   catch {throw new ProviderError('provider_network');}
-  if(!response.ok){await response.body?.cancel();throw new ProviderError(response.status===402?'provider_billing':response.status===429?'provider_limit':response.status===401||response.status===403?'provider_auth':'provider_http',retrySeconds(response.headers.get('retry-after')));}
+  if(!response.ok){
+    let quota=false;
+    if(response.status===429){try{quota=JSON.parse((await bounded(response,10000)).toString()).error?.code==='insufficient_quota';}catch{}}
+    else await response.body?.cancel();
+    throw new ProviderError(response.status===402||quota?'provider_billing':response.status===429?'provider_limit':response.status===401||response.status===403?'provider_auth':'provider_http',retrySeconds(response.headers.get('retry-after')));
+  }
   try {return JSON.parse((await bounded(response,1000000)).toString());}catch {throw new ProviderError('provider_response');}
 }
 // Parse complete Ogg pages and Opus granule positions. Metadata alone is not a
@@ -47,6 +53,7 @@ function providers(env=process.env,fetch=globalThis.fetch) {
     if(!r.ok)throw new ProviderError('telegram_response');return r.result;
   };
   return {
+    name:aiConfig(env).provider==='openai'?'OpenAI':'Ollama',
     async configureMenu(){await telegram('setMyCommands',{commands:[{command:'day',description:'Choose day'},{command:'today',description:'View diary'},{command:'settings',description:'Settings'}]});return telegram('setChatMenuButton',{menu_button:{type:'commands'}});},
     async send(chatId,payload){return telegram('sendMessage',{chat_id:chatId,text:payload.text,reply_markup:payload.reply_markup,link_preview_options:{is_disabled:true}});},
     async acknowledge(id){return telegram('answerCallbackQuery',{callback_query_id:id});},
@@ -69,18 +76,28 @@ function providers(env=process.env,fetch=globalThis.fetch) {
       return text;
     },
     async interpret(text,context,previous){
-      if(!env.OLLAMA_API_KEY)throw new UserError('AI interpretation is not configured yet.','model_disabled');
+      const config=aiConfig(env),key=env[config.provider==='openai'?'OPENAI_API_KEY':'OLLAMA_API_KEY']?.trim();
+      if(!key)throw new UserError(`${config.provider==='openai'?'OpenAI':'Ollama'} interpretation needs its API key configured. Nothing new was saved.`,'model_disabled');
       const transcript=normalizeTimes(text),data={transcript,context,previous_draft:previous || null};
       if(JSON.stringify(data).length>60000)throw new UserError('This request is too large. Split it into smaller changes.');
-      const model=contract.model;
+      const model=config.model || contract.model;
       data.tools=env.TELEGRAM_AGENT_TOOLS_ENABLED==='0'?[]:require('./agent-tools.cjs').descriptions();
       data.tool_rule='For factual app questions use a query tool and its exact target/date. Never answer current diary facts from chat memory. New tool descriptions extend the legacy system instructions. Use activity_slice for partial edits and activity_move_range for date transfers. Use note_create to store ideas/thoughts, not a timed activity. Multiple actions and new entries may be combined. context.resolved_date is the explicitly resolved date; context.discussion_date is conversational focus, distinct from actual today. Respect selectedAction and reply_reference when correcting a saved change, only if the receipt state is current. Web selection expires; never assume the app screen is selected without that reference. Check-in prompts in conversation provide the question a short reply is answering. If saving a thought/idea, choose note_create; if it is a diary reflection choose reflections. Never mutate anything for casual acknowledgement. Settings and preferences only change on explicit user request. Destructive changes and overwrites are confirmed by the server. Do not invent target IDs. If a field is unclear ask one short question.';
       data.conversation_rule='Be warm and concise. Current database diary, targets and current_day are authoritative. Conversation and recent_changes are historical and may have been moved, deleted or overwritten on the web. Never claim an entry is currently saved based only on conversation or receipts. Zero current_day.recorded_slots means no timed activities saved today. Use context.conversation for follow-ups, dates being discussed, and recent_changes with exact saved patches. Only edit entries identified by the user. If a correction refers to earlier changes, use activity_update with current target IDs, never create duplicate items. Ask a brief question if the scope or date is unclear. Answer read-only questions naturally without calling them drafts. Never claim a change was saved; the server confirms saving.';
       data.activity_structure='Use category travel for journeys, activity Travel or Commuting, and details.modes for explicit transport modes (multiple allowed), details.destination for an explicit destination. Use work with an activity type and details.company and details.project for a saved company and project/task pair from context.work_companies. Both are required for Work. Either a project or an individual task is valid in details.project. Ask for missing company or project/task; never guess ownership. work_company_add and work_project_add register new companies and projects/tasks only when explicitly requested. Gym belongs to exercise. Personal care and appointments belong to health. Use activity_details to edit modes/destination/company/project on an existing target. Preserve details when copying/moving and never guess them. Legacy labels such as Train are resolved by the server.';
       data.format_rule='Reuse exact labels from context.app.activity_formats. Category-only entries such as Sleep or Gym use their category label. Do not invent a new label when a saved one fits. Preserve existing names on edits unless explicitly asked to rename.';
-      const result=await jsonRequest(fetch,'https://ollama.com/api/chat',{model,stream:false,messages:[{role:'system',content:(env.TELEGRAM_AGENT_TOOLS_ENABLED==='0'?contract.system:require('./agent-prompt.cjs'))+JSON.stringify(env.TELEGRAM_AGENT_TOOLS_ENABLED==='0'?contract.schema:agentSchema)},{role:'user',content:JSON.stringify(data)}],options:{temperature:0,num_ctx:32768,num_predict:2500},think:contract.thinking[model]}, {Authorization:`Bearer ${env.OLLAMA_API_KEY}`},40000);
+      const outputSchema=env.TELEGRAM_AGENT_TOOLS_ENABLED==='0'?contract.schema:agentSchema;
+      const baseInstructions=env.TELEGRAM_AGENT_TOOLS_ENABLED==='0'?contract.system:require('./agent-prompt.cjs');
+      const instructions=config.provider==='openai'?baseInstructions+`\nOutput checklist: The response schema is enforced separately. Return [] for every unused array; never create placeholder items, reflections or actions. A read-only question uses a query action and items=[] and reflections=[]. An edit or move uses an action on the existing target, not a new item. gym_workout edits inline exercise sets; query_gym reads them. New timed activities alone use items. An explicitly requested company and project creation uses work_company_add then work_project_add actions; include the timed Work item only when requested. Reflections require the user's actual expressed reflection, not an empty string or an explanation of the request. Notes are OPTIONAL. A missing note NEVER needs a question: set note="". Do not ask whether to add an otherwise complete requested entry. For a new Work item ALWAYS put the explicitly named company and project/task inside that item.details, including when company/project creation actions appear in the same plan. Those actions do not substitute for item.details. Convert clear AM/PM times yourself; never ask the user to restate them in 24-hour format. For a same-day item end_date equals date. Details company/project must match the user's explicit selection; never guess or omit stated values. For a whole meeting move, prefer ONE activity_update action with the exact existing target, date set to the destination, original start/end, and end_date set to the destination date. Example: move target activity:2026-11-10:09:00 to tomorrow uses actions=[{"type":"activity_update","target":"activity:2026-11-10:09:00","date":"2026-11-11","start":"09:00","end_date":"2026-11-11","end":"10:00"}], items=[], reflections=[]. Never repeat the same action for each half-hour slot. If using activity_move_range, end_date is the SOURCE interval end date; destination_date alone gives the destination. For unused optional wire fields return null. Before responding, check each operation exactly matches the user's request and that all unused arrays are empty.`:baseInstructions+JSON.stringify(outputSchema);
+      let result;
+      try{
+        result=config.provider==='openai'
+          ?await jsonRequest(fetch,'https://api.openai.com/v1/responses',openaiRequest(model,instructions,JSON.stringify(data),outputSchema),{Authorization:`Bearer ${key}`},40000)
+          :await jsonRequest(fetch,'https://ollama.com/api/chat',{model,stream:false,messages:[{role:'system',content:instructions},{role:'user',content:JSON.stringify(data)}],options:{temperature:0,num_ctx:32768,num_predict:2500},think:contract.thinking[model]}, {Authorization:`Bearer ${key}`},40000);
+      }catch(e){e.provider=config.provider;throw e;}
       let draft;
-      try{let content=result.message.content.trim();if(content.startsWith('```')&&content.endsWith('```'))content=content.split('\n').slice(1,-1).join('\n');draft=JSON.parse(content);}catch{throw new UserError('The AI returned an invalid draft. Please retry.','model_invalid');}
+      try{let content=(config.provider==='openai'?openaiText(result):result.message.content).trim();if(content.startsWith('```')&&content.endsWith('```'))content=content.split('\n').slice(1,-1).join('\n');draft=JSON.parse(content);}catch{throw new UserError('The AI returned an invalid or incomplete draft. Nothing new was saved. Please retry.','model_invalid');}
+      if(config.provider==='openai')draft=fromWire(draft,outputSchema);
       // The model sometimes represents an absent new-entry note as null.
       // Normalize only that empty optional content; action edits stay strict.
       if(Array.isArray(draft?.items))for(const item of draft.items)if(item && item.note===null)item.note='';

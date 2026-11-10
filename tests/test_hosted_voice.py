@@ -10,6 +10,10 @@ import hosted_voice
 
 
 class HostedTests(unittest.TestCase):
+    def setUp(self):
+        provider = patch('desktop.ai_provider', return_value='ollama')
+        provider.start(); self.addCleanup(provider.stop)
+
     def handler(self, route='status', headers=None, body=None):
         value = hosted_voice.HostedVoiceHandler.__new__(hosted_voice.HostedVoiceHandler)
         value.route = route

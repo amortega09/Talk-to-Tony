@@ -1,4 +1,4 @@
-/* Voice capture + Ollama Cloud drafts. Provider keys stay on the server. */
+/* Voice capture + cloud AI drafts. Provider keys stay on the server. */
 (() => {
   const $ = id => document.getElementById(id);
   const agent = DayDiaryAgent.create();
@@ -9,7 +9,8 @@
   const portableSpeech = () => state.hosted && $('voiceSpeech').value !== 'browser';
   const captureSupported = () => portableSpeech() ? !!window.DaySpeech?.supported() : !!speechRecognition();
   function privacy() {
-    $('voicePrivacy').textContent = !state.hosted || portableSpeech() ? 'Audio is transcribed on this device. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.' : 'Your browser’s speech service transcribes audio. Text and relevant diary context are processed by Ollama. Nothing is saved until you choose.';
+    const provider = state.aiProvider === 'openai' ? 'OpenAI' : state.aiProvider === 'ollama' ? 'Ollama' : 'your configured AI provider';
+    $('voicePrivacy').textContent = (!state.hosted || portableSpeech() ? 'Audio is transcribed on this device.' : 'Your browser’s speech service transcribes audio.') + ` Text and relevant diary context are processed by ${provider}. Nothing is saved until you choose.`;
   }
   const status = text => { $('voiceStatus').textContent = text; };
   function phase(value, message) {
@@ -81,6 +82,7 @@
       if (version !== state.version) return;
       if ((!state.hosted && !result.token) || !Array.isArray(result.models)) throw new Error('The voice service returned an invalid connection response.');
       state.token = result.token || ''; state.connected = true; state.keyReady = !!result.api_key_ready; state.speechReady = !!result.transcription_ready && (!state.hosted || captureSupported());
+      state.aiProvider = result.ai_provider;
       privacy();
       const preferred = localStorage.getItem('day_voice_model_v2') || 'auto';
       const automatic = result.recommended_model ? `<option value="auto">Automatic · ${escape(result.recommended_model)} (recommended)</option>` : '<option value="">Choose a cloud model (recommendation unavailable)</option>';

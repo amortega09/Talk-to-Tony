@@ -31,10 +31,10 @@ rough-plan serializers are checked against the actual app functions.
 
 1. Create a separate test bot with Telegram's verified BotFather. Keep its token
    private. Create Groq and QStash free accounts and verify the actual limits and
-   retention terms before enabling real voice notes. Reuse the existing Ollama
-   allowance. Do not enable a paid fallback.
+   retention terms before enabling real voice notes. Configure the explicitly chosen interpretation provider. The current setup
+   uses OpenAI GPT-5 nano; no automatic provider or model fallback is enabled.
 2. Add missing fields from `docs/telegram-config.example` to the existing ignored
-   `.env`, preserving the Ollama key, and configure matching server environment
+   `.env`, preserving existing credentials, and configure matching server environment
    variables in Vercel. The setup script reads `.env`. Use a
    cryptographically random webhook secret of at least 32 characters. Configure
    `TELEGRAM_PUBLIC_ORIGIN` with the exact HTTPS deployment origin. Use

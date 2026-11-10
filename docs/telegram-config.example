@@ -11,7 +11,10 @@ TELEGRAM_PUBLIC_ORIGIN=https://your-deployment.example
 # URL-encode the password. TLS certificate verification is enforced.
 TELEGRAM_DATABASE_URL=
 GROQ_API_KEY=
-OLLAMA_API_KEY=
+AI_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-nano
+# Optional legacy provider: AI_PROVIDER=ollama and OLLAMA_API_KEY=...
 QSTASH_TOKEN=
 QSTASH_CURRENT_SIGNING_KEY=
 QSTASH_NEXT_SIGNING_KEY=

@@ -79,10 +79,10 @@ class HostedVoiceHandler(BaseHTTPRequestHandler):
             authenticate(self.headers)
             if self.route == 'status' and method == 'GET':
                 models = [model['name'] for model in desktop.cloud_models()]
-                recommended = desktop.RECOMMENDED_MODEL if desktop.RECOMMENDED_MODEL in models else None
+                recommended = desktop.recommended_model() if desktop.recommended_model() in models else None
                 return self.send(200, {'transport': 'hosted', 'transcription_mode': 'browser', 'models': models,
                     'recommended_model': recommended, 'default_model': recommended or '',
-                    'api_key_ready': bool(desktop.api_key()), 'transcription_ready': True})
+                    'api_key_ready': bool(desktop.api_key()), 'ai_provider': desktop.ai_provider(), 'transcription_ready': True})
             if self.route == 'draft' and method == 'POST':
                 length = int(self.headers.get('Content-Length', '0'))
                 if length <= 0 or length > 80000:

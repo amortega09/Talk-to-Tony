@@ -6,7 +6,9 @@ const {queue,jsonRequest,providers}=require('../server/telegram/providers.cjs');
 async function main(){
   const cmd=process.argv[2],env=process.env;
   if(cmd==='check'){
-    const names=['TELEGRAM_BOT_TOKEN','TELEGRAM_BOT_USERNAME','TELEGRAM_WEBHOOK_SECRET','TELEGRAM_PUBLIC_ORIGIN','TELEGRAM_DATABASE_URL','GROQ_API_KEY','OLLAMA_API_KEY','QSTASH_TOKEN','QSTASH_CURRENT_SIGNING_KEY','QSTASH_NEXT_SIGNING_KEY'];
+    const {provider,model}=require('../server/telegram/ai-config.cjs').aiConfig(env);
+    console.log(`AI provider: ${provider}${model?' / '+model:''}`);
+    const names=['TELEGRAM_BOT_TOKEN','TELEGRAM_BOT_USERNAME','TELEGRAM_WEBHOOK_SECRET','TELEGRAM_PUBLIC_ORIGIN','TELEGRAM_DATABASE_URL','GROQ_API_KEY',provider==='openai'?'OPENAI_API_KEY':'OLLAMA_API_KEY','QSTASH_TOKEN','QSTASH_CURRENT_SIGNING_KEY','QSTASH_NEXT_SIGNING_KEY'];
     for(const name of names)console.log(`${name}: ${env[name]?'set':'missing'}`);
     return;
   }

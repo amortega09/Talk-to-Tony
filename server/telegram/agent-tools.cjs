@@ -60,6 +60,7 @@ tool('activity_slice','Edit only the specified range, preserving all surrounding
  for(const x of slots)get(c,x.date)[x.slot]={...x.block,...(a.activity?{sub:a.activity}:{}),...(a.category?{category:a.category}:{}),...(a.text!=null?{note:a.text}:{})};
 });
 for(const type of ['activity_copy','activity_move_range'])tool(type,`${type==='activity_copy'?'Copy':'Move'} a recorded range to destination_date at the same times; ask to confirm overlaps.`,{date,start:clock,end:endClock,end_date:date,destination_date:date},['date','start','end','destination_date'],(a,c)=>{
+ if(a.end_date&&a.end_date!==a.date)c.confirm=true;
  validDate(a.destination_date);const slots=selectedSlots(a,c);if(!slots.some(x=>x.block))throw Error('There are no saved activities in that range.');
  const offset=(Date.parse(a.destination_date)-Date.parse(a.date))/86400000;
  const moving=slots.filter(x=>x.block).map(x=>({...x,dest:R.shift(x.date,offset)}));
@@ -163,7 +164,13 @@ function schema(base){const result=structuredClone(base),legacy=result.propertie
 function descriptions(){const legacy=[{name:'activity_update',description:'Edit or move a whole existing activity target.'},{name:'activity_delete',description:'Delete a whole activity target.',confirmation:true},{name:'objective_add',description:'Add a daily or longer-term objective.'},{name:'objective_complete',description:'Set completion of an existing objective.'},{name:'objective_remove',description:'Delete an existing objective.',confirmation:true},{name:'rough_plan_add',description:'Add a dated rough plan.'},{name:'checkin',description:'Set energy/satisfaction ratings from 1 to 5.'},{name:'day_status',description:'Set holiday, travel, sick, off or clear day label.'},{name:'note_append',description:'Append text to an existing note target.'},{name:'query_day',description:'Read saved activity totals for one day.'},{name:'navigate',description:'Open an app screen or date via the web.'}];return [...legacy,...Object.entries(tools).map(([name,t])=>({name,description:t.description,confirmation:t.confirm}))];}
 function plan({draft,days,catalog,range,helpers}){
  const c={next:structuredClone(days),catalog,helpers,confirm:false},summaries=[],answers=[],navigation=[];
+ const transfers=new Set();
  for(const a of draft.actions || []){
+  if(['activity_move_range','activity_copy'].includes(a.type)){
+   const key=[a.type,a.date,a.start,a.end_date || a.date,a.end,a.destination_date].join('/');
+   if(transfers.has(key))throw Error('The same transfer was requested twice. Please send it once; nothing was saved.');
+   transfers.add(key);
+  }
   const tool=tools[a.type];
   if(tool){const answer=tool.run(a,c);if(a.type.startsWith('query_'))answers.push(answer);else{summaries.push(summary(a,c));c.confirm ||= tool.confirm;}}
   else {const r=A.plan({draft:{actions:[a]},days:c.next,catalog,range,helpers});for(const p of r.patches){const day=get(c,p.date);if(p.after)day[p.slot]=p.after;else delete day[p.slot];}summaries.push(...r.summaries);answers.push(...r.answers);navigation.push(...r.navigation);if(['activity_delete','objective_remove'].includes(a.type))c.confirm=true;}

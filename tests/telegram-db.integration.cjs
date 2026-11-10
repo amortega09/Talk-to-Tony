@@ -401,3 +401,13 @@ test('billing-required AI failure completes with clear guidance and never retrie
  assert.equal((await admin.query("select count(*)::int as n from public.blocks where start_time ~ '^[0-2][0-9]:[03]0$'")).rows[0].n,0);
  assert.ok(published.length>0);
 });
+
+test('OpenAI quota failure gives matching account guidance and does not retry or write',async()=>{
+ const n=++seq,{id}=await store.ingest('42',{updateId:n,userId:123,chatId:123,messageId:n,timestamp:1793000000,text:'Record a synthetic journey from 10 to 11'});
+ const {ProviderError}=require('../server/telegram/providers.cjs'),error=Object.assign(new ProviderError('provider_billing'),{provider:'openai'});
+ const service=new Service({store,providers:{interpret:async()=>{throw error;}},queue:{publish:async()=>{}},writesEnabled:true});
+ await service.process(id);
+ const j=await one(admin,'select status,attempts from day_bot.jobs where id=$1',[id]);assert.equal(j.status,'done');assert.equal(j.attempts,1);
+ const message=(await one(admin,'select payload from day_bot.outbox')).payload.text;assert.match(message,/OpenAI usage credits/);assert.ok(!message.includes('ollama.com'));assert.match(message,/Nothing new was saved/);
+ assert.equal((await one(admin,'select count(*)::int n from public.blocks')).n,0);
+});

@@ -93,7 +93,7 @@ class Service {
       else if(cmd?.control==='undo')await this.store.undo(job,input.callback?.id,this.writesEnabled);
       else if(cmd?.control==='cancel')await this.store.cancel(job,input.callback?.id);
       else if(cmd?.control==='unlink')await this.store.unlink(job);
-      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help,reply_markup:{remove_keyboard:true}}]);
+      else if(cmd?.control==='help' || /^\/start(?:@\w+)?$/.test(text || ''))await this.store.finish(job,[{text:help.replace('go to Ollama',`go to ${this.providers.name || 'Ollama'}`),reply_markup:{remove_keyboard:true}}]);
       else if(cmd?.control==='status'){
         const status=await this.store.status(job);
         const messages=status.pending?preview(status.pending.id,status.pending.data):[{text:status.receipt?`Latest bot change: ${status.receipt.undone?'undone':'saved'}. No pending draft.`:'No pending draft or saved bot changes.'}];
@@ -152,7 +152,8 @@ class Service {
       }
     } catch(e) {
       if(job.released)throw e;
-      if(e.code==='provider_billing')await this.store.finish(job,[{text:'Ollama needs usage credits or an active subscription before I can organise this message. Check your account at https://ollama.com/plans and try again. Nothing new was saved. You can still use /today to view your diary.'}]);
+      if(e.code==='provider_billing')await this.store.finish(job,[{text:e.provider==='openai'?'OpenAI usage credits are unavailable. Check your API billing at https://platform.openai.com/settings/organization/billing/overview and try again. Nothing new was saved. You can still use /today to view your diary.':'Ollama needs usage credits or an active subscription before I can organise this message. Check your account at https://ollama.com/plans and try again. Nothing new was saved. You can still use /today to view your diary.'}]);
+      else if(e.code==='provider_auth'&&e.provider==='openai')await this.store.finish(job,[{text:'OpenAI rejected the configured API key. Check the key and its permissions. Nothing new was saved. You can still use /today to view your diary.'}]);
       else if(e instanceof UserError)await this.store.finish(job,[{text:e.message}]);
       else {if(e.code!=='lease_lost')await this.store.release(job,/^[a-z_]+$/.test(e.code || '')?e.code:'internal',e.retryAfter || 0);throw e;}
     }

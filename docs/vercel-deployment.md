@@ -10,16 +10,17 @@ The generated static bundle is rebuilt from a public asset allowlist each time.
 ## Credentials
 
 Production and preview have these sensitive server environment variables:
-`OLLAMA_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DAY_ALLOWED_USER_IDS`.
+`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5-nano`,
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DAY_ALLOWED_USER_IDS`.
 The account allowlist was derived from the existing diary export. Values were
 passed through stdin and are not stored in source files or deployment logs.
 The hosted API verifies the user's Supabase token and allowlist before calling
-Ollama. It does not write diary data directly.
+the configured AI provider. It does not write diary data directly.
 
 `.vercel/`, `.env*`, downloaded speech models and generated `dist/` are ignored.
 Vercel CLI may create `.env.local` containing a deployment token: keep it ignored.
 The public browser configuration contains the Supabase public anon key and voice
-API URL only; it must never contain the Ollama API key or a Supabase service key.
+API URL only; it must never contain an AI provider API key or a Supabase service key.
 
 ## Finish the new frontend login
 
@@ -44,7 +45,7 @@ unnecessary for hosted voice there too.
 Brave and browsers without native SpeechRecognition use quantized Whisper tiny.en
 in a browser worker. Native speech-service network failures switch to that
 portable fallback for the next recording. The first use downloads the pinned
-runtime/model; audio stays on the device and the transcript goes to Ollama.
+runtime/model; audio stays on the device and the transcript goes to the configured AI provider.
 No local Python helper or additional speech-provider key is required. Native
 speech remains available in other browsers; it may use the vendor's service.
 Voice settings allow explicit selection. Text input always remains available.

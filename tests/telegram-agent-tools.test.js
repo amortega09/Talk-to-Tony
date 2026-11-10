@@ -52,3 +52,10 @@ test('archived work targets are ranked using company and project, including shor
   const ctx=D.context(rows,'Move my Atlas '+project+' work to tomorrow.',time);assert.equal(ctx.app.targets_limited,true);assert.ok(ctx.app.targets.some(t=>t.details?.project===project));
  }
 });
+
+test('duplicate transfers fail before any changes and multi-day source ranges need confirmation',()=>{
+ const move={type:'activity_move_range',date:day,start:'09:00',end:'10:00',destination_date:'2026-10-28'};
+ assert.throws(()=>run([move,{...move}],[row('09:00')]),/same transfer/);
+ const result=run([{...move,end_date:'2026-10-28'}],[row('09:00'),row('14:00','exercise','Workout','Gym')]);
+ assert.equal(result.requiresConfirmation,true);
+});
