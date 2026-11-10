@@ -49,6 +49,6 @@ test('gym read and edit support Exercise / Gym as well as legacy Gym blocks',()=
 test('archived work targets are ranked using company and project, including short project names',()=>{
  for(const project of ['CFD','L&C']){
   const rows=Array.from({length:100},(_,i)=>({...row('09:00','work','','Work',require('../event-range').shift('2026-01-01',i)),details:{company:'Atlas',project:i===99?project:'Unrelated '+i}}));
-  const ctx=D.context(rows,'Move my '+project+' work to tomorrow.',time);assert.equal(ctx.app.targets_limited,true);assert.ok(ctx.app.targets.some(t=>t.details?.project===project));
+  const ctx=D.context(rows,'Move my Atlas '+project+' work to tomorrow.',time);assert.equal(ctx.app.targets_limited,true);assert.ok(ctx.app.targets.some(t=>t.details?.project===project));
  }
 });

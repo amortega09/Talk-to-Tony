@@ -67,8 +67,8 @@ function context(rows,text,time,conversation=[],options={}) {
   const words=text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
   let shared=null;try{const parsed=JSON.parse(rows.find(r=>r.start_time==='__agent_selection__')?.note || '{}');if(Date.parse(parsed.expiresAt)>Date.now())shared=parsed;}catch{}
   const selectedEntity=conversation.find(x=>x.focus?.selectedEntity)?.focus.selectedEntity;
-  const projectMatch=t=>[t.details?.project,t.details?.company,t.details?.destination].filter(Boolean).some(value=>M.key(value).length>=2&&M.key(text).includes(M.key(value)));
-  const score=t=>(t.id===selectedEntity?100:0)+ (shared?.id&&t.id===shared.kind+':'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===discussionDate?30:0)+(projectMatch(t)?40:0)+words.filter(w=>w.length>2 && [t.activity,t.text,M.describe(t)].filter(Boolean).join(' ').toLowerCase().includes(w)).length*5;
+  const projectMatch=t=>[['project',60],['company',10],['destination',20]].reduce((score,[field,weight])=>{const value=M.key(t.details?.[field]);return score+(value.length>=2&&M.key(text).includes(value)?weight:0);},0);
+  const score=t=>(t.id===selectedEntity?100:0)+ (shared?.id&&t.id===shared.kind+':'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===discussionDate?30:0)+projectMatch(t)+words.filter(w=>w.length>2 && [t.activity,t.text,M.describe(t)].filter(Boolean).join(' ').toLowerCase().includes(w)).length*5;
   let budget=12000;
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
   let formatBudget=7000;
