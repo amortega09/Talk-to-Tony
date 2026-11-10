@@ -213,13 +213,19 @@ $0.40 output per million tokens. Reasoning tokens consume the output budget.
 Source: https://developers.openai.com/api/docs/pricing
 
 Live tests use invented fixtures and no diary writes. Early minimal-reasoning
-and JSON-mode attempts failed and were replaced. A broad strict-output test
-passed 10/12 cases; unnecessary clarification was still observed. After prompt
-refinement, focused tests passed new work, preserved-detail moves and combined
-company/project creation plus work (3/3). Browser-path multimode travel also
-passed against the real API. These checks do not establish universal model
+and JSON-mode attempts failed and were replaced. Early strict-output tests
+passed 10/12 cases. After refinement, the full synthetic live evaluation passed
+12/12, covering work, ambiguity, moves, travel, gym, exact reads, health and mixed
+requests. Browser-path multimode travel also passed against the real API. These checks do not establish universal model
 accuracy; complex language can still need clarification. Automated tests cover
 credential isolation, strict wire conversion, rejection of incomplete output,
 quota handling, duplicate-transfer rejection and confirmation of multi-day
 source transfers. Existing browser and PostgreSQL integration checks remain
 part of release validation.
+
+A production Work request exposed omitted metadata despite an explicit company
+and project in the message. A deterministic resolver preserves an affirmative
+“for COMPANY on PROJECT/TASK” selection for a single new Work item when both
+match the saved catalogue. It does not infer ownership from a project alone,
+assign multiple work items, or resolve negated, mismatched or ambiguous choices.
+The normal company/project validation still runs after this step.

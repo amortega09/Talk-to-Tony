@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from provider_schema import strict_schema, from_wire
+from provider_schema import strict_schema, from_wire, explicit_work_details
 
 ROOT = Path(__file__).resolve().parent
 # Chosen by the synthetic diary evaluation in docs/voice-model-finalists.json.
@@ -307,6 +307,8 @@ def interpret(payload, timeout=180):
     result = (openai_draft(model, request['messages'][0]['content'], data, timeout)
               if ai_provider() == 'openai' else ollama('/api/chat', request, timeout=timeout))
     draft = parse_model_draft(result)
+    if ai_provider() == 'openai':
+        draft = explicit_work_details(draft, transcript, context.get('app', {}).get('work_companies', []))
     draft = align_explicit_morning_sleep(draft, normalize_spoken_times(transcript), payload.get('context', {}).get('today'))
     return {**draft, 'model_used': model}
 

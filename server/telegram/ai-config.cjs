@@ -4,6 +4,16 @@ function aiConfig(env=process.env){
   if(!['openai','ollama'].includes(provider))throw new Error('Set AI_PROVIDER to openai or ollama');
   return {provider,model:provider==='openai'?(env.OPENAI_MODEL || 'gpt-5-nano').trim():null};
 }
+function explicitWorkDetails(draft,text,catalog){
+  const items=(draft.items || []).filter(i=>i.category==='work');
+  if(items.length!==1||/\b(?:not|don't|do not|except|without)\b/i.test(text))return draft;
+  const named=(name,prefix)=>new RegExp(`\\b${prefix}\\s+(?:company\\s+|project\\s+|task\\s+)?${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![\\p{L}\\p{N}])`,'iu').test(text);
+  const matches=require('../../activity-model').companies(catalog).filter(c=>named(c.name,'(?:for|at|company|employer)'));
+  if(matches.length!==1)return draft;
+  const projects=matches[0].projects.filter(p=>named(p,'(?:on|project|task)'));
+  if(projects.length===1)items[0].details={...items[0].details,company:matches[0].name,project:projects[0]};
+  return draft;
+}
 function allowsNull(schema){return schema.type==='null'||schema.type?.includes?.('null')||schema.enum?.includes(null)||schema.anyOf?.some(allowsNull);}
 // OpenAI requires every property on the wire. Optional values use null and are
 // restored to omission before the original application schema validates them.
@@ -44,4 +54,4 @@ function openaiText(result){
   const text=parts.filter(x=>x.type==='output_text').map(x=>x.text).join('');
   if(!text)throw new Error('Missing model response');return text;
 }
-module.exports={aiConfig,openaiRequest,openaiText,strictSchema,fromWire};
+module.exports={aiConfig,openaiRequest,openaiText,strictSchema,fromWire,explicitWorkDetails};

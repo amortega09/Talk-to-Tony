@@ -1,7 +1,7 @@
 'use strict';
 const {Client,Receiver}=require('@upstash/qstash');
 const {UserError,contract,agentSchema,normalizeTimes,validate,alignSleep}=require('./domain.cjs');
-const {aiConfig,openaiRequest,openaiText,fromWire}=require('./ai-config.cjs');
+const {aiConfig,openaiRequest,openaiText,fromWire,explicitWorkDetails}=require('./ai-config.cjs');
 class ProviderError extends Error {
   constructor(code,retryAfter=0){super('A provider is temporarily unavailable.');this.code=code;this.retryAfter=retryAfter;}
 }
@@ -98,6 +98,7 @@ function providers(env=process.env,fetch=globalThis.fetch) {
       let draft;
       try{let content=(config.provider==='openai'?openaiText(result):result.message.content).trim();if(content.startsWith('```')&&content.endsWith('```'))content=content.split('\n').slice(1,-1).join('\n');draft=JSON.parse(content);}catch{throw new UserError('The AI returned an invalid or incomplete draft. Nothing new was saved. Please retry.','model_invalid');}
       if(config.provider==='openai')draft=fromWire(draft,outputSchema);
+      if(config.provider==='openai')draft=explicitWorkDetails(draft,transcript,context.work_companies);
       // The model sometimes represents an absent new-entry note as null.
       // Normalize only that empty optional content; action edits stay strict.
       if(Array.isArray(draft?.items))for(const item of draft.items)if(item && item.note===null)item.note='';

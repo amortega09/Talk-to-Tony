@@ -34,3 +34,12 @@ test('wire nulls preserve explicit clears and required unknowns without weakenin
  const restored=fromWire(plan,agentSchema);assert.equal(restored.actions[0].due_date,null);assert.ok(!('next_action' in restored.actions[0]));
  assert.throws(()=>validate({...empty(),items:[{category:'not-a-category'}]}));
 });
+
+test('sole Work item preserves the explicitly stated company and project even if nano omitted them',()=>{
+ const {explicitWorkDetails}=require('../server/telegram/ai-config.cjs');const catalog=[{name:'Atlas',projects:['Research','Review draft']},{name:'Orion',projects:['Build']}];
+ const make=()=>({...empty(),items:[{category:'work',details:{}}]});
+ assert.deepEqual(explicitWorkDetails(make(),'I worked for Atlas on Research.',catalog).items[0].details,{company:'Atlas',project:'Research'});
+ assert.deepEqual(explicitWorkDetails(make(),'Log company Atlas on task Review draft.',catalog).items[0].details,{company:'Atlas',project:'Review draft'});
+ for(const text of ['I worked on Research.','I worked for Atlas.','I worked for Atlas on Build.','I worked for Atlas, not on Research.','I worked for Atlas on Research and for Orion on Build.','I worked for Atlas on Researcher.'])assert.deepEqual(explicitWorkDetails(make(),text,catalog).items[0].details,{});
+ const multiple=make();multiple.items.push({category:'work',details:{}});explicitWorkDetails(multiple,'I worked for Atlas on Research.',catalog);assert.ok(multiple.items.every(i=>!i.details.company));
+});
