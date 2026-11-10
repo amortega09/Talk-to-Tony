@@ -158,3 +158,36 @@ usage credits/subscription, so successful live interpretation remains blocked
 until the provider account is funded. Production secrets cannot be downloaded
 for an independent key comparison. Automated fixtures do not establish a real
 phone text/voice → response → save → undo pass. No test messages were sent.
+
+## Deployed pipeline smoke test — 10 November 2026, 21:00 UTC
+
+Authenticated synthetic updates were submitted to the production webhook for the
+linked private chat. Real QStash deliveries ran the deployed worker; Telegram
+returned message IDs and delivery timestamps for the bot's replies. This tests
+simulated incoming updates, not messages sent from a phone. Computer-control
+permissions were unavailable, so neither phone interaction nor a signed-in app
+refresh was visually verified.
+
+Passed: `/today`, explicit day selection, and a schedule query read back freshly
+saved Travel with Bus + Train and a destination, plus Work with Immaterial / CFD.
+A prepared draft deliberately bypassed the unavailable model; hosted `/save`
+persisted its four half-hour slots with the expected details. Hosted Undo removed
+all four, and a repeated Undo was harmless. The preparation step must not be
+counted as successful AI interpretation.
+
+A labelled synthetic OGG voice note was uploaded to Telegram, then its Telegram
+file ID was submitted through the production webhook. The hosted worker fetched,
+validated and transcribed it correctly, checkpointed the transcript, and resumed
+processing in a second queued invocation.
+
+Both the text request and the transcribed voice reached the deployed Ollama
+integration and received the billing failure. The explanatory message was
+delivered to Telegram; neither request wrote diary activities. Successful AI
+interpretation remains blocked by the production provider account's billing.
+The local-key comparison is no longer the basis for that conclusion.
+
+The test date was an empty day in December 2099. Private snapshots and reports
+remain outside Git and deployments. Synthetic diary slots were undone. Cleanup
+restored the prior bot history and conversation context after checking for
+concurrent real requests, and removed the nine synthetic jobs and their bot
+records. All 5,189 original diary rows matched the pre-test full-row SHA-256 hash.
