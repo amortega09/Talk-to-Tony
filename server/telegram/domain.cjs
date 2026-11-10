@@ -67,7 +67,8 @@ function context(rows,text,time,conversation=[],options={}) {
   const words=text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
   let shared=null;try{const parsed=JSON.parse(rows.find(r=>r.start_time==='__agent_selection__')?.note || '{}');if(Date.parse(parsed.expiresAt)>Date.now())shared=parsed;}catch{}
   const selectedEntity=conversation.find(x=>x.focus?.selectedEntity)?.focus.selectedEntity;
-  const score=t=>(t.id===selectedEntity?100:0)+ (shared?.id&&t.id===shared.kind+':'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===discussionDate?30:0)+words.filter(w=>w.length>2 && (t.activity || t.text || '').toLowerCase().includes(w)).length*5;
+  const projectMatch=t=>[t.details?.project,t.details?.company,t.details?.destination].filter(Boolean).some(value=>M.key(value).length>=2&&M.key(text).includes(M.key(value)));
+  const score=t=>(t.id===selectedEntity?100:0)+ (shared?.id&&t.id===shared.kind+':'+shared.id?100:0)+(shared?.date===t.date?50:0)+(t.date===discussionDate?30:0)+(projectMatch(t)?40:0)+words.filter(w=>w.length>2 && [t.activity,t.text,M.describe(t)].filter(Boolean).join(' ').toLowerCase().includes(w)).length*5;
   let budget=12000;
   const targets=all.sort((a,b)=>score(b)-score(a)).filter(t=>{budget-=JSON.stringify(t).length;return budget>=0;}).slice(0,80);
   let formatBudget=7000;
@@ -80,12 +81,12 @@ function plan(draft,rows,catalog,options={}) {
   validate(draft);
   if(draft.questions.length)return {patches:[],summaries:[],answers:[],navigation:[],questions:[draft.questions[0]]};
   if(draft.actions?.length && (draft.items.length || draft.reflections.length)){
-    const additions=plan({...draft,actions:[]},rows,catalog,options);
+    const additions=plan({...draft,actions:[]},rows,catalog,{...options,deferWorkValidation:true});
     if(additions.questions.length)return additions;
     const next=actions.daysFromRows(rows);
     for(const p of additions.patches){const day=next[p.date] ||= {};if(p.after)day[p.slot]=p.after;else delete day[p.slot];}
     const nextRows=Object.entries(next).flatMap(([date,day])=>Object.entries(day).map(([start_time,b])=>({date,start_time,...b,subcategory:b.sub})));
-    const edits=plan({...draft,items:[],reflections:[]},nextRows,catalog,options);
+    const edits=plan({...draft,items:[],reflections:[]},nextRows,catalog,{...options,deferWorkValidation:true});
     if(edits.questions.length)return edits;
     for(const p of edits.patches){const day=next[p.date] ||= {};if(p.after)day[p.slot]=p.after;else delete day[p.slot];}
     const original=actions.daysFromRows(rows),patches=[];
@@ -93,7 +94,7 @@ function plan(draft,rows,catalog,options={}) {
       const before=actions.normal(original[date]?.[slot]),after=actions.normal(next[date]?.[slot]);if(!actions.same(before,after))patches.push({date,slot,before,after,version:rows.find(r=>r.date===date&&r.start_time===slot)?.version || null});
     }
     if(patches.length>500)throw new UserError('Split this into smaller changes.');
-    return enforceWork({...edits,patches,summaries:[...additions.summaries,...edits.summaries],requiresConfirmation:additions.requiresConfirmation || edits.requiresConfirmation},rows);
+    return enforceWork({...edits,patches,summaries:[...additions.summaries,...edits.summaries],requiresConfirmation:additions.requiresConfirmation || edits.requiresConfirmation},rows,options);
   }
   const days=actions.daysFromRows(rows); let result;
   const resolved=new Map();
@@ -128,9 +129,10 @@ function plan(draft,rows,catalog,options={}) {
   const versions=new Map(rows.map(r=>[`${r.date}/${r.start_time}`,r.version]));
   result.patches=result.patches.map(p=>({...p,version:versions.get(`${p.date}/${p.slot}`) || null}));
   if(result.patches.length>500)throw new UserError('Split this into smaller changes.');
-  return enforceWork({...result,questions:[],formatVersion:1,toolVersion:agentTools.VERSION},rows);
+  return enforceWork({...result,questions:[],formatVersion:1,toolVersion:agentTools.VERSION},rows,options);
 }
-function enforceWork(result,rows){
+function enforceWork(result,rows,options={}){
+  if(options.deferWorkValidation)return result;
   const settingsPatch=result.patches.find(p=>p.date==='2000-01-01'&&p.slot==='__settings__');
   const settings=JSON.parse(settingsPatch?.after?.note || rows.find(r=>r.date==='2000-01-01'&&r.start_time==='__settings__')?.note || '{}');
   if(settings.workHierarchyVersion===1)for(const patch of result.patches){const error=M.workError(patch.after,settings.workCompanies);if(error)return {...result,patches:[],summaries:[],questions:[error]};if(patch.after?.category==='work')patch.after=M.canonicalWork(patch.after,settings.workCompanies);}

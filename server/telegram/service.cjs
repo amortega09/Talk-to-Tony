@@ -152,7 +152,8 @@ class Service {
       }
     } catch(e) {
       if(job.released)throw e;
-      if(e instanceof UserError)await this.store.finish(job,[{text:e.message}]);
+      if(e.code==='provider_billing')await this.store.finish(job,[{text:'Ollama needs usage credits or an active subscription before I can organise this message. Check your account at https://ollama.com/plans and try again. Nothing new was saved. You can still use /today to view your diary.'}]);
+      else if(e instanceof UserError)await this.store.finish(job,[{text:e.message}]);
       else {if(e.code!=='lease_lost')await this.store.release(job,/^[a-z_]+$/.test(e.code || '')?e.code:'internal',e.retryAfter || 0);throw e;}
     }
     // Replies run separately so model latency plus multiple Telegram calls cannot

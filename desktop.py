@@ -111,7 +111,7 @@ def ollama(path, payload=None, timeout=10):
             if response.status in [401, 403]:
                 raise ValueError('Ollama Cloud rejected the API key. Update OLLAMA_API_KEY in .env, then reconnect.')
             if response.status == 402:
-                raise ValueError('This model is not included in your Ollama plan. Choose Automatic (Gemma 4) or another included model.')
+                raise ValueError('Ollama requires usage credits or an active subscription for this request. Check your Ollama account, then try again.')
             if response.status == 429:
                 raise ValueError('Ollama Cloud usage limit reached. Try again later or check your plan.')
             raise ValueError('Ollama Cloud could not complete the request. Check the selected model.')

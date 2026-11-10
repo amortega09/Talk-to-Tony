@@ -391,3 +391,13 @@ test('a previously drafted work save must satisfy the current company/project re
  await assert.rejects(store.apply(await job('save'),id,true),/company/);
  assert.equal((await admin.query("select * from public.blocks where start_time='09:00'")).rowCount,0);
 });
+test('billing-required AI failure completes with clear guidance and never retries or writes diary data',async()=>{
+ const n=++seq,id=await store.ingest('42',{updateId:n,userId:123,chatId:123,messageId:n,timestamp:1793000000,text:'Record a synthetic activity from 10 to 11'});
+ const published=[],{ProviderError}=require('../server/telegram/providers.cjs');
+ const service=new Service({store,providers:{interpret:async()=>{throw new ProviderError('provider_billing');}},queue:{publish:async id=>published.push(id)},writesEnabled:true});
+ await service.process(id.id);
+ const saved=await one(admin,'select status,attempts from day_bot.jobs where id=$1',[id.id]);assert.equal(saved.status,'done');assert.equal(saved.attempts,1);
+ const messages=(await admin.query('select payload from day_bot.outbox order by ordinal')).rows;assert.ok(messages.some(r=>r.payload.text.includes('usage credits')&&r.payload.text.includes('Nothing new was saved')));
+ assert.equal((await admin.query("select count(*)::int as n from public.blocks where start_time ~ '^[0-2][0-9]:[03]0$'")).rows[0].n,0);
+ assert.ok(published.length>0);
+});

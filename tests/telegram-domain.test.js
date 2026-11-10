@@ -209,3 +209,7 @@ test('moves preserve exact original fields while explicit renames reuse a saved 
   const p=D.plan(move,r,c,{strict:true});assert.deepEqual(p.patches.find(p=>p.after).after,{category:'sleep',sub:'',note:'Keep this'});
   move.actions[0].activity='project x';const renamed=D.plan(move,r,c,{strict:true}).patches.find(p=>p.after).after;assert.deepEqual(renamed,{category:'work',sub:'Project X',note:'Keep this'});
 });
+test('provider billing rejection has a distinct code without leaking provider content',async()=>{
+ const {jsonRequest}=require('../server/telegram/providers.cjs');
+ await assert.rejects(jsonRequest(async()=>new Response('Private account billing detail',{status:402}),'https://example.com',{}),e=>e.code==='provider_billing'&&!e.message.includes('Private'));
+});

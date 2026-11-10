@@ -136,3 +136,25 @@ slots created on 26 October resolve to the existing blank-subcategory format.
 This was a dry run; existing diary records were not rewritten. Private export
 content is not included in the repository or sent to providers for these tests.
 The base app and shared browser voice code are unchanged.
+
+## Organisation compatibility audit — 10 November 2026
+
+Checks cover company/project ownership, archived target ranking by company and
+project (including short names), mixed company/project creation with a Work
+entry, and Gym read/edit compatibility with canonical Exercise / Gym records.
+HTTP 402 from the AI provider is classified separately and ends the job with
+clear account guidance instead of futile automatic retries. The browser voice
+helper uses the same billing wording. No diary data is written on that failure.
+
+`node --env-file=.env scripts/eval-telegram-organisation.cjs` sends only invented
+fixtures to the real model. It checks work, task, ambiguity, ownership, moves,
+multi-mode travel, gym, exact reads, health and mixed requests. Authentication
+or billing failures stop evaluation early and are not counted as accuracy passes.
+
+Operational checks found a healthy Telegram webhook, no pending updates or
+undelivered replies, and one active 15-minute QStash recovery schedule. Synthetic
+Groq transcription succeeded. The live Ollama check returned HTTP 402 requesting
+usage credits/subscription, so successful live interpretation remains blocked
+until the provider account is funded. Production secrets cannot be downloaded
+for an independent key comparison. Automated fixtures do not establish a real
+phone text/voice → response → save → undo pass. No test messages were sent.

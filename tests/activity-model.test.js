@@ -63,3 +63,9 @@ test('historical company assignment uses only an explicit unambiguous project ca
  p=planHierarchy(rows,[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Research']}]);assert.equal(p.assigned,0);assert.equal(p.changes.some(c=>c.id===1),false);assert.equal(rows[0].details.needs_review,true);
  p=planHierarchy(rows,[]);assert.equal(p.assigned,0);assert.equal(p.work,1);assert.equal(p.changes.some(c=>c.id===1),false);assert.equal(rows[0].details.project,'Research');
 });
+test('company creation, project creation and a work entry can be planned atomically',()=>{
+ const settings={date:'2000-01-01',start_time:'__settings__',category:'settings',note:JSON.stringify({workHierarchyVersion:1,workCompanies:[]})};
+ const value={...draft([{date,start:'16:00',end:'16:30',end_date:date,category:'work',activity:'Work',note:'Synthetic',details:{company:'Boreal',project:'Launch'}}]),actions:[{type:'work_company_add',company:'Boreal'},{type:'work_project_add',company:'Boreal',project:'Launch'}]};
+ const p=D.plan(value,[settings],[],{strict:true});assert.equal(p.questions.length,0);assert.equal(p.patches.length,2);assert.ok(p.patches.some(p=>p.slot==='16:00'&&p.after.details.company==='Boreal'));assert.ok(p.patches.some(p=>p.slot==='__settings__'));
+ const missing=D.plan({...value,actions:[{type:'work_company_add',company:'Boreal'}]},[settings],[],{strict:true});assert.equal(missing.patches.length,0);assert.equal(missing.questions.length,1);
+});

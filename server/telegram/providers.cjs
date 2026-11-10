@@ -15,7 +15,7 @@ async function jsonRequest(fetch,url,body,headers={},timeout=12000) {
   let response;
   try {response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body),signal:AbortSignal.timeout(timeout)});}
   catch {throw new ProviderError('provider_network');}
-  if(!response.ok){await response.body?.cancel();throw new ProviderError(response.status===429?'provider_limit':response.status===401||response.status===403?'provider_auth':'provider_http',retrySeconds(response.headers.get('retry-after')));}
+  if(!response.ok){await response.body?.cancel();throw new ProviderError(response.status===402?'provider_billing':response.status===429?'provider_limit':response.status===401||response.status===403?'provider_auth':'provider_http',retrySeconds(response.headers.get('retry-after')));}
   try {return JSON.parse((await bounded(response,1000000)).toString());}catch {throw new ProviderError('provider_response');}
 }
 // Parse complete Ogg pages and Opus granule positions. Metadata alone is not a

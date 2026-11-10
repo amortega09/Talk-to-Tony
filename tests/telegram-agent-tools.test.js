@@ -36,3 +36,19 @@ test('statistical patterns use the shared web analysis and expose sample sizes',
 test('exact last slot can be read through midnight',()=>{
  const r=run([{type:'query_slot',date:day,start:'23:30',end:'24:00'}],[row('23:30')]);assert.match(r.answers[0],/23:30/);
 });
+
+test('gym read and edit support Exercise / Gym as well as legacy Gym blocks',()=>{
+ const note='__gym_workout_v1__'+JSON.stringify({exercises:[{exercise:'Bench press',sets:3,reps:8,kg:40}]});
+ for(const category of ['exercise','gym']){
+  const rows=['14:00','14:30'].map(slot=>row(slot,category,note,'Gym'));
+  const read=run([{type:'query_gym',date:day}],rows);assert.match(read.answers[0],/Bench press.*3 sets.*8.*40kg/);assert.equal((read.answers[0].match(/Bench press/g)||[]).length,1);
+  const edit=run([{type:'gym_workout',date:day,start:'14:00',end:'15:00',sessions:[{exercise:'Squat',sets:3,reps:5,kg:60}]}],rows);assert.equal(edit.patches.length,2);assert.equal(edit.requiresConfirmation,true);assert.ok(edit.patches.every(p=>p.after.category===category&&p.after.sub==='Gym'&&JSON.parse(p.after.note.slice('__gym_workout_v1__'.length)).exercises[0].exercise==='Squat'));
+ }
+ assert.throws(()=>run([{type:'gym_workout',date:day,start:'14:00',end:'14:30',sessions:[{exercise:'Squat'}]}],[row('14:00','exercise','','Walking')]),/Gym/);
+});
+test('archived work targets are ranked using company and project, including short project names',()=>{
+ for(const project of ['CFD','L&C']){
+  const rows=Array.from({length:100},(_,i)=>({...row('09:00','work','','Work',require('../event-range').shift('2026-01-01',i)),details:{company:'Atlas',project:i===99?project:'Unrelated '+i}}));
+  const ctx=D.context(rows,'Move my '+project+' work to tomorrow.',time);assert.equal(ctx.app.targets_limited,true);assert.ok(ctx.app.targets.some(t=>t.details?.project===project));
+ }
+});
