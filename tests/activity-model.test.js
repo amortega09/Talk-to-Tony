@@ -60,6 +60,6 @@ test('historical company assignment uses only an explicit unambiguous project ca
  const {planHierarchy}=require('../scripts/require-work-hierarchy.cjs');
  const rows=[row('work','Work',{project:'Research',needs_review:true}),{id:2,date:'2000-01-01',start_time:'__settings__',category:'settings',note:'{}',version:'2:1'}];
  let p=planHierarchy(rows,[{name:'Atlas',projects:['Research']}]);assert.equal(p.assigned,1);assert.equal(p.changes[0].after.details.company,'Atlas');assert.equal(p.changes[0].after.details.needs_review,undefined);assert.equal(p.changes[0].after.note,'Original note');
- p=planHierarchy(rows,[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Research']}]);assert.equal(p.assigned,0);assert.equal(p.changes[0].after.details.company,undefined);assert.equal(p.changes[0].after.details.needs_review,true);
- p=planHierarchy(rows,[]);assert.equal(p.assigned,0);assert.equal(p.work,1);assert.equal(p.changes[0].after.details.project,'Research');
+ p=planHierarchy(rows,[{name:'Atlas',projects:['Research']},{name:'Orion',projects:['Research']}]);assert.equal(p.assigned,0);assert.equal(p.changes.some(c=>c.id===1),false);assert.equal(rows[0].details.needs_review,true);
+ p=planHierarchy(rows,[]);assert.equal(p.assigned,0);assert.equal(p.work,1);assert.equal(p.changes.some(c=>c.id===1),false);assert.equal(rows[0].details.project,'Research');
 });
