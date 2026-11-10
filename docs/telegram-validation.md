@@ -229,3 +229,10 @@ and project in the message. A deterministic resolver preserves an affirmative
 match the saved catalogue. It does not infer ownership from a project alone,
 assign multiple work items, or resolve negated, mismatched or ambiguous choices.
 The normal company/project validation still runs after this step.
+
+A live voice narration was interpreted as an edit of an earlier similar trip.
+OpenAI-proposed edits now require review when the message has no edit wording,
+pending draft or explicit reply/reference. A database regression proves that
+such a proposal leaves the existing activity untouched until confirmation.
+Named-date parsing also preserves a spoken year after a comma (for example,
+“20 December, 2099”).

@@ -59,3 +59,8 @@ test('duplicate transfers fail before any changes and multi-day source ranges ne
  const result=run([{...move,end_date:'2026-10-28'}],[row('09:00'),row('14:00','exercise','Workout','Gym')]);
  assert.equal(result.requiresConfirmation,true);
 });
+
+test('speech punctuation before a named-date year preserves the stated year',()=>{
+ assert.equal(Dates.resolve('On 20 December, 2099, I travelled.','2026-11-10'),'2099-12-20');
+ assert.equal(Dates.resolve('On 20 December 2099 I travelled.','2026-11-10'),'2099-12-20');
+});

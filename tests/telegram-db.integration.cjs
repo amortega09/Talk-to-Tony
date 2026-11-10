@@ -411,3 +411,14 @@ test('OpenAI quota failure gives matching account guidance and does not retry or
  const message=(await one(admin,'select payload from day_bot.outbox')).payload.text;assert.match(message,/OpenAI usage credits/);assert.ok(!message.includes('ollama.com'));assert.match(message,/Nothing new was saved/);
  assert.equal((await one(admin,'select count(*)::int n from public.blocks')).n,0);
 });
+
+test('OpenAI cannot silently turn a new activity narration into an edit of an existing entry',async()=>{
+ await seed('09:00','original');
+ const n=++seq,{id}=await store.ingest('42',{updateId:n,userId:123,chatId:123,messageId:n,timestamp:1793000000,text:'I worked from noon until one.'});
+ const service=new Service({store,providers:{name:'OpenAI',interpret:async()=>({...empty(),actions:[{type:'activity_update',target:'activity:'+day+':09:00',date:day,start:'12:00',end_date:day,end:'12:30'}]})},queue:{publish:async()=>{}},writesEnabled:true});
+ await service.process(id);
+ assert.equal((await one(admin,"select note from public.blocks where start_time='09:00'")).note,'original');
+ assert.equal((await one(admin,"select count(*)::int n from public.blocks where start_time='12:00'")).n,0);
+ const d=await one(admin,"select data from day_bot.drafts where status='pending'");assert.equal(d.data.review.requiresConfirmation,true);
+ assert.equal((await one(admin,'select count(*)::int n from day_bot.receipts')).n,0);
+});

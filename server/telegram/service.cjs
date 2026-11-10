@@ -145,6 +145,10 @@ class Service {
         if(this.store.prioritySuggestionsEnabled===false&&draft.actions?.some(a=>a.type==='query_priorities'))throw new UserError('Priority suggestions are temporarily disabled.');
         job.toolNames=(draft.actions || []).map(a=>a.type).concat(draft.items.length?['activity_add']:[],draft.reflections.length?['reflection_append']:[]);
         const review=plan(draft,rows,ctx.app.targets,{strict:true,allowedNew,selectedCategory});
+        if(this.providers.name==='OpenAI'&&!pending&&!input.replyTo&&!reference&&draft.actions?.some(a=>['activity_update','activity_delete','activity_slice','activity_move_range'].includes(a.type))&&!/\b(?:edit|change|move|correct|update|replace|delete|remove|actually|instead|extend|shorten|rename|set|cancel|wrong|reschedule|rather|make)\b/i.test(text)){
+          review.requiresConfirmation=true;
+          if(review.patches.length)review.summaries.unshift('Please check: this changes an existing activity.');
+        }
         if(!review.patches.length && !review.questions.length && !review.answers.length && !review.navigation.length && require('./day-summary.cjs').needsEvidence(text))throw new UserError('I couldn’t verify that from the saved records. Which date or item should I look up?','ungrounded_answer');
         if(!review.patches.length && !review.questions.length){
           await this.store.finish(job,chunks([...review.answers,...review.navigation.map(a=>`Open ${a.screen}${a.date?' for '+a.date:''} in Day.`),...(!review.answers.length&&!review.navigation.length?[(draft.actions?.length || draft.items?.length || draft.reflections?.length)?'Everything already matches — no changes were needed.':draft.reply || 'What would you like to update?']:[])]));

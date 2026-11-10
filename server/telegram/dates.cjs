@@ -9,7 +9,7 @@ function resolve(text,today){
  const t=normalize(text);
  const iso=t.match(/\b\d{4}-\d{2}-\d{2}\b/);if(iso)return valid(iso[0])?iso[0]:null;
  if(/\byesterday\b/.test(t))return shift(today,-1);if(/\btomorrow\b/.test(t))return shift(today,1);if(/\btoday\b/.test(t))return today;
- const named=t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?\b/);
+ const named=t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)(?:,?\s+(\d{4}))?\b/);
  if(named){const d=`${named[3] || today.slice(0,4)}-${String(months.indexOf(named[2])+1).padStart(2,'0')}-${named[1].padStart(2,'0')}`;return valid(d)?d:null;}
  const monthFirst=t.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/);
  if(monthFirst){const d=`${monthFirst[3] || today.slice(0,4)}-${String(months.indexOf(monthFirst[1])+1).padStart(2,'0')}-${monthFirst[2].padStart(2,'0')}`;return valid(d)?d:null;}
