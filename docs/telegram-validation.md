@@ -242,3 +242,22 @@ Reasoning was reduced for explicit new timed narrations after a production voice
 interpretation exceeded the 40-second model deadline. Edits, queries, repetitions,
 company creation and follow-ups retain medium reasoning; the model and provider
 never change automatically.
+
+Final hosted smoke checks passed simple Travel, Work with the explicitly selected
+company/project, and a fresh voice entry through Telegram file download → Groq →
+OpenAI → correct dated multimode activity → save → summary → Undo. Repeated Undo
+was harmless. Inputs were authenticated synthetic updates, with real deployed
+workers and Telegram replies; phone-origin interaction and a signed-in app
+refresh were not visually tested. Work and voice Undo passed. An earlier test
+trip needed a guarded snapshot rollback because undoing a later move changed its
+row versions. Cleanup removed all test records, restored the original conversation
+context, and matched the full pre-test hash of all 5,189 diary rows.
+
+A repeat broad evaluation with the final reasoning routing passed 9/12, despite
+an earlier 12/12 run. Move-work and gym read/edit cases remained inconsistent;
+one move produced unusable field values and one gym edit proposed empty sets.
+This is a known limitation of the cheapest model, not a claim of full semantic
+accuracy. Invalid plans fail validation, destructive workout changes require
+review, and unrequested activity edits cannot silently auto-save. The release
+passed 292 JavaScript tests, 69 isolated database tests, 34 Python tests, the
+browser fixture and the static build.
