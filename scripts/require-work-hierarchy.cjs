@@ -12,7 +12,7 @@ function planHierarchy(rows,catalog){
   if(row.category==='work'){
    work++;const details=M.details(before.details);
    if(!details.company&&details.project){const matches=companies.filter(c=>c.projects.some(p=>M.key(p)===M.key(details.project)));if(matches.length===1){details.company=matches[0].name;details.project=matches[0].projects.find(p=>M.key(p)===M.key(details.project));assigned++;}}
-   after=M.withDetails(before,details);if(M.workError(after,companies))after=M.withDetails(after,{...details,needs_review:true});
+   after=M.withDetails(before,details);if(M.workError(after,companies))after=M.withDetails(after,{...details,needs_review:true});else after=M.canonicalWork(after,companies);
   }
   if(after.details?.needs_review)review++;
   if(!A.same(before,after))changes.push({id:row.id,date:row.date,slot:row.start_time,version:row.version,before,after});

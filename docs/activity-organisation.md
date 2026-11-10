@@ -82,3 +82,5 @@ entries retain all existing fields and are flagged for review. Apply or roll
 back the emitted private plan with `scripts/organize-history.cjs` as above.
 
 The Work picker labels its second level **Project / task**. A single task is a valid choice; it does not need to represent a whole project. Existing `project` data fields and saved entries remain compatible.
+
+Applying a confirmed company/project mapping clears that entry's completed Work review flag. Missing or ambiguous ownership continues to require review.
