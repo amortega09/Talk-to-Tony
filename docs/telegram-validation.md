@@ -201,7 +201,8 @@ no automatic provider fallback or upgrade to a more expensive model. Telegram
 speech transcription continues to use the already verified Groq service.
 
 OpenAI requests use the Responses API with `store=false`, strict Structured
-Outputs, medium reasoning and a maximum of 8,192 output tokens. Optional fields
+Outputs, low reasoning for clear new timed entries (4,096 output tokens maximum)
+and medium reasoning for complex requests and follow-ups (8,192 maximum). Optional fields
 are represented as nullable required fields on the wire, then restored to the
 original app schema before normal validation and write checks. Refusals,
 truncation, missing output, authentication failure and exhausted credits fail
@@ -236,3 +237,8 @@ pending draft or explicit reply/reference. A database regression proves that
 such a proposal leaves the existing activity untouched until confirmation.
 Named-date parsing also preserves a spoken year after a comma (for example,
 “20 December, 2099”).
+
+Reasoning was reduced for explicit new timed narrations after a production voice
+interpretation exceeded the 40-second model deadline. Edits, queries, repetitions,
+company creation and follow-ups retain medium reasoning; the model and provider
+never change automatically.

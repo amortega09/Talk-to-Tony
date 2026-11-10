@@ -50,3 +50,10 @@ class OpenAIProviderTests(unittest.TestCase):
         for text, expected in [('Work for Atlas on Research.',{'company':'Atlas','project':'Research'}),('Work on Research.',{}),('Not for Atlas on Research.',{})]:
             value={'items':[{'category':'work','details':{}}]}
             self.assertEqual(explicit_work_details(value,text,catalog)['items'][0]['details'],expected)
+
+    def test_simple_new_entries_use_less_reasoning_without_cheapening_edits(self):
+        from provider_schema import reasoning_effort
+        self.assertEqual(reasoning_effort('I travelled from noon until one.'),'low')
+        for text in ['Move work from nine to ten.','What did I do from nine to ten?','Add company Boreal and work from nine to ten.']:
+            self.assertEqual(reasoning_effort(text),'medium')
+        self.assertEqual(reasoning_effort('Travel from nine to ten.',{}),'medium')

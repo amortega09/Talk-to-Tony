@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from provider_schema import strict_schema, from_wire, explicit_work_details
+from provider_schema import strict_schema, from_wire, explicit_work_details, reasoning_effort
 
 ROOT = Path(__file__).resolve().parent
 # Chosen by the synthetic diary evaluation in docs/voice-model-finalists.json.
@@ -116,10 +116,11 @@ def openai_draft(model, instructions, data, timeout):
     key = api_key('openai')
     if not key:
         raise ValueError('Set OPENAI_API_KEY in .env or the server environment, then reconnect.')
+    effort = reasoning_effort(data.get('transcript', ''), data.get('previous_draft'))
     request = {'model': model, 'store': False, 'instructions': instructions, 'input': 'Return only the required JSON object.\n' + json.dumps(data),
-               'text': {'format': {'type': 'json_schema', 'name': 'diary_plan', 'strict': True, 'schema': strict_schema(SCHEMA)}}, 'max_output_tokens': 8192}
+               'text': {'format': {'type': 'json_schema', 'name': 'diary_plan', 'strict': True, 'schema': strict_schema(SCHEMA)}}, 'max_output_tokens': 4096 if effort == 'low' else 8192}
     if re.match(r'^gpt-5(?:-|$)', model):
-        request['reasoning'] = {'effort': 'medium'}
+        request['reasoning'] = {'effort': effort}
     connection = http.client.HTTPSConnection('api.openai.com', timeout=timeout)
     try:
         connection.request('POST', '/v1/responses', json.dumps(request),

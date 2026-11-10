@@ -43,3 +43,8 @@ test('sole Work item preserves the explicitly stated company and project even if
  for(const text of ['I worked on Research.','I worked for Atlas.','I worked for Atlas on Build.','I worked for Atlas, not on Research.','I worked for Atlas on Research and for Orion on Build.','I worked for Atlas on Researcher.'])assert.deepEqual(explicitWorkDetails(make(),text,catalog).items[0].details,{});
  const multiple=make();multiple.items.push({category:'work',details:{}});explicitWorkDetails(multiple,'I worked for Atlas on Research.',catalog);assert.ok(multiple.items.every(i=>!i.details.company));
 });
+
+test('simple new timed entries use low reasoning; edits, reads, repetitions and follow-ups keep medium',()=>{
+ const {reasoningEffort}=require('../server/telegram/ai-config.cjs');assert.equal(reasoningEffort('I travelled by train from noon until one.'),'low');assert.equal(reasoningEffort('Log work for Atlas on Research from 9 to 10.'),'low');
+ for(const t of ['Move my meeting from nine to ten.','What did I do from nine to ten?','Repeat the same work from nine to ten.','Add company Boreal and work from nine to ten.'])assert.equal(reasoningEffort(t),'medium');assert.equal(reasoningEffort('Travel from nine to ten.',{}),'medium');
+});

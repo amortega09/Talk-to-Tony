@@ -43,9 +43,12 @@ function fromWire(value,schema){
   if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key,v])=>!(v===null&&schema.properties?.[key]&&!(schema.required || []).includes(key)&&!allowsNull(schema.properties[key]))).map(([key,v])=>[key,fromWire(v,schema.properties?.[key] || {})]));
   return value;
 }
-function openaiRequest(model,instructions,input,schema){
+function reasoningEffort(text,previous){
+  return !previous&&/\bfrom\b.+\b(?:to|until)\b/i.test(text)&&!/\?|\b(?:edit|change|move|correct|update|replace|delete|remove|actually|instead|extend|shorten|rename|copy|repeat|same|what|which|how|read|query|show)\b|\badd\s+(?:a\s+)?(?:company|project|task)\b/i.test(text)?'low':'medium';
+}
+function openaiRequest(model,instructions,input,schema,effort='medium'){
   return {model,store:false,instructions,input:'Return only the required JSON object.\n'+input,text:{format:{type:'json_schema',name:'diary_plan',strict:true,schema:strictSchema(schema)}},
-    ...(/^gpt-5(?:-|$)/.test(model)?{reasoning:{effort:'medium'}}:{}),max_output_tokens:8192};
+    ...(/^gpt-5(?:-|$)/.test(model)?{reasoning:{effort}}:{}),max_output_tokens:effort==='low'?4096:8192};
 }
 function openaiText(result){
   if(result?.status!=='completed')throw new Error('Incomplete model response');
@@ -54,4 +57,4 @@ function openaiText(result){
   const text=parts.filter(x=>x.type==='output_text').map(x=>x.text).join('');
   if(!text)throw new Error('Missing model response');return text;
 }
-module.exports={aiConfig,openaiRequest,openaiText,strictSchema,fromWire,explicitWorkDetails};
+module.exports={aiConfig,openaiRequest,openaiText,strictSchema,fromWire,explicitWorkDetails,reasoningEffort};

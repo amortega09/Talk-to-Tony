@@ -3,6 +3,11 @@ import copy
 import re
 
 
+def reasoning_effort(text, previous=None):
+    complex_request = r'\?|\b(?:edit|change|move|correct|update|replace|delete|remove|actually|instead|extend|shorten|rename|copy|repeat|same|what|which|how|read|query|show)\b|\badd\s+(?:a\s+)?(?:company|project|task)\b'
+    return 'low' if previous is None and re.search(r'\bfrom\b.+\b(?:to|until)\b', text, re.I) and not re.search(complex_request, text, re.I) else 'medium'
+
+
 def explicit_work_details(draft, text, catalog):
     items = [i for i in draft.get('items', []) if i.get('category') == 'work']
     if len(items) != 1 or re.search(r"\b(?:not|don't|do not|except|without)\b", text, re.I):

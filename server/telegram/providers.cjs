@@ -1,7 +1,7 @@
 'use strict';
 const {Client,Receiver}=require('@upstash/qstash');
 const {UserError,contract,agentSchema,normalizeTimes,validate,alignSleep}=require('./domain.cjs');
-const {aiConfig,openaiRequest,openaiText,fromWire,explicitWorkDetails}=require('./ai-config.cjs');
+const {aiConfig,openaiRequest,openaiText,fromWire,explicitWorkDetails,reasoningEffort}=require('./ai-config.cjs');
 class ProviderError extends Error {
   constructor(code,retryAfter=0){super('A provider is temporarily unavailable.');this.code=code;this.retryAfter=retryAfter;}
 }
@@ -92,7 +92,7 @@ function providers(env=process.env,fetch=globalThis.fetch) {
       let result;
       try{
         result=config.provider==='openai'
-          ?await jsonRequest(fetch,'https://api.openai.com/v1/responses',openaiRequest(model,instructions,JSON.stringify(data),outputSchema),{Authorization:`Bearer ${key}`},40000)
+          ?await jsonRequest(fetch,'https://api.openai.com/v1/responses',openaiRequest(model,instructions,JSON.stringify(data),outputSchema,reasoningEffort(transcript,previous)),{Authorization:`Bearer ${key}`},40000)
           :await jsonRequest(fetch,'https://ollama.com/api/chat',{model,stream:false,messages:[{role:'system',content:instructions},{role:'user',content:JSON.stringify(data)}],options:{temperature:0,num_ctx:32768,num_predict:2500},think:contract.thinking[model]}, {Authorization:`Bearer ${key}`},40000);
       }catch(e){e.provider=config.provider;throw e;}
       let draft;
