@@ -292,3 +292,21 @@ These are measured acceptance results, not a guarantee about arbitrary language.
 
 Model sources: https://developers.openai.com/api/docs/models/gpt-6-luna and
 https://developers.openai.com/api/docs/pricing.
+
+Production verification also passed through the deployed webhook and QStash
+worker with real Telegram deliveries: edit an inline Gym workout and save its
+preview; read back the exact Squat 3×5 at 60kg; move Work to another day while
+preserving company/project/note; read the destination day; upload and transcribe
+a synthetic voice note and save the correct dated Train + Bus trip; undo the
+voice entry, move and workout; repeat Undo without another change. All ten
+hosted test steps completed and delivered replies. Inputs were authenticated
+synthetic updates, not phone-originated messages. The signed-in browser flow was
+verified with the fixture, not through the user's live session.
+
+The initial Work/Gym records were explicit test fixtures on otherwise empty days
+in December 2099. Their content was checked after Undo and removed. The original
+conversation context was restored, no test jobs remained, and all 5,189 original
+diary rows matched their pre-test SHA-256 snapshot. Private snapshots and the
+full production report remain excluded from Git and deployment artifacts.
+Release checks passed 301 JavaScript, 70 isolated PostgreSQL and 34 Python tests,
+plus the browser fixture and static build.
