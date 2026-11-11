@@ -61,6 +61,10 @@ the app has no durable pending-edit queue or reliable remote deletion history.
 
 ### Validation
 
+For repeatable Telegram model acceptance tests, fault injection and offline replay, see
+[the evaluation harness](docs/telegram-evaluation-harness.md).
+
+
 Run `node --test tests/*.test.js` and `node --check app.js`.
 Tests cover incomplete logging, calendar imports, period boundaries, minimum
 sample sizes, moved targets, overnight sleep, rating validation, cloud

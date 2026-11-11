@@ -11,7 +11,9 @@
     "telegram:admin": "node scripts/telegram-admin.cjs",
     "voice:contract": "python3 scripts/export-voice-contract.py",
     "test:agent:web": "node scripts/test-agent-web.cjs",
-    "test:agent:eval": "node --env-file=.env scripts/eval-telegram-agent.cjs"
+    "test:agent:eval": "node --env-file=.env scripts/eval-telegram-agent.cjs",
+    "test:agent:reliability": "node --env-file=.env scripts/eval-telegram-reliability.cjs",
+    "test:agent:harness": "node --test tests/telegram-eval.test.js"
   },
   "dependencies": {
     "@upstash/qstash": "2.12.1",

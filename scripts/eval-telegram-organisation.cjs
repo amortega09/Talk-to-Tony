@@ -49,7 +49,7 @@ async function run({repeat=1,variants=false}={}){
  }
  return results;
 }
-module.exports={run,cases,rows,time};
+module.exports={run,cases,rows,time,paraphrases};
 if(require.main===module){
  const repeat=Number(process.env.DAY_EVAL_REPEATS || 1);if(!Number.isInteger(repeat)||repeat<1||repeat>10)throw Error('DAY_EVAL_REPEATS must be 1 to 10');
  run({repeat,variants:process.env.DAY_EVAL_VARIANTS==='1'}).then(results=>{const summary={passed:results.filter(r=>r.pass).length,total:results.length};console.log(JSON.stringify(summary));process.exitCode=summary.passed===summary.total?0:1;}).catch(e=>{console.error(e.message);process.exitCode=1;});
