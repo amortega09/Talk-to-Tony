@@ -276,6 +276,7 @@ class Store {
       if(!d || (id && d.id!==id))throw new UserError('That preview expired or was replaced. Use /status.','stale');
       if(d.data.review.questions.length)throw new UserError('Answer the clarification before saving.');
       if(d.data.review.formatVersion!==1)throw new UserError('This preview predates the activity-format update. /cancel and send the request again; nothing was saved.','stale');
+      if(d.data.review.toolVersion!==require('./agent-tools.cjs').VERSION)throw new UserError('This preview uses an older action format. Send a fresh request; nothing was saved.','stale');
       await this.checkWork(c,job.owner,d.data.review.patches);
       const patches=await this.applyPatches(c,job.owner,d.data.review.patches);
       if(patches.some(p=>p.after?.category==='agent_memory'&&JSON.parse(p.after.note).status==='forgotten'))job.nextContext={memorySince:new Date().toISOString()};

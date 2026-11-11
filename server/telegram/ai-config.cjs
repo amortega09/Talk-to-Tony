@@ -2,16 +2,27 @@
 function aiConfig(env=process.env){
   const provider=(env.AI_PROVIDER || (env.OPENAI_API_KEY?'openai':'ollama')).trim();
   if(!['openai','ollama'].includes(provider))throw new Error('Set AI_PROVIDER to openai or ollama');
-  return {provider,model:provider==='openai'?(env.OPENAI_MODEL || 'gpt-5-nano').trim():null};
+  return {provider,model:provider==='openai'?(env.OPENAI_MODEL || 'gpt-6-luna').trim():null};
 }
-function explicitWorkDetails(draft,text,catalog){
-  const items=(draft.items || []).filter(i=>i.category==='work');
-  if(items.length!==1||/\b(?:not|don't|do not|except|without)\b/i.test(text))return draft;
-  const named=(name,prefix)=>new RegExp(`\\b${prefix}\\s+(?:company\\s+|project\\s+|task\\s+)?${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![\\p{L}\\p{N}])`,'iu').test(text);
-  const matches=require('../../activity-model').companies(catalog).filter(c=>named(c.name,'(?:for|at|company|employer)'));
-  if(matches.length!==1)return draft;
-  const projects=matches[0].projects.filter(p=>named(p,'(?:on|project|task)'));
-  if(projects.length===1)items[0].details={...items[0].details,company:matches[0].name,project:projects[0]};
+function explicitWorkDetails(draft,text,catalog,previous){
+  const items=(draft.items || []).filter(i=>i.category==='work');if(items.length!==1)return draft;
+  const escaped=name=>name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const has=name=>new RegExp(`(?<![\\p{L}\\p{N}])${escaped(name)}(?![\\p{L}\\p{N}])`,'iu').test(text);
+  const named=(name,prefix)=>new RegExp(`\\b${prefix}\\s+(?:company\\s+|project\\s+|task\\s+)?${escaped(name)}(?![\\p{L}\\p{N}])`,'iu').test(text);
+  const companies=require('../../activity-model').companies(catalog);
+  for(const a of draft.actions || [])if(a.type==='work_company_add'&&has(a.company)&&/\b(?:add|create|register)\s+(?:a\s+)?company\b/i.test(text)&&!companies.some(c=>c.name===a.company))companies.push({name:a.company,projects:[]});
+  for(const a of draft.actions || [])if(a.type==='work_project_add'&&has(a.project)&&/\b(?:add|create|register|project|task)\b/i.test(text)){const c=companies.find(c=>c.name===a.company);if(c&&!c.projects.includes(a.project))c.projects.push(a.project);}
+  const allProjects=[...new Set(companies.flatMap(c=>c.projects))];
+  const slash=companies.flatMap(c=>allProjects.filter(p=>new RegExp(`${escaped(c.name)}\\s*[/|]\\s*${escaped(p)}(?![\\p{L}\\p{N}])`,'iu').test(text)).map(project=>({company:c.name,project})));
+  const prior=(previous?.items || []).filter(i=>i.category==='work');const old=prior.length===1?prior[0].details || {}:{};
+  const negative=/\b(?:not|never|except|without|don't|do not)\s+(?:for|at|company|employer|on|project|task)\b/i.test(text);
+  let selected=companies.filter(c=>named(c.name,'(?:for|at|company|employer)'));
+  if(!selected.length)selected=companies.filter(c=>text.trim().toLowerCase()===c.name.toLowerCase());
+  let projects=allProjects.filter(p=>named(p,'(?:on|project|task)'));
+  if(!projects.length)projects=allProjects.filter(p=>text.trim().toLowerCase()===p.toLowerCase());
+  const company=negative?'':slash.length===1?slash[0].company:selected.length===1?selected[0].name:selected.length? '':old.company || '';
+  const project=negative?'':slash.length===1?slash[0].project:projects.length===1?projects[0]:projects.length?'':old.project || '';
+  items[0].details={...items[0].details,...(company?{company}:{company:''}),...(project?{project}:{project:''})};
   return draft;
 }
 function allowsNull(schema){return schema.type==='null'||schema.type?.includes?.('null')||schema.enum?.includes(null)||schema.anyOf?.some(allowsNull);}
@@ -29,6 +40,8 @@ function strictSchema(schema){
     const required=schema.required || [];
     result.properties=Object.fromEntries(Object.entries(result.properties).map(([key,value])=>{
       const field=strictSchema(value);
+      if(['date','end_date'].includes(key))field.pattern='^\\d{4}-\\d{2}-\\d{2}$';
+      if(['start','end'].includes(key))field.pattern=key==='end'?'^(?:(?:[01]\\d|2[0-3]):(?:00|30)|24:00)$':'^(?:[01]\\d|2[0-3]):(?:00|30)$';
       return [key,required.includes(key)||allowsNull(value)?field:{anyOf:[field,{type:'null'}]}];
     }));
     result.required=Object.keys(result.properties);result.additionalProperties=false;
@@ -48,7 +61,7 @@ function reasoningEffort(text,previous){
 }
 function openaiRequest(model,instructions,input,schema,effort='medium'){
   return {model,store:false,instructions,input:'Return only the required JSON object.\n'+input,text:{format:{type:'json_schema',name:'diary_plan',strict:true,schema:strictSchema(schema)}},
-    ...(/^gpt-5(?:-|$)/.test(model)?{reasoning:{effort}}:{}),max_output_tokens:effort==='low'?4096:8192};
+    ...(/^gpt-(?:5|6)(?:[.-]|$)/.test(model)?{reasoning:{effort}}:{}),max_output_tokens:effort==='low'?4096:8192};
 }
 function openaiText(result){
   if(result?.status!=='completed')throw new Error('Incomplete model response');

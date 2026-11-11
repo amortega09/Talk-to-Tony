@@ -98,7 +98,18 @@ function providers(env=process.env,fetch=globalThis.fetch) {
       let draft;
       try{let content=(config.provider==='openai'?openaiText(result):result.message.content).trim();if(content.startsWith('```')&&content.endsWith('```'))content=content.split('\n').slice(1,-1).join('\n');draft=JSON.parse(content);}catch{throw new UserError('The AI returned an invalid or incomplete draft. Nothing new was saved. Please retry.','model_invalid');}
       if(config.provider==='openai')draft=fromWire(draft,outputSchema);
-      if(config.provider==='openai')draft=explicitWorkDetails(draft,transcript,context.work_companies);
+      if(config.provider==='openai')draft=explicitWorkDetails(draft,transcript,context.work_companies,previous);
+      const reading=/^\s*(?:what|which|show|list|find|read|tell me|how much|how many|did I|have I)\b/i.test(transcript);
+      const mixed=/\b(?:and|then|also)\s+(?:please\s+)?(?:add|log|record|save|create|change|update|move|delete|remove|complete|set|remember|track|append|replace|clear)\b/i.test(transcript);
+      if(reading&&!mixed&&(draft.items?.length||draft.reflections?.length||draft.actions?.some(a=>!a.type.startsWith('query_')&&a.type!=='navigate')))throw new UserError('I could not verify that question safely. Please rephrase it. Nothing new was saved.');
+      const registrations=(draft.actions || []).filter(a=>['work_company_add','work_project_add'].includes(a.type));
+      if(registrations.length){
+        const denied=/\b(?:do not|don't|never|not)\s+(?:add|create|register|authoris\w*|allow)\b/i.test(transcript);
+        const company=/\b(?:add|create|register)\s+(?:a\s+)?(?:new\s+)?company\b/i.test(transcript);
+        const project=/\b(?:add|create|register)\s+(?:a\s+)?(?:new\s+)?(?:project|task)\b/i.test(transcript)||company&&/\b(?:and\s+)?(?:project|task)\s+/i.test(transcript);
+        if(denied||registrations.some(a=>a.type==='work_company_add'?!company:!project))throw new UserError('Please explicitly request adding the company or project/task. Nothing new was saved.');
+      }
+      if(draft.actions?.some(a=>a.clear_sessions)&&!/\b(?:clear|delete|remove|erase)\s+(?:all\b|(?:my\s+|the\s+)?(?:workout|gym sessions)\b)/i.test(transcript))throw new UserError('Did you mean to clear all workout exercises? Nothing new was saved.');
       // The model sometimes represents an absent new-entry note as null.
       // Normalize only that empty optional content; action edits stay strict.
       if(Array.isArray(draft?.items))for(const item of draft.items)if(item && item.note===null)item.note='';

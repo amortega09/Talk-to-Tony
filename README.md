@@ -208,7 +208,7 @@ Production: https://talk-to-tony-nu.vercel.app. See [deployment status and login
 
 The repository includes Vercel endpoints at `/api/voice/status` and
 `/api/voice/draft`. Set these server environment variables before deploying:
-`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5-nano`,
+`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-6-luna`,
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
 `DAY_ALLOWED_USER_IDS` (comma-separated Supabase user IDs permitted to use voice).
 Missing configuration fails closed. Each request verifies the signed-in user's
@@ -251,7 +251,7 @@ helper in the background and automatically on login. Remove it with
 No Python packages are needed.
 The helper binds only to `127.0.0.1:8765` and creates `.env`.
 Open that file locally and put your OpenAI API key after `OPENAI_API_KEY=`.
-Set `AI_PROVIDER=openai` and `OPENAI_MODEL=gpt-5-nano`. Alternatively configure
+Set `AI_PROVIDER=openai` and `OPENAI_MODEL=gpt-6-luna`. Alternatively configure
 these values in the helper environment. Reopen Talk to Day after saving.
 For the previous provider, set `AI_PROVIDER=ollama` and `OLLAMA_API_KEY`.
 

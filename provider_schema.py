@@ -8,17 +8,36 @@ def reasoning_effort(text, previous=None):
     return 'low' if previous is None and re.search(r'\bfrom\b.+\b(?:to|until)\b', text, re.I) and not re.search(complex_request, text, re.I) else 'medium'
 
 
-def explicit_work_details(draft, text, catalog):
+def explicit_work_details(draft, text, catalog, previous=None):
     items = [i for i in draft.get('items', []) if i.get('category') == 'work']
-    if len(items) != 1 or re.search(r"\b(?:not|don't|do not|except|without)\b", text, re.I):
+    if len(items) != 1:
         return draft
+    def has(name):
+        return bool(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I))
     def named(name, prefix):
-        return isinstance(name, str) and re.search(r'\b' + prefix + r'\s+(?:company\s+|project\s+|task\s+)?' + re.escape(name) + r'(?!\w)', text, re.I)
-    matches = [c for c in (catalog or []) if isinstance(c, dict) and named(c.get('name'), r'(?:for|at|company|employer)')]
-    if len(matches) == 1:
-        projects = [p for p in matches[0].get('projects', []) if named(p, r'(?:on|project|task)')]
-        if len(projects) == 1:
-            items[0]['details'] = {**items[0].get('details', {}), 'company': matches[0]['name'], 'project': projects[0]}
+        return bool(re.search(r'\b' + prefix + r'\s+(?:company\s+|project\s+|task\s+)?' + re.escape(name) + r'(?!\w)', text, re.I))
+    companies = copy.deepcopy(catalog or [])
+    for action in draft.get('actions') or []:
+        if action['type'] == 'work_company_add' and has(action['company']) and re.search(r'\b(?:add|create|register)\s+(?:a\s+)?company\b', text, re.I) and not any(c['name'] == action['company'] for c in companies):
+            companies.append({'name': action['company'], 'projects': []})
+        if action['type'] == 'work_project_add' and has(action['project']):
+            for company in companies:
+                if company['name'] == action['company'] and action['project'] not in company['projects']:
+                    company['projects'].append(action['project'])
+    all_projects = list(dict.fromkeys(p for c in companies for p in c['projects']))
+    slash = [(c['name'], p) for c in companies for p in all_projects if re.search(re.escape(c['name']) + r'\s*[/|]\s*' + re.escape(p) + r'(?!\w)', text, re.I)]
+    old_items = [i for i in (previous or {}).get('items', []) if i.get('category') == 'work']
+    old = old_items[0].get('details', {}) if len(old_items) == 1 else {}
+    selected = [c for c in companies if named(c['name'], r'(?:for|at|company|employer)')]
+    if not selected:
+        selected = [c for c in companies if text.strip().lower() == c['name'].lower()]
+    projects = [p for p in all_projects if named(p, r'(?:on|project|task)')]
+    if not projects:
+        projects = [p for p in all_projects if text.strip().lower() == p.lower()]
+    negative = re.search(r"\b(?:not|never|except|without|don't|do not)\s+(?:for|at|company|employer|on|project|task)\b", text, re.I)
+    company = '' if negative else slash[0][0] if len(slash) == 1 else selected[0]['name'] if len(selected) == 1 else '' if selected else old.get('company', '')
+    project = '' if negative else slash[0][1] if len(slash) == 1 else projects[0] if len(projects) == 1 else '' if projects else old.get('project', '')
+    items[0]['details'] = {**items[0].get('details', {}), 'company': company, 'project': project}
     return draft
 
 
@@ -42,6 +61,11 @@ def strict_schema(schema):
     if 'items' in result:
         result['items'] = strict_schema(result['items'])
     if 'properties' in result:
+        for key, value in result['properties'].items():
+            if key in ['date', 'end_date']:
+                value['pattern'] = r'^\d{4}-\d{2}-\d{2}$'
+            if key in ['start', 'end']:
+                value['pattern'] = r'^(?:(?:[01]\d|2[0-3]):(?:00|30)|24:00)$' if key == 'end' else r'^(?:[01]\d|2[0-3]):(?:00|30)$'
         result['properties'] = {k: strict_schema(v) if k in schema.get('required', []) or allows_null(v) else {'anyOf': [strict_schema(v), {'type': 'null'}]} for k, v in result['properties'].items()}
         result['required'] = list(result['properties'])
         result['additionalProperties'] = False

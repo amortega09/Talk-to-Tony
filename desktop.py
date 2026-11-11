@@ -105,7 +105,7 @@ def ai_provider():
 
 
 def recommended_model():
-    return (config_value('OPENAI_MODEL') or 'gpt-5-nano') if ai_provider() == 'openai' else RECOMMENDED_MODEL
+    return (config_value('OPENAI_MODEL') or 'gpt-6-luna') if ai_provider() == 'openai' else RECOMMENDED_MODEL
 
 
 def api_key(provider=None):
@@ -119,7 +119,7 @@ def openai_draft(model, instructions, data, timeout):
     effort = reasoning_effort(data.get('transcript', ''), data.get('previous_draft'))
     request = {'model': model, 'store': False, 'instructions': instructions, 'input': 'Return only the required JSON object.\n' + json.dumps(data),
                'text': {'format': {'type': 'json_schema', 'name': 'diary_plan', 'strict': True, 'schema': strict_schema(SCHEMA)}}, 'max_output_tokens': 4096 if effort == 'low' else 8192}
-    if re.match(r'^gpt-5(?:-|$)', model):
+    if re.match(r'^gpt-(?:5|6)(?:[.-]|$)', model):
         request['reasoning'] = {'effort': effort}
     connection = http.client.HTTPSConnection('api.openai.com', timeout=timeout)
     try:
@@ -309,7 +309,7 @@ def interpret(payload, timeout=180):
               if ai_provider() == 'openai' else ollama('/api/chat', request, timeout=timeout))
     draft = parse_model_draft(result)
     if ai_provider() == 'openai':
-        draft = explicit_work_details(draft, transcript, context.get('app', {}).get('work_companies', []))
+        draft = explicit_work_details(draft, transcript, context.get('app', {}).get('work_companies', []), previous)
     draft = align_explicit_morning_sleep(draft, normalize_spoken_times(transcript), payload.get('context', {}).get('today'))
     return {**draft, 'model_used': model}
 
@@ -462,7 +462,7 @@ def main():
     try:
         descriptor = os.open(settings, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as file:
-            file.write('# Local secret, ignored by Git.\nAI_PROVIDER=openai\nOPENAI_API_KEY=\nOPENAI_MODEL=gpt-5-nano\n')
+            file.write('# Local secret, ignored by Git.\nAI_PROVIDER=openai\nOPENAI_API_KEY=\nOPENAI_MODEL=gpt-6-luna\n')
     except FileExistsError:
         pass
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)

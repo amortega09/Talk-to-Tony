@@ -422,3 +422,10 @@ test('OpenAI cannot silently turn a new activity narration into an edit of an ex
  const d=await one(admin,"select data from day_bot.drafts where status='pending'");assert.equal(d.data.review.requiresConfirmation,true);
  assert.equal((await one(admin,'select count(*)::int n from day_bot.receipts')).n,0);
 });
+
+test('old action previews are invalidated before saving after the tool contract changes',async()=>{
+ const id=await draft();await admin.query("update day_bot.drafts set data=jsonb_set(data,'{review,toolVersion}','2'::jsonb) where id=$1",[id]);
+ await assert.rejects(store.apply(await job('save'),id,true),/older action format/);
+ assert.equal((await one(admin,'select count(*)::int n from day_bot.receipts')).n,0);
+ assert.equal((await one(admin,'select count(*)::int n from public.blocks')).n,0);
+});

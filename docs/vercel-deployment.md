@@ -10,7 +10,7 @@ The generated static bundle is rebuilt from a public asset allowlist each time.
 ## Credentials
 
 Production and preview have these sensitive server environment variables:
-`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5-nano`,
+`AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-6-luna`,
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DAY_ALLOWED_USER_IDS`.
 The account allowlist was derived from the existing diary export. Values were
 passed through stdin and are not stored in source files or deployment logs.

@@ -32,7 +32,7 @@ class OpenAIProviderTests(unittest.TestCase):
     @patch('desktop.ai_provider', return_value='openai')
     @patch('desktop.config_value', return_value='')
     def test_only_configured_openai_model_is_offered(self, _config, _provider):
-        self.assertEqual(desktop.cloud_models(),[{'name':'gpt-5-nano'}])
+        self.assertEqual(desktop.cloud_models(),[{'name':'gpt-6-luna'}])
 
     @patch('desktop.ai_provider', return_value='openai')
     @patch('desktop.config_value', return_value='')
@@ -42,12 +42,12 @@ class OpenAIProviderTests(unittest.TestCase):
         draft = {'reply':'Review','questions':[],'items':[{'date':'2026-11-10','start':'09:00','end_date':'2026-11-10','end':'10:00','category':'travel','activity':'Travel','note':'','details':{'modes':['Train','Bus'],'destination':'Testville'}}],'reflections':[]}
         call.return_value={'message':{'content':json.dumps(draft)}}
         result=desktop.interpret({'transcript':'Synthetic travel','context':{'today':'2026-11-10','viewed_date':'2026-11-10'}})
-        self.assertEqual(result['model_used'],'gpt-5-nano');self.assertEqual(result['items'][0]['details'],draft['items'][0]['details']);ollama.assert_not_called()
+        self.assertEqual(result['model_used'],'gpt-6-luna');self.assertEqual(result['items'][0]['details'],draft['items'][0]['details']);ollama.assert_not_called()
 
     def test_explicit_work_selection_does_not_guess_from_project_alone(self):
         from provider_schema import explicit_work_details
         catalog=[{'name':'Atlas','projects':['Research']}]
-        for text, expected in [('Work for Atlas on Research.',{'company':'Atlas','project':'Research'}),('Work on Research.',{}),('Not for Atlas on Research.',{})]:
+        for text, expected in [('Work for Atlas on Research.',{'company':'Atlas','project':'Research'}),('Work on Research.',{'company':'','project':'Research'}),('Not for Atlas on Research.',{'company':'','project':''})]:
             value={'items':[{'category':'work','details':{}}]}
             self.assertEqual(explicit_work_details(value,text,catalog)['items'][0]['details'],expected)
 

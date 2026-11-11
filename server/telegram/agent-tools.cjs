@@ -7,7 +7,7 @@ const R=require('../../event-range');
 const {randomUUID}=require('node:crypto');
 const text={type:'string',minLength:1,maxLength:4000},short={...text,maxLength:150};
 const date={type:'string',pattern:'^\\d{4}-\\d{2}-\\d{2}$'},clock={type:'string',pattern:'^(?:[01]\\d|2[0-3]):(?:00|30)$'};
-const VERSION=2;
+const VERSION=3;
 const endClock={type:'string',pattern:'^(?:(?:[01]\\d|2[0-3]):(?:00|30)|24:00)$'};
 const tools={};
 function tool(name,description,fields,required,run,{confirm=false}={}){tools[name]={description,fields,required,run,confirm};}
@@ -27,10 +27,12 @@ function objective(a,ctx){const t=target(a,ctx,'objective'),day=get(ctx,t.date),
 function saveObjectives(o,ctx){const value=ctx.helpers.serializeObjectives(o.items);if(o.t.horizon==='daily'){if(value)o.day.__plan__={category:'plan',note:value};else delete o.day.__plan__;}else{o.settings[o.t.horizon]=value;saveJSON(ctx,'2000-01-01','__settings__','settings',o.settings);}}
 
 const isGymBlock=b=>!!b&&(b.category==='gym'||b.category==='exercise'&&(/^gym(?:$|[ :–—-])/i.test(b.sub || b.subcategory || '')||(b.note || '').startsWith('__gym_workout_v1__')));
+const formatSession=s=>`${s.exercise}${s.sets?' · '+s.sets+' sets':''}${s.reps?' × '+s.reps:''}${s.kg!=null?' at '+s.kg+'kg':''}`;
+function readableNote(b){return isGymBlock(b)&&b.note?.startsWith('__gym_workout_v1__')?(parse(b.note.slice('__gym_workout_v1__'.length)).exercises || []).map(formatSession).join(', '):b.note || '';}
 
 tool('query_slot','Read exact saved activities and notes for a date/time range.',{date,start:clock,end:endClock},['date'],(a,c)=>{
  validDate(a.date);const day=get(c,a.date);const slots=Object.keys(day).filter(s=>/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(s)&&(!a.start||s>=a.start)&&(!a.end||s<a.end)).sort();
- return slots.length?slots.map(s=>`${a.date} ${s} · ${M.title(day[s])}${day[s].note?' · '+day[s].note:''}`).join('\n'):`No activities are saved for ${a.date}${a.start?' at '+a.start:''}.`;
+ return slots.length?slots.map(s=>`${a.date} ${s} · ${M.title(day[s])}${readableNote(day[s])?' · '+readableNote(day[s]):''}`).join('\n'):`No activities are saved for ${a.date}${a.start?' at '+a.start:''}.`;
 });
 tool('activity_details','Set transport modes/destination or company/project on one exact activity.',{target:short,modes:{type:'array',items:{enum:M.modes},uniqueItems:true,maxItems:11},destination:{type:'string',maxLength:300},project:{type:'string',maxLength:300},company:{type:'string',maxLength:300}},['target'],(a,c)=>{
  const t=target(a,c,'activity'),r=R.build(t.date,t.start,t.date,t.end);
@@ -82,7 +84,7 @@ for(const type of ['project_create','project_update','project_delete'])tool(type
 for(const type of ['rough_plan_update','rough_plan_remove'])tool(type,'Edit or remove an exact rough-plan item.',{date,text,replacement:text},['date','text'],(a,c)=>{validDate(a.date);const day=get(c,a.date),items=c.helpers.roughPlans(day),index=items.indexOf(a.text);if(index<0)throw Error('That rough plan is no longer saved.');if(type==='rough_plan_update'){if(!a.replacement)throw Error('What should the plan say instead?');items[index]=a.replacement;}else items.splice(index,1);if(items.length)day.__rough_plan__=c.helpers.roughPlanBlock(items);else delete day.__rough_plan__;},{confirm:type==='rough_plan_remove'});
 tool('reflection_set','Replace a dated reflection, requiring confirmation when it already exists.',{date,text:{type:'string',maxLength:4000}},['date','text'],(a,c)=>{validDate(a.date);const day=get(c,a.date);if(day.__reflect__?.note)c.confirm=true;if(a.text)day.__reflect__={category:'reflection',note:a.text};else delete day.__reflect__;});
 const session={type:'object',additionalProperties:false,properties:{exercise:short,sets:{type:'integer',minimum:1,maximum:100},reps:{type:'integer',minimum:1,maximum:1000},kg:{type:'number',minimum:0,maximum:2000}},required:['exercise']};
-tool('gym_set','Save detailed gym weight and sessions using the app gym logger format. Omitted fields are preserved.',{date,weight:{type:['number','null'],minimum:0,maximum:1000},sessions:{type:'array',maxItems:50,items:session}},['date'],(a,c)=>{validDate(a.date);const day=get(c,a.date),gym=parse(day.__gym__?.note);if(a.sessions&&gym.sessions?.length)c.confirm=true;saveJSON(c,a.date,'__gym__','gym',{...gym,...(Object.hasOwn(a,'weight')?{weight:a.weight}:{}),...(a.sessions?{sessions:a.sessions}:{} )});});
+tool('gym_set','Save detailed gym weight and sessions. Omitted fields are preserved. Empty sessions need an explicit clear_sessions request.',{date,weight:{type:['number','null'],minimum:0,maximum:1000},sessions:{type:'array',maxItems:50,items:session},clear_sessions:{type:'boolean'}},['date'],(a,c)=>{validDate(a.date);if(a.sessions?.length===0&&!a.clear_sessions)throw Error('No exercises were supplied. Describe the workout, or explicitly ask to clear all sessions.');const day=get(c,a.date),gym=parse(day.__gym__?.note);if(a.sessions&&gym.sessions?.length)c.confirm=true;saveJSON(c,a.date,'__gym__','gym',{...gym,...(Object.hasOwn(a,'weight')?{weight:a.weight}:{}),...(a.sessions?{sessions:a.sessions}:{} )});});
 tool('reminder_set','Create an event reminder at a date and half-hour time. lead is minutes before.',{date,start:clock,title:short,lead:{type:'integer',minimum:0,maximum:10080}},['date','start','title'],(a,c)=>{validDate(a.date);const day=get(c,a.date),list=day.__event_reminders__?parse(day.__event_reminders__.note):[];list.push({id:randomUUID(),title:a.title,start:a.start,lead:a.lead || 0,dismissed:false,notified:false,type:'event'});saveJSON(c,a.date,'__event_reminders__','calendar_reminder',list,'Event reminders');});
 tool('reminder_delete','Remove a saved reminder by its exact title and date.',{date,title:short},['date','title'],(a,c)=>{validDate(a.date);const day=get(c,a.date),list=day.__event_reminders__?parse(day.__event_reminders__.note):[],found=list.filter(r=>r.title===a.title);if(found.length!==1)throw Error('Which reminder do you mean?');const rest=list.filter(r=>r!==found[0]);if(rest.length)saveJSON(c,a.date,'__event_reminders__','calendar_reminder',rest,'Event reminders');else delete day.__event_reminders__;},{confirm:true});
 tool('agent_preferences','Set check-in preferences; timezone is Europe/London. Omitted preferences are preserved.',{enabled:{type:'boolean'},interval_hours:{type:'integer',minimum:2,maximum:8},quiet_start:{type:'integer',minimum:0,maximum:23},quiet_end:{type:'integer',minimum:0,maximum:23},daily_limit:{type:'integer',minimum:1,maximum:8},snooze_hours:{type:'integer',minimum:1,maximum:168}},[],(a,c)=>{const prefs=parse(get(c,'2000-01-01').__agent_preferences__?.note);for(const key of ['enabled','interval_hours','quiet_start','quiet_end','daily_limit'])if(a[key]!=null)prefs[key]=a[key];if(a.snooze_hours)prefs.snooze_until=new Date(Date.now()+a.snooze_hours*3600000).toISOString();saveJSON(c,'2000-01-01','__agent_preferences__','agent_preferences',prefs);});
@@ -99,7 +101,8 @@ tool('settings_activity','Add, rename, remove or reclassify an activity in app s
 },{confirm:true});
 tool('query_capabilities','List supported agent tools and their confirmation requirements.',{},[],()=>descriptions().map(t=>`${t.name}: ${t.description}`).join('\n'));
 
-tool('gym_workout','Save inline exercises for a recorded Gym time range using the app workout format.',{date,start:clock,end:endClock,sessions:{type:'array',maxItems:50,items:session}},['date','start','end','sessions'],(a,c)=>{
+tool('gym_workout','Save inline exercises for a recorded Gym time range. Supply actual exercises; empty sessions require an explicit clear_sessions request.',{date,start:clock,end:endClock,sessions:{type:'array',maxItems:50,items:session},clear_sessions:{type:'boolean'}},['date','start','end','sessions'],(a,c)=>{
+ if(!a.sessions.length&&!a.clear_sessions)throw Error('No exercises were supplied. Describe the workout, or explicitly ask to clear all sessions.');
  const slots=selectedSlots(a,c);if(slots.some(x=>!isGymBlock(x.block)))throw Error('Choose recorded Gym slots first.');
  for(const x of slots){if(x.block.note)c.confirm=true;get(c,x.date)[x.slot]={...x.block,note:'__gym_workout_v1__'+JSON.stringify({exercises:a.sessions})};}
 });
@@ -160,16 +163,23 @@ function summary(a,c){
 }
 
 function summariesPlaceholder(c,text){(c.extraSummaries ||= []).push(text);}
+function canonical(value){return Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value;}
 function schema(base){const result=structuredClone(base),legacy=result.properties.actions.items;result.properties.actions.items={oneOf:[legacy,...Object.entries(tools).map(([type,t])=>({type:'object',additionalProperties:false,properties:{type:{const:type},...t.fields},required:['type',...t.required]}))]};return result;}
 function descriptions(){const legacy=[{name:'activity_update',description:'Edit or move a whole existing activity target.'},{name:'activity_delete',description:'Delete a whole activity target.',confirmation:true},{name:'objective_add',description:'Add a daily or longer-term objective.'},{name:'objective_complete',description:'Set completion of an existing objective.'},{name:'objective_remove',description:'Delete an existing objective.',confirmation:true},{name:'rough_plan_add',description:'Add a dated rough plan.'},{name:'checkin',description:'Set energy/satisfaction ratings from 1 to 5.'},{name:'day_status',description:'Set holiday, travel, sick, off or clear day label.'},{name:'note_append',description:'Append text to an existing note target.'},{name:'query_day',description:'Read saved activity totals for one day.'},{name:'navigate',description:'Open an app screen or date via the web.'}];return [...legacy,...Object.entries(tools).map(([name,t])=>({name,description:t.description,confirmation:t.confirm}))];}
 function plan({draft,days,catalog,range,helpers}){
  const c={next:structuredClone(days),catalog,helpers,confirm:false},summaries=[],answers=[],navigation=[];
  const transfers=new Set();
+ const mutations=new Set();
  for(const a of draft.actions || []){
   if(['activity_move_range','activity_copy'].includes(a.type)){
    const key=[a.type,a.date,a.start,a.end_date || a.date,a.end,a.destination_date].join('/');
    if(transfers.has(key))throw Error('The same transfer was requested twice. Please send it once; nothing was saved.');
    transfers.add(key);
+  }
+  if(!a.type.startsWith('query_')&&a.type!=='navigate'){
+   const key=JSON.stringify(canonical(a));
+   if(mutations.has(key))throw Error('The same change was requested twice. Please send it once; nothing was saved.');
+   mutations.add(key);
   }
   const tool=tools[a.type];
   if(tool){const answer=tool.run(a,c);if(a.type.startsWith('query_'))answers.push(answer);else{summaries.push(summary(a,c));c.confirm ||= tool.confirm;}}

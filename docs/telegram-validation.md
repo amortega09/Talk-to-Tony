@@ -261,3 +261,34 @@ accuracy. Invalid plans fail validation, destructive workout changes require
 review, and unrequested activity edits cannot silently auto-save. The release
 passed 292 JavaScript tests, 69 isolated database tests, 34 Python tests, the
 browser fixture and the static build.
+
+## Reliability fixes — 11 November 2026
+
+The active interpreter is now GPT-6 Luna, the lowest-priced available candidate
+that passed the expanded move/workout checks. Standard prices are $0.10 input,
+$0.01 cached input and $0.50 output per million tokens. The Responses API uses
+explicit low/medium reasoning, strict output schemas, `store=false`, bounded
+requests and no automatic model or provider fallback.
+
+The previous nano failure cases are now regression tests. Native date/clock
+constraints prevent malformed action fields. Empty workout arrays cannot clear
+saved sessions without an explicitly authorised clearing request. Repeated
+mutations are rejected. Exact-slot workout reads format exercises, sets, reps and
+weights without exposing internal JSON. Old action previews expire on contract
+version changes. Read-only questions cannot be auto-saved as mutations.
+
+A conflicting company/project request cannot be silently reassigned to the
+project owner. Explicit company/project selections, slash notation and previous
+clarification answers are resolved before validation; project names alone do
+not imply a company. Registration actions require an explicit user request.
+Both the Python voice path and Telegram preserve these selection rules.
+
+Expanded live synthetic checks: 72/72 organisation cases (24 original/reworded
+cases repeated three times), 24/24 broader agent cases, and 5/5 date cases.
+A final 24-case organisation run passed after the selection refinements. These
+use invented fixtures; they do not read or write the real diary. Browser fixture,
+static build, JavaScript, Python and isolated PostgreSQL checks also passed.
+These are measured acceptance results, not a guarantee about arbitrary language.
+
+Model sources: https://developers.openai.com/api/docs/models/gpt-6-luna and
+https://developers.openai.com/api/docs/pricing.

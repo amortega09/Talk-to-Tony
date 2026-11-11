@@ -64,3 +64,21 @@ test('speech punctuation before a named-date year preserves the stated year',()=
  assert.equal(Dates.resolve('On 20 December, 2099, I travelled.','2026-11-10'),'2099-12-20');
  assert.equal(Dates.resolve('On 20 December 2099 I travelled.','2026-11-10'),'2099-12-20');
 });
+
+test('empty gym updates cannot erase exercises unless clearing is explicit',()=>{
+ const workout='__gym_workout_v1__'+JSON.stringify({exercises:[{exercise:'Bench press',sets:3,reps:8,kg:40}]});
+ const rows=[row('14:00','exercise',workout,'Gym'),row('__gym__','gym',JSON.stringify({weight:80,sessions:[{exercise:'Squat',sets:3,reps:5,kg:60}]}),'')];
+ assert.throws(()=>run([{type:'gym_workout',date:day,start:'14:00',end:'14:30',sessions:[]}],rows),/No exercises/);
+ assert.throws(()=>run([{type:'gym_set',date:day,sessions:[]}],rows),/No exercises/);
+ const clear=run([{type:'gym_workout',date:day,start:'14:00',end:'14:30',sessions:[],clear_sessions:true}],rows);assert.equal(clear.requiresConfirmation,true);assert.deepEqual(JSON.parse(clear.patches[0].after.note.slice('__gym_workout_v1__'.length)).exercises,[]);
+ const weight=run([{type:'gym_set',date:day,weight:82}],rows);assert.deepEqual(JSON.parse(weight.patches[0].after.note).sessions,[{exercise:'Squat',sets:3,reps:5,kg:60}]);
+});
+test('repeated workout replacements fail and distinct nested changes remain distinct',()=>{
+ const a={type:'gym_workout',date:day,start:'14:00',end:'14:30',sessions:[{exercise:'Squat',sets:3,reps:5,kg:60}]},rows=[row('14:00','exercise','','Gym')];assert.throws(()=>run([a,structuredClone(a)],rows),/same change/);
+ const result=run([{type:'activity_update',target:'activity:'+day+':14:00',details:{destination:'One'}},{type:'activity_update',target:'activity:'+day+':14:00',details:{destination:'Two'}}],rows);assert.equal(result.patches[0].after.details.destination,'Two');
+});
+
+test('exact slot reads format inline workouts without exposing internal JSON',()=>{
+ const note='__gym_workout_v1__'+JSON.stringify({exercises:[{exercise:'Bench press',sets:3,reps:8,kg:40}]});
+ const r=run([{type:'query_slot',date:day,start:'14:00',end:'14:30'}],[row('14:00','exercise',note,'Gym')]);assert.match(r.answers[0],/Bench press.*3 sets.*8.*40kg/);assert.ok(!r.answers[0].includes('__gym_workout_v1__'));assert.equal(r.patches.length,0);
+});
