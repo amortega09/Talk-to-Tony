@@ -378,7 +378,7 @@ class Store {
       const job={connection:connection.id,owner:connection.owner,generation:connection.generation};
       await this.reconcileMemory(job.owner);
       const today=require('./domain.cjs').anchor(Math.floor(now/1000)).today;
-      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory,details from public.blocks where user_id=$1 and (date between $2::date-7 and $2::date+7 or date='2000-01-01' or start_time='__plan__')",[job.owner,today]);
+      const diary=await rows(this.pool,"select date::text,start_time,category,note,subcategory,details from public.blocks where user_id=$1 and (date between $2::date-28 and $2::date+7 or date='2000-01-01' or start_time='__plan__')",[job.owner,today]);
       let prefs={};try{prefs=JSON.parse(diary.find(r=>r.start_time==='__agent_preferences__')?.note || '{}');}catch{}
       const lastUser=await one(this.pool,"select created_at from day_bot.jobs where connection=$1 and generation=$2 and (input ? 'text' or input ? 'voice') order by created_at desc limit 1",[job.connection,job.generation]);
       const state={...connection.checkin_state,lastUserAt:lastUser?.created_at};

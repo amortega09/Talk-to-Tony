@@ -1,6 +1,7 @@
 'use strict';
 const {anchor}=require('./domain.cjs');
 const {objectives}=require('./day-summary.cjs');
+const {suggestion}=require('./routine-suggestions.cjs');
 function contactWindow(now=Date.now(),prefs={},state={}){
  const time=anchor(Math.floor(now/1000)),hour=Number(time.local_time.slice(0,2)),start=prefs.quiet_end ?? 9,end=prefs.quiet_start ?? 22;
  const inQuiet=start<end?(hour<start||hour>=end):(hour<start&&hour>=end);
@@ -19,9 +20,11 @@ function checkin(rows,now=Date.now(),prefs={},state={},options={}){
  const pending=objectives(goals).filter(item=>!item.completed&&!item.transferredTo);
  const reflection=today.some(r=>r.start_time==='__reflect__'&&r.note?.trim());
  let topic,text,record;
+ const usual=suggestion(rows,time);
  const next=options.priorities?.find(x=>x.record.dueDate<=time.today||x.record.priority==='high'||x.reason.includes('high priority'));
  if(hour<12&&!hasSleep){topic='sleep';text='Morning! How did you sleep? Want to add it to your diary?';}
  else if(next&&state.lastTopic!=='commitment'){topic='commitment';record=next.record;text=`How’s “${record.title}” going?${record.nextAction?' You mentioned '+record.nextAction.slice(0,200)+'.':''} Want to update it?`;}
+ else if(usual&&(state.day!==time.today||state.lastTopic!=='routine')){topic='routine';text=`On ${usual.matchingDays} recent ${usual.dayType}, you logged ${usual.label} around ${usual.slot}. Is that what you’re doing today, or something else?`;}
  else if(!goals&&hour<15){topic='objectives';text='How’s your day going? Anything you’d like to get done today?';}
  else if(pending.length&&state.lastTopic!=='objectives'){topic='objectives';const name=pending[0].text.slice(0,120);text=`How’s “${name}” going? Anything you’d like to update?`;}
  else if(hour>=18&&!reflection){topic='reflection';text='How has today felt? Anything on your mind you’d like to keep?';}

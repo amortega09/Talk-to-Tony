@@ -429,3 +429,22 @@ test('old action previews are invalidated before saving after the tool contract 
  assert.equal((await one(admin,'select count(*)::int n from day_bot.receipts')).n,0);
  assert.equal((await one(admin,'select count(*)::int n from public.blocks')).n,0);
 });
+test('routine check-ins use older history from the correct owner, queue once and never write diary entries',async()=>{
+ const now=Date.parse('2026-11-13T12:15Z');
+ for(const date of ['2026-11-02','2026-11-03','2026-11-06']){
+  await admin.query("insert into public.blocks(user_id,date,start_time,category,subcategory,note) values($1,$2,'12:00','exercise','Gym','private workout details')",[owner,date]);
+  await admin.query("insert into public.blocks(user_id,date,start_time,category,subcategory,note) values($1,$2,'12:00','food','Eating','another owner private note')",[other,date]);
+ }
+ const snapshot=async()=>(await admin.query('select to_jsonb(b) as row from public.blocks b order by user_id,date,start_time')).rows;
+ const before=await snapshot();
+ await store.checkins(now);await store.checkins(now);
+ const queued=(await admin.query("select payload from day_bot.outbox where payload->>'topic'='routine'")).rows;
+ assert.equal(queued.length,1);assert.match(queued[0].payload.text,/3 recent weekdays.*Gym around 12:00/);
+ assert.doesNotMatch(queued[0].payload.text,/Eating|private|details/);
+ assert.deepEqual(await snapshot(),before);
+});
+test('recorded current time prevents routine suggestions in the real check-in queue',async()=>{
+ for(const date of ['2026-11-10','2026-11-11','2026-11-12','2026-11-13'])await admin.query("insert into public.blocks(user_id,date,start_time,category,subcategory) values($1,$2,'12:00','exercise','Gym')",[owner,date]);
+ await store.checkins(Date.parse('2026-11-13T12:15Z'));
+ assert.equal((await one(admin,"select count(*)::int n from day_bot.outbox where payload->>'topic'='routine'")).n,0);
+});
